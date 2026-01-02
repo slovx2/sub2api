@@ -194,16 +194,14 @@ func isValidThoughtSignature(signature string) bool {
 	// signature 应该是 base64 编码，长度至少 40 个字符（约 30 字节）
 	// 参考 Claude API 文档和实际观察到的有效 signature
 	if len(signature) < 40 {
-		log.Printf("[Debug] Signature too short: len=%d", len(signature))
 		return false
 	}
 
 	// 检查是否是有效的 base64 字符
 	// base64 字符集: A-Z, a-z, 0-9, +, /, =
-	for i, c := range signature {
+	for _, c := range signature {
 		if (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') &&
 			(c < '0' || c > '9') && c != '+' && c != '/' && c != '=' {
-			log.Printf("[Debug] Invalid base64 character at position %d: %c (code=%d)", i, c, c)
 			return false
 		}
 	}
@@ -254,9 +252,6 @@ func buildParts(content json.RawMessage, toolIDToName map[string]string, allowDu
 			if signature == "" || signature == dummyThoughtSignature {
 				log.Printf("[Warning] Skipping thinking block for Claude model (missing or dummy signature)")
 				continue
-			}
-			if !isValidThoughtSignature(signature) {
-				log.Printf("[Debug] Thinking signature may be invalid (passing through anyway): len=%d", len(signature))
 			}
 			parts = append(parts, GeminiPart{
 				Text:             block.Thinking,
@@ -433,7 +428,7 @@ func buildTools(tools []ClaudeTool) []GeminiToolDeclaration {
 
 	// 普通工具
 	var funcDecls []GeminiFunctionDecl
-	for i, tool := range tools {
+	for _, tool := range tools {
 		// 跳过无效工具名称
 		if strings.TrimSpace(tool.Name) == "" {
 			log.Printf("Warning: skipping tool with empty name")
@@ -452,10 +447,6 @@ func buildTools(tools []ClaudeTool) []GeminiToolDeclaration {
 			description = tool.Custom.Description
 			inputSchema = tool.Custom.InputSchema
 
-			// 调试日志：记录 custom 工具的 schema
-			if schemaJSON, err := json.Marshal(inputSchema); err == nil {
-				log.Printf("[Debug] Tool[%d] '%s' (custom) original schema: %s", i, tool.Name, string(schemaJSON))
-			}
 		} else {
 			// 标准格式: 从顶层字段获取
 			description = tool.Description
@@ -470,11 +461,6 @@ func buildTools(tools []ClaudeTool) []GeminiToolDeclaration {
 				"type":       "OBJECT",
 				"properties": map[string]any{},
 			}
-		}
-
-		// 调试日志：记录清理后的 schema
-		if paramsJSON, err := json.Marshal(params); err == nil {
-			log.Printf("[Debug] Tool[%d] '%s' cleaned schema: %s", i, tool.Name, string(paramsJSON))
 		}
 
 		funcDecls = append(funcDecls, GeminiFunctionDecl{
@@ -631,11 +617,9 @@ func cleanSchemaValue(value any) any {
 			if k == "additionalProperties" {
 				if boolVal, ok := val.(bool); ok {
 					result[k] = boolVal
-					log.Printf("[Debug] additionalProperties is bool: %v", boolVal)
 				} else {
 					// 如果是 schema 对象，转换为 false（更安全的默认值）
 					result[k] = false
-					log.Printf("[Debug] additionalProperties is not bool (type: %T), converting to false", val)
 				}
 				continue
 			}
