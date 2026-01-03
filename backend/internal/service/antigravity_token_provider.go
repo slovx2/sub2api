@@ -18,8 +18,6 @@ const (
 	antigravityTokenSyncRefreshWindow = 1 * time.Minute
 	// antigravityTokenCacheSkew 缓存提前失效偏移
 	antigravityTokenCacheSkew = 5 * time.Minute
-	// antigravityRefreshTimeout 刷新超时时间
-	antigravityRefreshTimeout = 30 * time.Second
 )
 
 // AntigravityTokenCache Token 缓存接口（复用 GeminiTokenCache 接口定义）
@@ -27,18 +25,15 @@ type AntigravityTokenCache = GeminiTokenCache
 
 // AntigravityTokenProvider 管理 Antigravity 账户的 access_token（按需刷新）
 type AntigravityTokenProvider struct {
-	accountRepo        AccountRepository
 	tokenCache         AntigravityTokenCache
 	refreshCoordinator *TokenRefreshCoordinator
 }
 
 func NewAntigravityTokenProvider(
-	accountRepo AccountRepository,
 	tokenCache AntigravityTokenCache,
 	refreshCoordinator *TokenRefreshCoordinator,
 ) *AntigravityTokenProvider {
 	return &AntigravityTokenProvider{
-		accountRepo:        accountRepo,
 		tokenCache:         tokenCache,
 		refreshCoordinator: refreshCoordinator,
 	}

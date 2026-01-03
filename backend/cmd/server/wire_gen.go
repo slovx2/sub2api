@@ -98,7 +98,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	gatewayCache := repository.NewGatewayCache(redisClient)
 	antigravityOAuthService := service.NewAntigravityOAuthService(proxyRepository)
 	tokenRefreshCoordinator := service.ProvideTokenRefreshCoordinator(accountRepository, antigravityOAuthService, geminiTokenCache)
-	antigravityTokenProvider := service.NewAntigravityTokenProvider(accountRepository, geminiTokenCache, tokenRefreshCoordinator)
+	antigravityTokenProvider := service.NewAntigravityTokenProvider(geminiTokenCache, tokenRefreshCoordinator)
 	httpUpstream := repository.NewHTTPUpstream(configConfig)
 	antigravityGatewayService := service.NewAntigravityGatewayService(accountRepository, gatewayCache, antigravityTokenProvider, rateLimitService, httpUpstream)
 	accountTestService := service.NewAccountTestService(accountRepository, oAuthService, openAIOAuthService, geminiTokenProvider, antigravityGatewayService, httpUpstream)

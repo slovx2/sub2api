@@ -297,7 +297,7 @@ func TestAntigravityTokenProvider_ExpiryTimeWindows(t *testing.T) {
 		accountRepo := &mockAccountRepo{account: account}
 		cache := newMockTokenCache()
 		coord := newTestCoordinator(accountRepo, oauthSvc, cache)
-		provider := NewAntigravityTokenProvider(accountRepo, cache, coord)
+		provider := NewAntigravityTokenProvider(cache, coord)
 
 		token, err := provider.GetAccessToken(ctx, account)
 		require.NoError(t, err)
@@ -327,7 +327,7 @@ func TestAntigravityTokenProvider_ExpiryTimeWindows(t *testing.T) {
 		accountRepo := &mockAccountRepo{account: account}
 		cache := newMockTokenCache()
 		coord := newTestCoordinator(accountRepo, oauthSvc, cache)
-		provider := NewAntigravityTokenProvider(accountRepo, cache, coord)
+		provider := NewAntigravityTokenProvider(cache, coord)
 
 		startTime := time.Now()
 		token, err := provider.GetAccessToken(ctx, account)
@@ -363,7 +363,7 @@ func TestAntigravityTokenProvider_ExpiryTimeWindows(t *testing.T) {
 		accountRepo := &mockAccountRepo{account: account}
 		cache := newMockTokenCache()
 		coord := newTestCoordinator(accountRepo, oauthSvc, cache)
-		provider := NewAntigravityTokenProvider(accountRepo, cache, coord)
+		provider := NewAntigravityTokenProvider(cache, coord)
 
 		startTime := time.Now()
 		token, err := provider.GetAccessToken(ctx, account)
@@ -396,7 +396,7 @@ func TestAntigravityTokenProvider_ExpiryTimeWindows(t *testing.T) {
 		accountRepo := &mockAccountRepo{account: account}
 		cache := newMockTokenCache()
 		coord := newTestCoordinator(accountRepo, oauthSvc, cache)
-		provider := NewAntigravityTokenProvider(accountRepo, cache, coord)
+		provider := NewAntigravityTokenProvider(cache, coord)
 
 		startTime := time.Now()
 		token, err := provider.GetAccessToken(ctx, account)
@@ -431,7 +431,7 @@ func TestAntigravityTokenProvider_MultipleGoroutines_SingleRefresh(t *testing.T)
 	accountRepo := &mockAccountRepo{account: account}
 	cache := newMockTokenCache()
 	coord := newTestCoordinator(accountRepo, oauthSvc, cache)
-	provider := NewAntigravityTokenProvider(accountRepo, cache, coord)
+	provider := NewAntigravityTokenProvider(cache, coord)
 
 	const goroutineCount = 10
 	var wg sync.WaitGroup
