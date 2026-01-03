@@ -218,7 +218,7 @@ func (c *TokenRefreshCoordinator) refreshWithRetry(ctx context.Context, account 
 // handleRefreshError 处理刷新失败
 func (c *TokenRefreshCoordinator) handleRefreshError(ctx context.Context, account *Account, err error) {
 	errMsg := err.Error()
-	action := c.determineErrorAction(errMsg)
+	action := c.determineErrorAction(err)
 
 	switch action {
 	case ActionSetError:
@@ -247,23 +247,14 @@ func (c *TokenRefreshCoordinator) handleRefreshError(ctx context.Context, accoun
 }
 
 // determineErrorAction 根据错误类型决定处理动作
-func (c *TokenRefreshCoordinator) determineErrorAction(errMsg string) RefreshErrorAction {
-	errMsgLower := strings.ToLower(errMsg)
-
-	// 不可恢复错误（需用户介入）
-	nonRetryable := []string{
-		"invalid_grant",
-		"invalid_client",
-		"unauthorized_client",
-		"access_denied",
-	}
-	for _, needle := range nonRetryable {
-		if strings.Contains(errMsgLower, needle) {
-			return ActionSetError
-		}
+func (c *TokenRefreshCoordinator) determineErrorAction(err error) RefreshErrorAction {
+	// 复用已有的不可重试错误判断
+	if isNonRetryableAntigravityOAuthError(err) {
+		return ActionSetError
 	}
 
 	// 临时错误（可自动恢复）
+	errMsgLower := strings.ToLower(err.Error())
 	temporary := []string{
 		"connection refused",
 		"connection reset",

@@ -125,6 +125,7 @@ func (p *AntigravityTokenProvider) GetAccessToken(ctx context.Context, account *
 		resultCh := p.refreshCoordinator.TriggerRefresh(ctx, account.ID)
 		select {
 		case result := <-resultCh:
+			// coordinator 超时会返回 ctx.Err()，无需额外超时
 			if result.Err != nil {
 				log.Printf("[AntigravityTokenProvider] Account %d: refresh failed: %v", account.ID, result.Err)
 				return "", result.Err
@@ -139,10 +140,6 @@ func (p *AntigravityTokenProvider) GetAccessToken(ctx context.Context, account *
 		case <-ctx.Done():
 			log.Printf("[AntigravityTokenProvider] Account %d: context cancelled while waiting for refresh", account.ID)
 			return "", ctx.Err()
-		case <-time.After(antigravityRefreshTimeout + 5*time.Second):
-			// 超时设为 coordinator 超时 + 5 秒，作为兜底
-			log.Printf("[AntigravityTokenProvider] Account %d: refresh timeout after %v", account.ID, antigravityRefreshTimeout+5*time.Second)
-			return "", errors.New("token refresh timeout")
 		}
 	}
 }
