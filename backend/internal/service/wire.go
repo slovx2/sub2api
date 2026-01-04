@@ -33,16 +33,24 @@ func ProvideEmailQueueService(emailService *EmailService) *EmailQueueService {
 	return NewEmailQueueService(emailService, 3)
 }
 
+// ProvideTokenRefreshCoordinator creates TokenRefreshCoordinator for Antigravity on-demand refresh
+func ProvideTokenRefreshCoordinator(
+	accountRepo AccountRepository,
+	antigravityOAuthService *AntigravityOAuthService,
+	tokenCache GeminiTokenCache,
+) *TokenRefreshCoordinator {
+	return NewTokenRefreshCoordinator(accountRepo, antigravityOAuthService, tokenCache)
+}
+
 // ProvideTokenRefreshService creates and starts TokenRefreshService
 func ProvideTokenRefreshService(
 	accountRepo AccountRepository,
 	oauthService *OAuthService,
 	openaiOAuthService *OpenAIOAuthService,
 	geminiOAuthService *GeminiOAuthService,
-	antigravityOAuthService *AntigravityOAuthService,
 	cfg *config.Config,
 ) *TokenRefreshService {
-	svc := NewTokenRefreshService(accountRepo, oauthService, openaiOAuthService, geminiOAuthService, antigravityOAuthService, cfg)
+	svc := NewTokenRefreshService(accountRepo, oauthService, openaiOAuthService, geminiOAuthService, cfg)
 	svc.Start()
 	return svc
 }
@@ -95,6 +103,7 @@ var ProviderSet = wire.NewSet(
 	NewAntigravityOAuthService,
 	NewGeminiTokenProvider,
 	NewGeminiMessagesCompatService,
+	ProvideTokenRefreshCoordinator,
 	NewAntigravityTokenProvider,
 	NewAntigravityGatewayService,
 	NewRateLimitService,

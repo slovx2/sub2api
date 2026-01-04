@@ -27,7 +27,6 @@ func NewTokenRefreshService(
 	oauthService *OAuthService,
 	openaiOAuthService *OpenAIOAuthService,
 	geminiOAuthService *GeminiOAuthService,
-	antigravityOAuthService *AntigravityOAuthService,
 	cfg *config.Config,
 ) *TokenRefreshService {
 	s := &TokenRefreshService{
@@ -36,12 +35,11 @@ func NewTokenRefreshService(
 		stopCh:      make(chan struct{}),
 	}
 
-	// 注册平台特定的刷新器
+	// 注册平台特定的刷新器（Antigravity 使用按需刷新，不需要后台刷新）
 	s.refreshers = []TokenRefresher{
 		NewClaudeTokenRefresher(oauthService),
 		NewOpenAITokenRefresher(openaiOAuthService),
 		NewGeminiTokenRefresher(geminiOAuthService),
-		NewAntigravityTokenRefresher(antigravityOAuthService),
 	}
 
 	return s
