@@ -154,6 +154,13 @@ func GetDefaultIdentityPatch() string {
 	return antigravityIdentity
 }
 
+// mcpXMLProtocolEnabled 检查是否启用 MCP XML 协议注入（通过环境变量 ANTIGRAVITY_MCP_XML_PROTOCOL，默认开启）
+func mcpXMLProtocolEnabled() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("ANTIGRAVITY_MCP_XML_PROTOCOL")))
+	// 默认开启，只有显式关闭才禁用
+	return v != "0" && v != "false" && v != "off"
+}
+
 // mcpXMLProtocol MCP XML 工具调用协议（与 Antigravity-Manager 保持一致）
 const mcpXMLProtocol = `
 ==== MCP XML 工具调用协议 (Workaround) ====
@@ -241,7 +248,7 @@ func buildSystemInstruction(system json.RawMessage, modelName string, opts Trans
 	parts = append(parts, userSystemParts...)
 
 	// 检测是否有 MCP 工具，如有则注入 XML 调用协议
-	if hasMCPTools(tools) {
+	if mcpXMLProtocolEnabled() && hasMCPTools(tools) {
 		parts = append(parts, GeminiPart{Text: mcpXMLProtocol})
 	}
 
