@@ -41,12 +41,13 @@ type antigravityRetryLoopParams struct {
 	quotaScope     AntigravityQuotaScope
 	httpUpstream   HTTPUpstream
 	settingService *SettingService
-	handleError    func(ctx context.Context, prefix string, account *Account, statusCode int, headers http.Header, body []byte, quotaScope AntigravityQuotaScope)
+	handleError    func(ctx context.Context, prefix string, account *Account, statusCode int, headers http.Header, body []byte, quotaScope AntigravityQuotaScope, baseURL string)
 }
 
 // antigravityRetryLoopResult 重试循环的结果
 type antigravityRetryLoopResult struct {
-	resp *http.Response
+	resp    *http.Response
+	baseURL string
 }
 
 // antigravityRetryLoop 执行带 URL fallback 的重试循环
@@ -167,8 +168,7 @@ urlFallbackLoop:
 				}
 
 				// 重试用尽，标记账户限流
-				p.handleError(p.ctx, p.prefix, p.account, resp.StatusCode, resp.Header, respBody, p.quotaScope)
-				log.Printf("%s status=429 rate_limited base_url=%s body=%s", p.prefix, baseURL, truncateForLog(respBody, 200))
+				p.handleError(p.ctx, p.prefix, p.account, resp.StatusCode, resp.Header, respBody, p.quotaScope, baseURL)
 				resp = &http.Response{
 					StatusCode: resp.StatusCode,
 					Header:     resp.Header.Clone(),
@@ -218,7 +218,7 @@ urlFallbackLoop:
 		antigravity.DefaultURLAvailability.MarkSuccess(usedBaseURL)
 	}
 
-	return &antigravityRetryLoopResult{resp: resp}, nil
+	return &antigravityRetryLoopResult{resp: resp, baseURL: usedBaseURL}, nil
 }
 
 // shouldRetryAntigravityError 判断是否应该重试
@@ -912,7 +912,9 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 
 		// 处理错误响应（重试后仍失败或不触发重试）
 		if resp.StatusCode >= 400 {
-			s.handleUpstreamError(ctx, prefix, account, resp.StatusCode, resp.Header, respBody, quotaScope)
+			if resp.StatusCode != http.StatusTooManyRequests {
+				s.handleUpstreamError(ctx, prefix, account, resp.StatusCode, resp.Header, respBody, quotaScope, result.baseURL)
+			}
 
 			if s.shouldFailoverUpstreamError(resp.StatusCode) {
 				upstreamMsg := strings.TrimSpace(extractAntigravityErrorMessage(respBody))
@@ -1514,7 +1516,9 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 			goto handleSuccess
 		}
 
-		s.handleUpstreamError(ctx, prefix, account, resp.StatusCode, resp.Header, respBody, quotaScope)
+		if resp.StatusCode != http.StatusTooManyRequests {
+			s.handleUpstreamError(ctx, prefix, account, resp.StatusCode, resp.Header, respBody, quotaScope, result.baseURL)
+		}
 
 		requestID := resp.Header.Get("x-request-id")
 		if requestID != "" {
@@ -1659,9 +1663,14 @@ func sleepAntigravityBackoffWithContext(ctx context.Context, attempt int) bool {
 	}
 }
 
-func (s *AntigravityGatewayService) handleUpstreamError(ctx context.Context, prefix string, account *Account, statusCode int, headers http.Header, body []byte, quotaScope AntigravityQuotaScope) {
+func (s *AntigravityGatewayService) handleUpstreamError(ctx context.Context, prefix string, account *Account, statusCode int, headers http.Header, body []byte, quotaScope AntigravityQuotaScope, baseURL string) {
 	// 429 使用 Gemini 格式解析（从 body 解析重置时间）
 	if statusCode == 429 {
+		logBaseURL := strings.TrimSpace(baseURL)
+		if logBaseURL == "" {
+			logBaseURL = "unknown"
+		}
+		bodyLog := truncateForLog(body, 200)
 		resetAt := ParseGeminiRateLimitResetTime(body)
 		if resetAt == nil {
 			// 解析失败：使用配置的 fallback 时间，直接标记账号限流
@@ -1671,16 +1680,16 @@ func (s *AntigravityGatewayService) handleUpstreamError(ctx context.Context, pre
 			}
 			defaultDur := time.Duration(fallbackMinutes) * time.Minute
 			ra := time.Now().Add(defaultDur)
-			log.Printf("%s status=429 rate_limited account=%d reset_in=%v (fallback)", prefix, account.ID, defaultDur)
+			log.Printf("%s status=429 rate_limited account=%d base_url=%s reset_in=%v body=%s (fallback)", prefix, account.ID, logBaseURL, defaultDur, bodyLog)
 			if err := s.accountRepo.SetRateLimited(ctx, account.ID, ra); err != nil {
-				log.Printf("%s status=429 rate_limit_set_failed account=%d error=%v", prefix, account.ID, err)
+				log.Printf("%s status=429 rate_limit_set_failed account=%d base_url=%s error=%v", prefix, account.ID, logBaseURL, err)
 			}
 			return
 		}
 		resetTime := time.Unix(*resetAt, 0)
-		log.Printf("%s status=429 rate_limited account=%d reset_at=%v reset_in=%v", prefix, account.ID, resetTime.Format("15:04:05"), time.Until(resetTime).Truncate(time.Second))
+		log.Printf("%s status=429 rate_limited account=%d base_url=%s reset_at=%v reset_in=%v body=%s", prefix, account.ID, logBaseURL, resetTime.Format("15:04:05"), time.Until(resetTime).Truncate(time.Second), bodyLog)
 		if err := s.accountRepo.SetRateLimited(ctx, account.ID, resetTime); err != nil {
-			log.Printf("%s status=429 rate_limit_set_failed account=%d error=%v", prefix, account.ID, err)
+			log.Printf("%s status=429 rate_limit_set_failed account=%d base_url=%s error=%v", prefix, account.ID, logBaseURL, err)
 		}
 		return
 	}
