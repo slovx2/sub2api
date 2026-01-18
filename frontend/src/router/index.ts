@@ -134,6 +134,28 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/recharge',
+    name: 'Recharge',
+    component: () => import('@/views/user/RechargeView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: '余额充值',
+      description: '为账户充值余额'
+    }
+  },
+  {
+    path: '/recharge/orders/:id',
+    name: 'RechargeOrderDetail',
+    component: () => import('@/views/user/RechargeOrderDetailView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: '充值订单详情',
+      description: '查看充值订单状态'
+    }
+  },
+  {
     path: '/profile',
     name: 'Profile',
     component: () => import('@/views/user/ProfileView.vue'),

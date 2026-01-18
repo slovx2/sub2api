@@ -2,6 +2,7 @@
 package server
 
 import (
+	"database/sql"
 	"log"
 	"net/http"
 	"time"
@@ -33,6 +34,8 @@ func ProvideRouter(
 	subscriptionService *service.SubscriptionService,
 	opsService *service.OpsService,
 	settingService *service.SettingService,
+	adminService service.AdminService,
+	db *sql.DB,
 	redisClient *redis.Client,
 ) *gin.Engine {
 	if cfg.Server.Mode == "release" {
@@ -51,7 +54,7 @@ func ProvideRouter(
 		}
 	}
 
-	return SetupRouter(r, handlers, jwtAuth, adminAuth, apiKeyAuth, apiKeyService, subscriptionService, opsService, settingService, cfg, redisClient)
+	return SetupRouter(r, handlers, jwtAuth, adminAuth, apiKeyAuth, apiKeyService, subscriptionService, opsService, settingService, adminService, cfg, db, redisClient)
 }
 
 // ProvideHTTPServer 提供 HTTP 服务器
