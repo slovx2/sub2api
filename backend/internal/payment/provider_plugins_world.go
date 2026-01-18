@@ -281,15 +281,14 @@ func stripPemHeaders(raw string) string {
 }
 
 func removeWhitespace(raw string) string {
-	var builder strings.Builder
-	builder.Grow(len(raw))
+	buf := make([]byte, 0, len(raw))
 	for i := 0; i < len(raw); i++ {
 		switch raw[i] {
 		case ' ', '\n', '\r', '\t':
 			continue
 		default:
-			builder.WriteByte(raw[i])
+			buf = append(buf, raw[i])
 		}
 	}
-	return builder.String()
+	return string(buf)
 }
