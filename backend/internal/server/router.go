@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"log"
 	"sync/atomic"
 	"time"
@@ -30,7 +31,9 @@ func SetupRouter(
 	subscriptionService *service.SubscriptionService,
 	opsService *service.OpsService,
 	settingService *service.SettingService,
+	adminService service.AdminService,
 	cfg *config.Config,
+	db *sql.DB,
 	redisClient *redis.Client,
 ) *gin.Engine {
 	// 缓存 iframe 页面的 origin 列表，用于动态注入 CSP frame-src
@@ -81,7 +84,21 @@ func SetupRouter(
 	}
 
 	// 注册路由
-	registerRoutes(r, handlers, jwtAuth, adminAuth, apiKeyAuth, apiKeyService, subscriptionService, opsService, settingService, cfg, redisClient)
+	registerRoutes(
+		r,
+		handlers,
+		jwtAuth,
+		adminAuth,
+		apiKeyAuth,
+		apiKeyService,
+		subscriptionService,
+		opsService,
+		settingService,
+		adminService,
+		cfg,
+		db,
+		redisClient,
+	)
 
 	return r
 }
@@ -97,7 +114,9 @@ func registerRoutes(
 	subscriptionService *service.SubscriptionService,
 	opsService *service.OpsService,
 	settingService *service.SettingService,
+	adminService service.AdminService,
 	cfg *config.Config,
+	db *sql.DB,
 	redisClient *redis.Client,
 ) {
 	// 通用路由（健康检查、状态等）
@@ -111,5 +130,6 @@ func registerRoutes(
 	routes.RegisterUserRoutes(v1, h, jwtAuth)
 	routes.RegisterSoraClientRoutes(v1, h, jwtAuth)
 	routes.RegisterAdminRoutes(v1, h, adminAuth)
+	routes.RegisterPaymentRoutes(v1, db, adminService, jwtAuth)
 	routes.RegisterGatewayRoutes(r, h, apiKeyAuth, apiKeyService, subscriptionService, opsService, settingService, cfg)
 }
