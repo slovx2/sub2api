@@ -176,10 +176,10 @@ func TestPluginsWorldProviderCreatePaymentErrorResponses(t *testing.T) {
 	t.Run("gateway_error_code", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			payload := pluginsWorldCreateResponse{
-				Code:    1,
-				Msg:     "bad request",
-				Sign:    "ignored",
-				SignType:"RSA",
+				Code:     1,
+				Msg:      "bad request",
+				Sign:     "ignored",
+				SignType: "RSA",
 			}
 			_ = json.NewEncoder(w).Encode(payload)
 		}))

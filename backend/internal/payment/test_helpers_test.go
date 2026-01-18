@@ -18,10 +18,8 @@ import (
 )
 
 type testKeys struct {
-	merchantPrivate       *rsa.PrivateKey
 	merchantPublic        *rsa.PublicKey
 	platformPrivate       *rsa.PrivateKey
-	platformPublic        *rsa.PublicKey
 	merchantPrivateBase64 string
 	platformPublicBase64  string
 }
@@ -46,10 +44,8 @@ func newTestKeys(t *testing.T) testKeys {
 	}
 
 	return testKeys{
-		merchantPrivate:       merchantPrivate,
 		merchantPublic:        &merchantPrivate.PublicKey,
 		platformPrivate:       platformPrivate,
-		platformPublic:        &platformPrivate.PublicKey,
 		merchantPrivateBase64: base64.StdEncoding.EncodeToString(merchantPrivateDER),
 		platformPublicBase64:  base64.StdEncoding.EncodeToString(platformPublicDER),
 	}
