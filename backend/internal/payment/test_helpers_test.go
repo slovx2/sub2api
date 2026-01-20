@@ -393,6 +393,10 @@ func (s *adminServiceStub) DeleteAccount(ctx context.Context, id int64) error {
 	return nil
 }
 
+func (s *adminServiceStub) LookupAccountsByCredentialEmail(ctx context.Context, platform string, emails []string) ([]baseservice.Account, error) {
+	return nil, nil
+}
+
 func (s *adminServiceStub) RefreshAccountCredentials(ctx context.Context, id int64) (*baseservice.Account, error) {
 	return nil, nil
 }
