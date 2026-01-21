@@ -57,6 +57,21 @@ type OpsRepository interface {
 	UpsertDailyMetrics(ctx context.Context, startTime, endTime time.Time) error
 	GetLatestHourlyBucketStart(ctx context.Context) (time.Time, bool, error)
 	GetLatestDailyBucketDate(ctx context.Context) (time.Time, bool, error)
+
+	// Antigravity 400 请求体日志
+	InsertAntigravityBadRequest(ctx context.Context, input *AntigravityBadRequestInput) error
+}
+
+// AntigravityBadRequestInput 用于记录 Antigravity 400 请求
+type AntigravityBadRequestInput struct {
+	AccountID    int64
+	AccountName  string
+	RequestID    string
+	StatusCode   int
+	RequestBody  string
+	ResponseBody string
+	ErrorMessage string
+	CreatedAt    time.Time
 }
 
 type OpsInsertErrorLogInput struct {

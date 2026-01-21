@@ -1096,3 +1096,45 @@ func opsNullInt(v any) any {
 		return sql.NullInt64{}
 	}
 }
+
+func (r *opsRepository) InsertAntigravityBadRequest(ctx context.Context, input *service.AntigravityBadRequestInput) error {
+	if r == nil || r.db == nil {
+		return fmt.Errorf("nil ops repository")
+	}
+	if input == nil {
+		return fmt.Errorf("nil input")
+	}
+
+	q := `
+INSERT INTO antigravity_bad_requests (
+  account_id, account_name, request_id, status_code,
+  request_body, response_body, error_message, created_at
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`
+
+	_, err := r.db.ExecContext(
+		ctx,
+		q,
+		input.AccountID,
+		opsNullString(input.AccountName),
+		opsNullString(input.RequestID),
+		input.StatusCode,
+		opsNullString(input.RequestBody),
+		opsNullString(input.ResponseBody),
+		opsNullString(input.ErrorMessage),
+		input.CreatedAt,
+	)
+	if err != nil {
+		return err
+	}
+
+	// 保留最新 100 条，删除旧记录
+	cleanupQ := `
+DELETE FROM antigravity_bad_requests
+WHERE id NOT IN (
+  SELECT id FROM antigravity_bad_requests
+  ORDER BY created_at DESC
+  LIMIT 100
+)`
+	_, _ = r.db.ExecContext(ctx, cleanupQ)
+	return nil
+}

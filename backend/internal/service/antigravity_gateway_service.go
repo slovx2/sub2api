@@ -38,6 +38,7 @@ const (
 	antigravityScopeRateLimitEnv        = "GATEWAY_ANTIGRAVITY_429_SCOPE_LIMIT"
 	antigravityBillingModelEnv          = "GATEWAY_ANTIGRAVITY_BILL_WITH_MAPPED_MODEL"
 	antigravityFallbackSecondsEnv       = "GATEWAY_ANTIGRAVITY_FALLBACK_COOLDOWN_SECONDS"
+	antigravityBadRequestLogEnv         = "GATEWAY_ANTIGRAVITY_LOG_BAD_REQUESTS"
 )
 
 // antigravityRetryLoopParams 重试循环的参数
@@ -328,6 +329,7 @@ type AntigravityGatewayService struct {
 	rateLimitService *RateLimitService
 	httpUpstream     HTTPUpstream
 	settingService   *SettingService
+	opsRepo          OpsRepository
 }
 
 func NewAntigravityGatewayService(
@@ -337,6 +339,7 @@ func NewAntigravityGatewayService(
 	rateLimitService *RateLimitService,
 	httpUpstream HTTPUpstream,
 	settingService *SettingService,
+	opsRepo OpsRepository,
 ) *AntigravityGatewayService {
 	return &AntigravityGatewayService{
 		accountRepo:      accountRepo,
@@ -344,6 +347,7 @@ func NewAntigravityGatewayService(
 		rateLimitService: rateLimitService,
 		httpUpstream:     httpUpstream,
 		settingService:   settingService,
+		opsRepo:          opsRepo,
 	}
 }
 
@@ -932,6 +936,11 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 		if resp.StatusCode >= 400 {
 			s.handleUpstreamError(ctx, prefix, account, resp.StatusCode, resp.Header, respBody, quotaScope)
 
+			// 400 请求体日志（仅记录 invalid_request_error）
+			if resp.StatusCode == http.StatusBadRequest && antigravityLogBadRequestsEnabled() && isInvalidRequestError(respBody) {
+				s.logBadRequest(ctx, account, resp.Header.Get("x-request-id"), resp.StatusCode, body, respBody)
+			}
+
 			if s.shouldFailoverUpstreamError(resp.StatusCode) {
 				upstreamMsg := strings.TrimSpace(extractAntigravityErrorMessage(respBody))
 				upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
@@ -1419,6 +1428,12 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 			unwrappedForOps = respBody
 		}
 		s.handleUpstreamError(ctx, prefix, account, resp.StatusCode, resp.Header, respBody, quotaScope)
+
+		// 400 请求体日志（仅记录 invalid_request_error）
+		if resp.StatusCode == http.StatusBadRequest && antigravityLogBadRequestsEnabled() && isInvalidRequestError(unwrappedForOps) {
+			s.logBadRequest(ctx, account, requestID, resp.StatusCode, body, unwrappedForOps)
+		}
+
 		upstreamMsg := strings.TrimSpace(extractAntigravityErrorMessage(unwrappedForOps))
 		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
 
@@ -2659,4 +2674,59 @@ func cleanGeminiRequest(body []byte) ([]byte, error) {
 	}
 
 	return json.Marshal(payload)
+}
+
+// antigravityLogBadRequestsEnabled 检查是否启用 400 请求体日志
+func antigravityLogBadRequestsEnabled() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv(antigravityBadRequestLogEnv)))
+	return v == "1" || v == "true" || v == "yes" || v == "on"
+}
+
+// isInvalidRequestError 检查响应是否为无效请求错误类型
+// 支持 Claude 格式 (type: "invalid_request_error") 和 Gemini 格式 (status: "INVALID_ARGUMENT")
+func isInvalidRequestError(body []byte) bool {
+	var resp struct {
+		Type  string `json:"type"`
+		Error struct {
+			Type   string `json:"type"`
+			Status string `json:"status"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return false
+	}
+	return resp.Error.Type == "invalid_request_error" || resp.Error.Status == "INVALID_ARGUMENT"
+}
+
+// logBadRequest 异步记录 400 请求体到数据库
+func (s *AntigravityGatewayService) logBadRequest(ctx context.Context, account *Account, requestID string, statusCode int, requestBody, responseBody []byte) {
+	if s.opsRepo == nil {
+		return
+	}
+
+	// 提取错误消息
+	errMsg := extractAntigravityErrorMessage(responseBody)
+	if len(errMsg) > 1024 {
+		errMsg = errMsg[:1024]
+	}
+
+	input := &AntigravityBadRequestInput{
+		AccountID:    account.ID,
+		AccountName:  account.Name,
+		RequestID:    requestID,
+		StatusCode:   statusCode,
+		RequestBody:  string(requestBody),
+		ResponseBody: string(responseBody),
+		ErrorMessage: errMsg,
+		CreatedAt:    time.Now(),
+	}
+
+	// 异步写入，避免阻塞请求
+	go func() {
+		bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := s.opsRepo.InsertAntigravityBadRequest(bgCtx, input); err != nil {
+			log.Printf("[Antigravity] logBadRequest failed: %v", err)
+		}
+	}()
 }
