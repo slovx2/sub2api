@@ -605,6 +605,13 @@ func buildGenerationConfig(req *ClaudeRequest) *GeminiGenerationConfig {
 				budget = 24576
 			}
 			config.ThinkingConfig.ThinkingBudget = budget
+			if config.MaxOutputTokens < budget {
+				bumped := budget + 8192
+				if bumped > 65000 {
+					bumped = 65000
+				}
+				config.MaxOutputTokens = bumped
+			}
 		}
 	}
 
