@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -83,6 +84,11 @@ func TransformClaudeToGeminiWithOptions(claudeReq *ClaudeRequest, projectID, map
 	// Claude 模型通过 Vertex/Google API 需要有效的 thought signatures
 	allowDummyThought := strings.HasPrefix(targetModel, "gemini-")
 
+	// 对 Claude 模型：工具调用缺少 signature 时，禁用 thinking 避免上游校验失败
+	if isThinkingEnabled && !allowDummyThought && hasToolUseWithoutSignature(claudeReq.Messages) {
+		isThinkingEnabled = false
+	}
+
 	// 1. 构建 contents
 	contents, strippedThinking, err := buildContents(claudeReq.Messages, toolIDToName, isThinkingEnabled, allowDummyThought)
 	if err != nil {
@@ -94,7 +100,7 @@ func TransformClaudeToGeminiWithOptions(claudeReq *ClaudeRequest, projectID, map
 
 	// 3. 构建 generationConfig
 	reqForConfig := claudeReq
-	if strippedThinking {
+	if !isThinkingEnabled || strippedThinking {
 		// If we had to downgrade thinking blocks to plain text due to missing/invalid signatures,
 		// disable upstream thinking mode to avoid signature/structure validation errors.
 		reqCopy := *claudeReq
@@ -281,6 +287,7 @@ func buildSystemInstruction(system json.RawMessage, modelName string, opts Trans
 func buildContents(messages []ClaudeMessage, toolIDToName map[string]string, isThinkingEnabled, allowDummyThought bool) ([]GeminiContent, bool, error) {
 	var contents []GeminiContent
 	strippedThinking := false
+	lastThoughtSignature := ""
 
 	for i, msg := range messages {
 		role := msg.Role
@@ -288,7 +295,7 @@ func buildContents(messages []ClaudeMessage, toolIDToName map[string]string, isT
 			role = "model"
 		}
 
-		parts, strippedThisMsg, err := buildParts(msg.Content, toolIDToName, allowDummyThought)
+		parts, strippedThisMsg, err := buildParts(msg.Content, toolIDToName, allowDummyThought, isThinkingEnabled, &lastThoughtSignature)
 		if err != nil {
 			return nil, false, fmt.Errorf("build parts for message %d: %w", i, err)
 		}
@@ -330,13 +337,77 @@ func buildContents(messages []ClaudeMessage, toolIDToName map[string]string, isT
 	return contents, strippedThinking, nil
 }
 
+const (
+	thoughtSignatureMinLenEnv     = "GATEWAY_ANTIGRAVITY_THOUGHT_SIGNATURE_MIN_LEN"
+	defaultThoughtSignatureMinLen = 20
+)
+
+func minThoughtSignatureLen() int {
+	raw := strings.TrimSpace(os.Getenv(thoughtSignatureMinLenEnv))
+	if raw == "" {
+		return defaultThoughtSignatureMinLen
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 {
+		return defaultThoughtSignatureMinLen
+	}
+	return value
+}
+
+func normalizeThoughtSignature(sig string) string {
+	trimmed := strings.TrimSpace(sig)
+	if trimmed == "" || trimmed == dummyThoughtSignature {
+		return trimmed
+	}
+	if idx := strings.Index(trimmed, "#"); idx > 0 {
+		prefix := strings.ToLower(strings.TrimSpace(trimmed[:idx]))
+		if prefix == "claude" || prefix == "gemini" {
+			return strings.TrimSpace(trimmed[idx+1:])
+		}
+	}
+	return trimmed
+}
+
+func isValidThoughtSignature(sig string) bool {
+	normalized := normalizeThoughtSignature(sig)
+	return len(normalized) >= minThoughtSignatureLen() && normalized != dummyThoughtSignature
+}
+
+// hasToolUseWithoutSignature 检测是否存在无法回填签名的 tool_use
+func hasToolUseWithoutSignature(messages []ClaudeMessage) bool {
+	lastSig := ""
+	for _, msg := range messages {
+		var blocks []ContentBlock
+		if err := json.Unmarshal(msg.Content, &blocks); err != nil {
+			continue
+		}
+		for _, block := range blocks {
+			switch block.Type {
+			case "thinking":
+				if sig := normalizeThoughtSignature(block.Signature); isValidThoughtSignature(sig) {
+					lastSig = sig
+				}
+			case "tool_use":
+				if sig := normalizeThoughtSignature(block.Signature); isValidThoughtSignature(sig) {
+					lastSig = sig
+					continue
+				}
+				if !isValidThoughtSignature(lastSig) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 // dummyThoughtSignature 用于跳过 Gemini 3 thought_signature 验证
 // 参考: https://ai.google.dev/gemini-api/docs/thought-signatures
 const dummyThoughtSignature = "skip_thought_signature_validator"
 
 // buildParts 构建消息的 parts
 // allowDummyThought: 只有 Gemini 模型支持 dummy thought signature
-func buildParts(content json.RawMessage, toolIDToName map[string]string, allowDummyThought bool) ([]GeminiPart, bool, error) {
+func buildParts(content json.RawMessage, toolIDToName map[string]string, allowDummyThought, isThinkingEnabled bool, lastThoughtSignature *string) ([]GeminiPart, bool, error) {
 	var parts []GeminiPart
 	strippedThinking := false
 
@@ -363,13 +434,23 @@ func buildParts(content json.RawMessage, toolIDToName map[string]string, allowDu
 			}
 
 		case "thinking":
+			if !isThinkingEnabled {
+				if strings.TrimSpace(block.Thinking) != "" {
+					parts = append(parts, GeminiPart{Text: block.Thinking})
+				}
+				strippedThinking = true
+				continue
+			}
 			part := GeminiPart{
 				Text:    block.Thinking,
 				Thought: true,
 			}
 			// 保留原有 signature（Claude 模型需要有效的 signature）
-			if block.Signature != "" {
-				part.ThoughtSignature = block.Signature
+			if sig := normalizeThoughtSignature(block.Signature); isValidThoughtSignature(sig) {
+				part.ThoughtSignature = sig
+				if lastThoughtSignature != nil {
+					*lastThoughtSignature = sig
+				}
 			} else if !allowDummyThought {
 				// Claude 模型需要有效 signature；在缺失时降级为普通文本，并在上层禁用 thinking mode。
 				if strings.TrimSpace(block.Thinking) != "" {
@@ -409,10 +490,17 @@ func buildParts(content json.RawMessage, toolIDToName map[string]string, allowDu
 			// tool_use 的 signature 处理：
 			// - Gemini 模型：使用 dummy signature（跳过 thought_signature 校验）
 			// - Claude 模型：透传上游返回的真实 signature（Vertex/Google 需要完整签名链路）
-			if allowDummyThought {
+			if allowDummyThought && isThinkingEnabled {
 				part.ThoughtSignature = dummyThoughtSignature
-			} else if block.Signature != "" && block.Signature != dummyThoughtSignature {
-				part.ThoughtSignature = block.Signature
+			} else if isThinkingEnabled {
+				if sig := normalizeThoughtSignature(block.Signature); isValidThoughtSignature(sig) {
+					part.ThoughtSignature = sig
+					if lastThoughtSignature != nil {
+						*lastThoughtSignature = sig
+					}
+				}
+			} else if isThinkingEnabled && lastThoughtSignature != nil && isValidThoughtSignature(*lastThoughtSignature) {
+				part.ThoughtSignature = *lastThoughtSignature
 			}
 			parts = append(parts, part)
 
@@ -430,7 +518,7 @@ func buildParts(content json.RawMessage, toolIDToName map[string]string, allowDu
 			// 解析 content
 			resultContent := parseToolResultContent(block.Content, block.IsError)
 
-			parts = append(parts, GeminiPart{
+			part := GeminiPart{
 				FunctionResponse: &GeminiFunctionResponse{
 					Name: funcName,
 					Response: map[string]any{
@@ -438,7 +526,11 @@ func buildParts(content json.RawMessage, toolIDToName map[string]string, allowDu
 					},
 					ID: block.ToolUseID,
 				},
-			})
+			}
+			if isThinkingEnabled && lastThoughtSignature != nil && isValidThoughtSignature(*lastThoughtSignature) {
+				part.ThoughtSignature = *lastThoughtSignature
+			}
+			parts = append(parts, part)
 		}
 	}
 

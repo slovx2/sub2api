@@ -2,11 +2,23 @@ package antigravity
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
+)
+
+const (
+	validThoughtSignature = "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFB"
+	validToolSignature    = "QUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJD"
 )
 
 // TestBuildParts_ThinkingBlockWithoutSignature 测试thinking block无signature时的处理
 func TestBuildParts_ThinkingBlockWithoutSignature(t *testing.T) {
+	contentWithSignature := fmt.Sprintf(`[
+		{"type": "text", "text": "Hello"},
+		{"type": "thinking", "thinking": "Let me think...", "signature": "%s"},
+		{"type": "text", "text": "World"}
+	]`, validThoughtSignature)
+
 	tests := []struct {
 		name              string
 		content           string
@@ -26,12 +38,8 @@ func TestBuildParts_ThinkingBlockWithoutSignature(t *testing.T) {
 			description:       "Claude模型缺少signature时应将thinking降级为text，并在上层禁用thinking mode",
 		},
 		{
-			name: "Claude model - preserve thinking block with signature",
-			content: `[
-				{"type": "text", "text": "Hello"},
-				{"type": "thinking", "thinking": "Let me think...", "signature": "sig_real_123"},
-				{"type": "text", "text": "World"}
-			]`,
+			name:              "Claude model - preserve thinking block with valid signature",
+			content:           contentWithSignature,
 			allowDummyThought: false,
 			expectedParts:     3,
 			description:       "Claude模型应透传带 signature 的 thinking block（用于 Vertex 签名链路）",
@@ -52,7 +60,8 @@ func TestBuildParts_ThinkingBlockWithoutSignature(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			toolIDToName := make(map[string]string)
-			parts, _, err := buildParts(json.RawMessage(tt.content), toolIDToName, tt.allowDummyThought)
+			lastSig := ""
+			parts, _, err := buildParts(json.RawMessage(tt.content), toolIDToName, tt.allowDummyThought, true, &lastSig)
 
 			if err != nil {
 				t.Fatalf("buildParts() error = %v", err)
@@ -63,13 +72,13 @@ func TestBuildParts_ThinkingBlockWithoutSignature(t *testing.T) {
 			}
 
 			switch tt.name {
-			case "Claude model - preserve thinking block with signature":
+			case "Claude model - preserve thinking block with valid signature":
 				if len(parts) != 3 {
 					t.Fatalf("expected 3 parts, got %d", len(parts))
 				}
-				if !parts[1].Thought || parts[1].ThoughtSignature != "sig_real_123" {
-					t.Fatalf("expected thought part with signature sig_real_123, got thought=%v signature=%q",
-						parts[1].Thought, parts[1].ThoughtSignature)
+				if !parts[1].Thought || parts[1].ThoughtSignature != validThoughtSignature {
+					t.Fatalf("expected thought part with signature %q, got thought=%v signature=%q",
+						validThoughtSignature, parts[1].Thought, parts[1].ThoughtSignature)
 				}
 			case "Claude model - downgrade thinking to text without signature":
 				if len(parts) != 3 {
@@ -96,13 +105,14 @@ func TestBuildParts_ThinkingBlockWithoutSignature(t *testing.T) {
 }
 
 func TestBuildParts_ToolUseSignatureHandling(t *testing.T) {
-	content := `[
-		{"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "ls"}, "signature": "sig_tool_abc"}
-	]`
+	content := fmt.Sprintf(`[
+		{"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "ls"}, "signature": "%s"}
+	]`, validToolSignature)
 
 	t.Run("Gemini uses dummy tool_use signature", func(t *testing.T) {
 		toolIDToName := make(map[string]string)
-		parts, _, err := buildParts(json.RawMessage(content), toolIDToName, true)
+		lastSig := ""
+		parts, _, err := buildParts(json.RawMessage(content), toolIDToName, true, true, &lastSig)
 		if err != nil {
 			t.Fatalf("buildParts() error = %v", err)
 		}
@@ -116,7 +126,8 @@ func TestBuildParts_ToolUseSignatureHandling(t *testing.T) {
 
 	t.Run("Claude model - preserve valid signature for tool_use", func(t *testing.T) {
 		toolIDToName := make(map[string]string)
-		parts, _, err := buildParts(json.RawMessage(content), toolIDToName, false)
+		lastSig := ""
+		parts, _, err := buildParts(json.RawMessage(content), toolIDToName, false, true, &lastSig)
 		if err != nil {
 			t.Fatalf("buildParts() error = %v", err)
 		}
@@ -124,8 +135,8 @@ func TestBuildParts_ToolUseSignatureHandling(t *testing.T) {
 			t.Fatalf("expected 1 functionCall part, got %+v", parts)
 		}
 		// Claude 模型应透传有效的 signature（Vertex/Google 需要完整签名链路）
-		if parts[0].ThoughtSignature != "sig_tool_abc" {
-			t.Fatalf("expected preserved tool signature %q, got %q", "sig_tool_abc", parts[0].ThoughtSignature)
+		if parts[0].ThoughtSignature != validToolSignature {
+			t.Fatalf("expected preserved tool signature %q, got %q", validToolSignature, parts[0].ThoughtSignature)
 		}
 	})
 }
