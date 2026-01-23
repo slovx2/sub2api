@@ -177,6 +177,7 @@ type OpsInsertSystemMetricsInput struct {
 	Upstream529Count             int64
 
 	TokenConsumed int64
+	AccountSwitchCount int64
 
 	QPS *float64
 	TPS *float64
@@ -240,6 +241,7 @@ type OpsSystemMetricsSnapshot struct {
 
 	GoroutineCount        *int `json:"goroutine_count"`
 	ConcurrencyQueueDepth *int `json:"concurrency_queue_depth"`
+	AccountSwitchCount    *int64 `json:"account_switch_count"`
 }
 
 type OpsUpsertJobHeartbeatInput struct {

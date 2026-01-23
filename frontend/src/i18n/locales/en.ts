@@ -919,6 +919,11 @@ export default {
         fallbackHint: 'Non-Claude Code requests will use this group. Leave empty to reject directly.',
         noFallback: 'No Fallback (Reject)'
       },
+      invalidRequestFallback: {
+        title: 'Invalid Request Fallback Group',
+        hint: 'Triggered only when upstream explicitly returns prompt too long. Leave empty to disable fallback.',
+        noFallback: 'No Fallback'
+      },
       modelRouting: {
         title: 'Model Routing',
         tooltip: 'Configure specific model requests to be routed to designated accounts. Supports wildcard matching, e.g., claude-opus-* matches all opus models.',
@@ -1955,6 +1960,7 @@ export default {
       waiting: 'waiting',
       conns: 'conns',
       queue: 'queue',
+      accountSwitches: 'Account switches',
       ok: 'ok',
       lastRun: 'last_run:',
       lastSuccess: 'last_success:',
@@ -2003,6 +2009,7 @@ export default {
       failedToLoadData: 'Failed to load ops data.',
       failedToLoadOverview: 'Failed to load overview',
       failedToLoadThroughputTrend: 'Failed to load throughput trend',
+      failedToLoadSwitchTrend: 'Failed to load avg account switches trend',
       failedToLoadLatencyHistogram: 'Failed to load request duration histogram',
       failedToLoadErrorTrend: 'Failed to load error trend',
       failedToLoadErrorDistribution: 'Failed to load error distribution',
@@ -2011,9 +2018,11 @@ export default {
       tpsK: 'TPS (K)',
       top: 'Top:',
       throughputTrend: 'Throughput Trend',
+      switchRateTrend: 'Avg Account Switches',
       latencyHistogram: 'Request Duration Histogram',
       errorTrend: 'Error Trend',
       errorDistribution: 'Error Distribution',
+      switchRate: 'Avg switches',
       // Health Score & Diagnosis
       health: 'Health',
       healthCondition: 'Health Condition',
@@ -2633,6 +2642,7 @@ export default {
       tooltips: {
         totalRequests: 'Total number of requests (including both successful and failed requests) in the selected time window.',
         throughputTrend: 'Requests/QPS + Tokens/TPS in the selected window.',
+        switchRateTrend: 'Trend of account switches / total requests over the last 5 hours (avg switches).',
         latencyHistogram: 'Request duration distribution (ms) for successful requests.',
         errorTrend: 'Error counts over time (SLA scope excludes business limits; upstream excludes 429/529).',
         errorDistribution: 'Error distribution by status code.',

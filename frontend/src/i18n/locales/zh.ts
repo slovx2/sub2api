@@ -995,6 +995,11 @@ export default {
         fallbackHint: '非 Claude Code 请求将使用此分组，留空则直接拒绝',
         noFallback: '不降级（直接拒绝）'
       },
+      invalidRequestFallback: {
+        title: '无效请求兜底分组',
+        hint: '仅当上游明确返回 prompt too long 时才会触发，留空表示不兜底',
+        noFallback: '不兜底'
+      },
       modelRouting: {
         title: '模型路由配置',
         tooltip: '配置特定模型请求优先路由到指定账号。支持通配符匹配，如 claude-opus-* 匹配所有 opus 模型。',
@@ -2103,6 +2108,7 @@ export default {
       waiting: '等待',
       conns: '连接',
       queue: '队列',
+      accountSwitches: '账号切换',
       ok: '正常',
       lastRun: '最近运行',
       lastSuccess: '最近成功',
@@ -2152,6 +2158,7 @@ export default {
       failedToLoadData: '加载运维数据失败',
       failedToLoadOverview: '加载概览数据失败',
       failedToLoadThroughputTrend: '加载吞吐趋势失败',
+      failedToLoadSwitchTrend: '加载平均账号切换趋势失败',
       failedToLoadLatencyHistogram: '加载请求时长分布失败',
       failedToLoadErrorTrend: '加载错误趋势失败',
       failedToLoadErrorDistribution: '加载错误分布失败',
@@ -2160,9 +2167,11 @@ export default {
       tpsK: 'TPS（千）',
       top: '最高：',
       throughputTrend: '吞吐趋势',
+      switchRateTrend: '平均账号切换趋势',
       latencyHistogram: '请求时长分布',
       errorTrend: '错误趋势',
       errorDistribution: '错误分布',
+      switchRate: '平均账号切换',
       // Health Score & Diagnosis
       health: '健康',
       healthCondition: '健康状况',
@@ -2787,6 +2796,7 @@ export default {
       tooltips: {
         totalRequests: '当前时间窗口内的总请求数和Token消耗量。',
         throughputTrend: '当前窗口内的请求/QPS 与 token/TPS 趋势。',
+        switchRateTrend: '近5小时内账号切换次数 / 请求总数的趋势（平均切换次数）。',
         latencyHistogram: '成功请求的请求时长分布（毫秒）。',
         errorTrend: '错误趋势（SLA 口径排除业务限制；上游错误率排除 429/529）。',
         errorDistribution: '按状态码统计的错误分布。',
