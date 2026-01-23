@@ -1127,13 +1127,13 @@ INSERT INTO antigravity_bad_requests (
 		return err
 	}
 
-	// 保留最新 100 条，删除旧记录
+	// 保留最新 500 条，删除旧记录
 	cleanupQ := `
 DELETE FROM antigravity_bad_requests
 WHERE id NOT IN (
   SELECT id FROM antigravity_bad_requests
   ORDER BY created_at DESC
-  LIMIT 100
+  LIMIT 500
 )`
 	_, _ = r.db.ExecContext(ctx, cleanupQ)
 	return nil

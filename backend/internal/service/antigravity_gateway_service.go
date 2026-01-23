@@ -936,8 +936,8 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 		if resp.StatusCode >= 400 {
 			s.handleUpstreamError(ctx, prefix, account, resp.StatusCode, resp.Header, respBody, quotaScope)
 
-			// 400 请求体日志（仅记录 invalid_request_error）
-			if resp.StatusCode == http.StatusBadRequest && antigravityLogBadRequestsEnabled() && isInvalidRequestError(respBody) {
+			// 400 请求体日志（记录所有 400）
+			if resp.StatusCode == http.StatusBadRequest && antigravityLogBadRequestsEnabled() {
 				s.logBadRequest(ctx, account, resp.Header.Get("x-request-id"), resp.StatusCode, body, respBody)
 			}
 
@@ -1429,8 +1429,8 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		}
 		s.handleUpstreamError(ctx, prefix, account, resp.StatusCode, resp.Header, respBody, quotaScope)
 
-		// 400 请求体日志（仅记录 invalid_request_error）
-		if resp.StatusCode == http.StatusBadRequest && antigravityLogBadRequestsEnabled() && isInvalidRequestError(unwrappedForOps) {
+		// 400 请求体日志（记录所有 400）
+		if resp.StatusCode == http.StatusBadRequest && antigravityLogBadRequestsEnabled() {
 			s.logBadRequest(ctx, account, requestID, resp.StatusCode, body, unwrappedForOps)
 		}
 
