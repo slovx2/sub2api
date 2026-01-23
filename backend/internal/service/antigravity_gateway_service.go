@@ -2682,22 +2682,6 @@ func antigravityLogBadRequestsEnabled() bool {
 	return v == "1" || v == "true" || v == "yes" || v == "on"
 }
 
-// isInvalidRequestError 检查响应是否为无效请求错误类型
-// 支持 Claude 格式 (type: "invalid_request_error") 和 Gemini 格式 (status: "INVALID_ARGUMENT")
-func isInvalidRequestError(body []byte) bool {
-	var resp struct {
-		Type  string `json:"type"`
-		Error struct {
-			Type   string `json:"type"`
-			Status string `json:"status"`
-		} `json:"error"`
-	}
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return false
-	}
-	return resp.Error.Type == "invalid_request_error" || resp.Error.Status == "INVALID_ARGUMENT"
-}
-
 // logBadRequest 异步记录 400 请求体到数据库
 func (s *AntigravityGatewayService) logBadRequest(ctx context.Context, account *Account, requestID string, statusCode int, requestBody, responseBody []byte) {
 	if s.opsRepo == nil {
