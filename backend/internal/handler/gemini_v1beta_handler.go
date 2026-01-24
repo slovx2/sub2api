@@ -221,7 +221,9 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		sessionKey = "gemini:" + sessionHash
 	}
 	maxAccountSwitches := h.maxAccountSwitchesGemini
+	maxEmptyStreamSwitches := h.maxAntigravityEmptyStreamSwitches
 	switchCount := 0
+	emptyStreamSwitchCount := 0
 	failedAccountIDs := make(map[int64]struct{})
 	lastFailoverStatus := 0
 
@@ -297,6 +299,18 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 			accountReleaseFunc()
 		}
 		if err != nil {
+			var emptyStreamErr *service.AntigravityEmptyStreamError
+			if errors.As(err, &emptyStreamErr) {
+				failedAccountIDs[account.ID] = struct{}{}
+				lastFailoverStatus = emptyStreamErr.StatusCode
+				if maxEmptyStreamSwitches <= 0 || emptyStreamSwitchCount >= maxEmptyStreamSwitches {
+					handleGeminiFailoverExhausted(c, lastFailoverStatus)
+					return
+				}
+				emptyStreamSwitchCount++
+				log.Printf("Antigravity account %d: empty stream (%s), switching account %d/%d", account.ID, emptyStreamErr.Reason, emptyStreamSwitchCount, maxEmptyStreamSwitches)
+				continue
+			}
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
 				failedAccountIDs[account.ID] = struct{}{}

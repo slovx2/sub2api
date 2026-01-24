@@ -241,6 +241,8 @@ type GatewayConfig struct {
 
 	// StreamDataIntervalTimeout: 流数据间隔超时（秒），0表示禁用
 	StreamDataIntervalTimeout int `mapstructure:"stream_data_interval_timeout"`
+	// AntigravityStreamPeekTimeoutSeconds: Antigravity 流式预读超时（秒），0表示禁用
+	AntigravityStreamPeekTimeoutSeconds int `mapstructure:"antigravity_stream_peek_timeout_seconds"`
 	// StreamKeepaliveInterval: 流式 keepalive 间隔（秒），0表示禁用
 	StreamKeepaliveInterval int `mapstructure:"stream_keepalive_interval"`
 	// MaxLineSize: 上游 SSE 单行最大字节数（0使用默认值）
@@ -261,6 +263,8 @@ type GatewayConfig struct {
 	MaxAccountSwitches int `mapstructure:"max_account_switches"`
 	// Gemini 账户切换最大次数（Gemini 平台单独配置，因 API 限制更严格）
 	MaxAccountSwitchesGemini int `mapstructure:"max_account_switches_gemini"`
+	// Antigravity 空 SSE 账号切换最大次数（独立配置，0 表示不重试）
+	AntigravityEmptyStreamMaxAccountSwitches int `mapstructure:"antigravity_empty_stream_max_account_switches"`
 
 	// Antigravity 429 fallback 限流时间（分钟），解析重置时间失败时使用
 	AntigravityFallbackCooldownMinutes int `mapstructure:"antigravity_fallback_cooldown_minutes"`
@@ -772,6 +776,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.failover_on_400", false)
 	viper.SetDefault("gateway.max_account_switches", 10)
 	viper.SetDefault("gateway.max_account_switches_gemini", 3)
+	viper.SetDefault("gateway.antigravity_empty_stream_max_account_switches", 1)
 	viper.SetDefault("gateway.antigravity_fallback_cooldown_minutes", 1)
 	viper.SetDefault("gateway.max_body_size", int64(100*1024*1024))
 	viper.SetDefault("gateway.connection_pool_isolation", ConnectionPoolIsolationAccountProxy)
@@ -784,6 +789,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.client_idle_ttl_seconds", 900)
 	viper.SetDefault("gateway.concurrency_slot_ttl_minutes", 30) // 并发槽位过期时间（支持超长请求）
 	viper.SetDefault("gateway.stream_data_interval_timeout", 180)
+	viper.SetDefault("gateway.antigravity_stream_peek_timeout_seconds", 60)
 	viper.SetDefault("gateway.stream_keepalive_interval", 10)
 	viper.SetDefault("gateway.max_line_size", 40*1024*1024)
 	viper.SetDefault("gateway.scheduling.sticky_session_max_waiting", 3)
@@ -1046,6 +1052,13 @@ func (c *Config) Validate() error {
 		(c.Gateway.StreamDataIntervalTimeout < 30 || c.Gateway.StreamDataIntervalTimeout > 300) {
 		return fmt.Errorf("gateway.stream_data_interval_timeout must be 0 or between 30-300 seconds")
 	}
+	if c.Gateway.AntigravityStreamPeekTimeoutSeconds < 0 {
+		return fmt.Errorf("gateway.antigravity_stream_peek_timeout_seconds must be non-negative")
+	}
+	if c.Gateway.AntigravityStreamPeekTimeoutSeconds != 0 &&
+		(c.Gateway.AntigravityStreamPeekTimeoutSeconds < 30 || c.Gateway.AntigravityStreamPeekTimeoutSeconds > 300) {
+		return fmt.Errorf("gateway.antigravity_stream_peek_timeout_seconds must be 0 or between 30-300 seconds")
+	}
 	if c.Gateway.StreamKeepaliveInterval < 0 {
 		return fmt.Errorf("gateway.stream_keepalive_interval must be non-negative")
 	}
@@ -1058,6 +1071,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Gateway.MaxLineSize != 0 && c.Gateway.MaxLineSize < 1024*1024 {
 		return fmt.Errorf("gateway.max_line_size must be at least 1MB")
+	}
+	if c.Gateway.AntigravityEmptyStreamMaxAccountSwitches < 0 {
+		return fmt.Errorf("gateway.antigravity_empty_stream_max_account_switches must be non-negative")
 	}
 	if c.Gateway.Scheduling.StickySessionMaxWaiting <= 0 {
 		return fmt.Errorf("gateway.scheduling.sticky_session_max_waiting must be positive")

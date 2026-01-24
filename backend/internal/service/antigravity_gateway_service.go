@@ -74,6 +74,30 @@ func (e *PromptTooLongError) Error() string {
 	return fmt.Sprintf("prompt too long: status=%d", e.StatusCode)
 }
 
+// AntigravityEmptyStreamError 表示上游流式响应未产生有效数据
+type AntigravityEmptyStreamError struct {
+	StatusCode int
+	Reason     string
+	Cause      error
+}
+
+func (e *AntigravityEmptyStreamError) Error() string {
+	if e == nil {
+		return "antigravity empty stream"
+	}
+	if e.Reason != "" {
+		return fmt.Sprintf("antigravity empty stream: %s", e.Reason)
+	}
+	return "antigravity empty stream"
+}
+
+func (e *AntigravityEmptyStreamError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
+}
+
 // antigravityRetryLoop 执行带 URL fallback 的重试循环
 func antigravityRetryLoop(p antigravityRetryLoopParams) (*antigravityRetryLoopResult, error) {
 	availableURLs := antigravity.DefaultURLAvailability.GetAvailableURLs()
@@ -1761,20 +1785,14 @@ type antigravityStreamResult struct {
 }
 
 func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context, resp *http.Response, startTime time.Time) (*antigravityStreamResult, error) {
-	c.Status(resp.StatusCode)
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Header("X-Accel-Buffering", "no")
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		return nil, errors.New("streaming not supported")
+	}
 
 	contentType := resp.Header.Get("Content-Type")
 	if contentType == "" {
 		contentType = "text/event-stream; charset=utf-8"
-	}
-	c.Header("Content-Type", contentType)
-
-	flusher, ok := c.Writer.(http.Flusher)
-	if !ok {
-		return nil, errors.New("streaming not supported")
 	}
 
 	// 使用 Scanner 并限制单行大小，避免 ReadString 无上限导致 OOM
@@ -1833,9 +1851,98 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 		intervalCh = intervalTicker.C
 	}
 
+	peekTimeout := time.Duration(0)
+	if s.settingService != nil && s.settingService.cfg != nil && s.settingService.cfg.Gateway.AntigravityStreamPeekTimeoutSeconds > 0 {
+		peekTimeout = time.Duration(s.settingService.cfg.Gateway.AntigravityStreamPeekTimeoutSeconds) * time.Second
+	}
+	var peekTimer *time.Timer
+	var peekCh <-chan time.Time
+	if peekTimeout > 0 {
+		peekTimer = time.NewTimer(peekTimeout)
+		defer peekTimer.Stop()
+		peekCh = peekTimer.C
+	}
+
+	prefaceLines := make([]string, 0, 2)
+	var firstPayloadLine string
+	for firstPayloadLine == "" {
+		select {
+		case ev, ok := <-events:
+			if !ok {
+				return nil, &AntigravityEmptyStreamError{StatusCode: http.StatusBadGateway, Reason: "upstream_closed"}
+			}
+			if ev.err != nil {
+				if errors.Is(ev.err, bufio.ErrTooLong) {
+					log.Printf("SSE line too long (antigravity): max_size=%d error=%v", maxLineSize, ev.err)
+					return nil, ev.err
+				}
+				return nil, &AntigravityEmptyStreamError{StatusCode: http.StatusBadGateway, Reason: "stream_read_error", Cause: ev.err}
+			}
+
+			line := ev.line
+			trimmed := strings.TrimRight(line, "\r\n")
+			if trimmed == "" || strings.HasPrefix(trimmed, ":") {
+				continue
+			}
+			if !strings.HasPrefix(trimmed, "data:") {
+				prefaceLines = append(prefaceLines, line)
+				continue
+			}
+
+			payload := strings.TrimSpace(strings.TrimPrefix(trimmed, "data:"))
+			if payload == "" || payload == "[DONE]" {
+				continue
+			}
+
+			inner, parseErr := s.unwrapV1InternalResponse([]byte(payload))
+			if parseErr == nil && inner != nil {
+				payload = string(inner)
+			}
+
+			var parsed map[string]any
+			if json.Unmarshal(inner, &parsed) == nil {
+				if u := extractGeminiUsage(parsed); u != nil {
+					usage = u
+				}
+				if candidates, ok := parsed["candidates"].([]any); ok && len(candidates) > 0 {
+					if cand, ok := candidates[0].(map[string]any); ok {
+						if fr, ok := cand["finishReason"].(string); ok && fr == "MALFORMED_FUNCTION_CALL" {
+							log.Printf("[Antigravity] MALFORMED_FUNCTION_CALL detected in forward stream")
+							if content, ok := cand["content"]; ok {
+								if b, err := json.Marshal(content); err == nil {
+									log.Printf("[Antigravity] Malformed content: %s", string(b))
+								}
+							}
+						}
+					}
+				}
+			}
+
+			if firstTokenMs == nil {
+				ms := int(time.Since(startTime).Milliseconds())
+				firstTokenMs = &ms
+			}
+
+			firstPayloadLine = fmt.Sprintf("data: %s\n\n", payload)
+		case <-peekCh:
+			return nil, &AntigravityEmptyStreamError{StatusCode: http.StatusGatewayTimeout, Reason: "peek_timeout"}
+		}
+	}
+
+	c.Status(resp.StatusCode)
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+	c.Header("Content-Type", contentType)
+
+	streamingStarted := false
+
 	// 仅发送一次错误事件，避免多次写入导致协议混乱
 	errorEventSent := false
 	sendErrorEvent := func(reason string) {
+		if !streamingStarted {
+			return
+		}
 		if errorEventSent {
 			return
 		}
@@ -1843,6 +1950,19 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 		_, _ = fmt.Fprintf(c.Writer, "event: error\ndata: {\"error\":\"%s\"}\n\n", reason)
 		flusher.Flush()
 	}
+
+	for _, line := range prefaceLines {
+		if _, err := fmt.Fprintf(c.Writer, "%s\n", line); err != nil {
+			return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs}, err
+		}
+		streamingStarted = true
+	}
+
+	if _, err := fmt.Fprint(c.Writer, firstPayloadLine); err != nil {
+		return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs}, err
+	}
+	streamingStarted = true
+	flusher.Flush()
 
 	for {
 		select {
@@ -2526,12 +2646,6 @@ returnResponse:
 
 // handleClaudeStreamingResponse 处理 Claude 流式响应（Gemini SSE → Claude SSE 转换）
 func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context, resp *http.Response, startTime time.Time, originalModel string) (*antigravityStreamResult, error) {
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Header("X-Accel-Buffering", "no")
-	c.Status(http.StatusOK)
-
 	flusher, ok := c.Writer.(http.Flusher)
 	if !ok {
 		return nil, errors.New("streaming not supported")
@@ -2605,9 +2719,66 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 		intervalCh = intervalTicker.C
 	}
 
+	peekTimeout := time.Duration(0)
+	if s.settingService != nil && s.settingService.cfg != nil && s.settingService.cfg.Gateway.AntigravityStreamPeekTimeoutSeconds > 0 {
+		peekTimeout = time.Duration(s.settingService.cfg.Gateway.AntigravityStreamPeekTimeoutSeconds) * time.Second
+	}
+	var peekTimer *time.Timer
+	var peekCh <-chan time.Time
+	if peekTimeout > 0 {
+		peekTimer = time.NewTimer(peekTimeout)
+		defer peekTimer.Stop()
+		peekCh = peekTimer.C
+	}
+
+	var firstEvents []byte
+	for len(firstEvents) == 0 {
+		select {
+		case ev, ok := <-events:
+			if !ok {
+				return nil, &AntigravityEmptyStreamError{StatusCode: http.StatusBadGateway, Reason: "upstream_closed"}
+			}
+			if ev.err != nil {
+				if errors.Is(ev.err, bufio.ErrTooLong) {
+					log.Printf("SSE line too long (antigravity): max_size=%d error=%v", maxLineSize, ev.err)
+					return nil, ev.err
+				}
+				return nil, &AntigravityEmptyStreamError{StatusCode: http.StatusBadGateway, Reason: "stream_read_error", Cause: ev.err}
+			}
+
+			line := strings.TrimRight(ev.line, "\r\n")
+			if line == "" || strings.HasPrefix(line, ":") {
+				continue
+			}
+
+			firstEvents = processor.ProcessLine(line)
+			if len(firstEvents) == 0 {
+				continue
+			}
+
+			if firstTokenMs == nil {
+				ms := int(time.Since(startTime).Milliseconds())
+				firstTokenMs = &ms
+			}
+		case <-peekCh:
+			return nil, &AntigravityEmptyStreamError{StatusCode: http.StatusGatewayTimeout, Reason: "peek_timeout"}
+		}
+	}
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+	c.Status(http.StatusOK)
+
+	streamingStarted := false
+
 	// 仅发送一次错误事件，避免多次写入导致协议混乱
 	errorEventSent := false
 	sendErrorEvent := func(reason string) {
+		if !streamingStarted {
+			return
+		}
 		if errorEventSent {
 			return
 		}
@@ -2615,6 +2786,12 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 		_, _ = fmt.Fprintf(c.Writer, "event: error\ndata: {\"error\":\"%s\"}\n\n", reason)
 		flusher.Flush()
 	}
+
+	if _, writeErr := c.Writer.Write(firstEvents); writeErr != nil {
+		return &antigravityStreamResult{usage: convertUsage(nil), firstTokenMs: firstTokenMs}, writeErr
+	}
+	streamingStarted = true
+	flusher.Flush()
 
 	for {
 		select {

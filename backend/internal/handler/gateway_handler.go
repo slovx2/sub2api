@@ -26,14 +26,15 @@ import (
 
 // GatewayHandler handles API gateway requests
 type GatewayHandler struct {
-	gatewayService            *service.GatewayService
-	geminiCompatService       *service.GeminiMessagesCompatService
-	antigravityGatewayService *service.AntigravityGatewayService
-	userService               *service.UserService
-	billingCacheService       *service.BillingCacheService
-	concurrencyHelper         *ConcurrencyHelper
-	maxAccountSwitches        int
-	maxAccountSwitchesGemini  int
+	gatewayService                    *service.GatewayService
+	geminiCompatService               *service.GeminiMessagesCompatService
+	antigravityGatewayService         *service.AntigravityGatewayService
+	userService                       *service.UserService
+	billingCacheService               *service.BillingCacheService
+	concurrencyHelper                 *ConcurrencyHelper
+	maxAccountSwitches                int
+	maxAccountSwitchesGemini          int
+	maxAntigravityEmptyStreamSwitches int
 }
 
 // NewGatewayHandler creates a new GatewayHandler
@@ -49,6 +50,7 @@ func NewGatewayHandler(
 	pingInterval := time.Duration(0)
 	maxAccountSwitches := 10
 	maxAccountSwitchesGemini := 3
+	maxAntigravityEmptyStreamSwitches := 1
 	if cfg != nil {
 		pingInterval = time.Duration(cfg.Concurrency.PingInterval) * time.Second
 		if cfg.Gateway.MaxAccountSwitches > 0 {
@@ -57,16 +59,18 @@ func NewGatewayHandler(
 		if cfg.Gateway.MaxAccountSwitchesGemini > 0 {
 			maxAccountSwitchesGemini = cfg.Gateway.MaxAccountSwitchesGemini
 		}
+		maxAntigravityEmptyStreamSwitches = cfg.Gateway.AntigravityEmptyStreamMaxAccountSwitches
 	}
 	return &GatewayHandler{
-		gatewayService:            gatewayService,
-		geminiCompatService:       geminiCompatService,
-		antigravityGatewayService: antigravityGatewayService,
-		userService:               userService,
-		billingCacheService:       billingCacheService,
-		concurrencyHelper:         NewConcurrencyHelper(concurrencyService, SSEPingFormatClaude, pingInterval),
-		maxAccountSwitches:        maxAccountSwitches,
-		maxAccountSwitchesGemini:  maxAccountSwitchesGemini,
+		gatewayService:                    gatewayService,
+		geminiCompatService:               geminiCompatService,
+		antigravityGatewayService:         antigravityGatewayService,
+		userService:                       userService,
+		billingCacheService:               billingCacheService,
+		concurrencyHelper:                 NewConcurrencyHelper(concurrencyService, SSEPingFormatClaude, pingInterval),
+		maxAccountSwitches:                maxAccountSwitches,
+		maxAccountSwitchesGemini:          maxAccountSwitchesGemini,
+		maxAntigravityEmptyStreamSwitches: maxAntigravityEmptyStreamSwitches,
 	}
 }
 
@@ -193,7 +197,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 
 	if platform == service.PlatformGemini {
 		maxAccountSwitches := h.maxAccountSwitchesGemini
+		maxEmptyStreamSwitches := h.maxAntigravityEmptyStreamSwitches
 		switchCount := 0
+		emptyStreamSwitchCount := 0
 		failedAccountIDs := make(map[int64]struct{})
 		lastFailoverStatus := 0
 
@@ -285,6 +291,18 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				accountReleaseFunc()
 			}
 			if err != nil {
+				var emptyStreamErr *service.AntigravityEmptyStreamError
+				if errors.As(err, &emptyStreamErr) {
+					failedAccountIDs[account.ID] = struct{}{}
+					lastFailoverStatus = emptyStreamErr.StatusCode
+					if maxEmptyStreamSwitches <= 0 || emptyStreamSwitchCount >= maxEmptyStreamSwitches {
+						h.handleFailoverExhausted(c, lastFailoverStatus, streamStarted)
+						return
+					}
+					emptyStreamSwitchCount++
+					log.Printf("Antigravity account %d: empty stream (%s), switching account %d/%d", account.ID, emptyStreamErr.Reason, emptyStreamSwitchCount, maxEmptyStreamSwitches)
+					continue
+				}
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
 					failedAccountIDs[account.ID] = struct{}{}
@@ -336,7 +354,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 
 	for {
 		maxAccountSwitches := h.maxAccountSwitches
+		maxEmptyStreamSwitches := h.maxAntigravityEmptyStreamSwitches
 		switchCount := 0
+		emptyStreamSwitchCount := 0
 		failedAccountIDs := make(map[int64]struct{})
 		lastFailoverStatus := 0
 		retryWithFallback := false
@@ -462,6 +482,18 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					}
 					_ = h.antigravityGatewayService.WriteMappedClaudeError(c, account, promptTooLongErr.StatusCode, promptTooLongErr.RequestID, promptTooLongErr.Body)
 					return
+				}
+				var emptyStreamErr *service.AntigravityEmptyStreamError
+				if errors.As(err, &emptyStreamErr) {
+					failedAccountIDs[account.ID] = struct{}{}
+					lastFailoverStatus = emptyStreamErr.StatusCode
+					if maxEmptyStreamSwitches <= 0 || emptyStreamSwitchCount >= maxEmptyStreamSwitches {
+						h.handleFailoverExhausted(c, lastFailoverStatus, streamStarted)
+						return
+					}
+					emptyStreamSwitchCount++
+					log.Printf("Antigravity account %d: empty stream (%s), switching account %d/%d", account.ID, emptyStreamErr.Reason, emptyStreamSwitchCount, maxEmptyStreamSwitches)
+					continue
 				}
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {

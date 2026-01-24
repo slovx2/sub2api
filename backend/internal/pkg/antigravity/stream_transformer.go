@@ -25,6 +25,8 @@ type StreamingProcessor struct {
 	messageStartSent  bool
 	messageStopSent   bool
 	usedTool          bool
+	hasThinking       bool
+	hasContent        bool
 	pendingSignature  string
 	trailingSignature string
 	originalModel     string
@@ -122,6 +124,24 @@ func (p *StreamingProcessor) ProcessLine(line string) []byte {
 // Finish 结束处理，返回最终事件和用量
 func (p *StreamingProcessor) Finish() ([]byte, *ClaudeUsage) {
 	var result bytes.Buffer
+
+	if p.hasThinking && !p.hasContent && !p.messageStopSent {
+		if p.blockType == BlockTypeThinking {
+			_, _ = result.Write(p.endBlock())
+		}
+		_, _ = result.Write(p.startBlock(BlockTypeText, map[string]any{
+			"type": "text",
+			"text": "",
+		}))
+		_, _ = result.Write(p.emitDelta("text_delta", map[string]any{
+			"text": "[系统提示：响应生成中断，请重试]",
+		}))
+		_, _ = result.Write(p.endBlock())
+	}
+
+	if p.outputTokens == 0 && p.hasThinking {
+		p.outputTokens = 100
+	}
 
 	if !p.messageStopSent {
 		_, _ = result.Write(p.emitFinish(""))
@@ -233,6 +253,8 @@ func (p *StreamingProcessor) captureGrounding(grounding *GeminiGroundingMetadata
 func (p *StreamingProcessor) processThinking(text, signature string) []byte {
 	var result bytes.Buffer
 
+	p.hasThinking = true
+
 	// 处理之前的 trailingSignature
 	if p.trailingSignature != "" {
 		_, _ = result.Write(p.endBlock())
@@ -273,6 +295,8 @@ func (p *StreamingProcessor) processText(text, signature string) []byte {
 		}
 		return nil
 	}
+
+	p.hasContent = true
 
 	// 处理之前的 trailingSignature
 	if p.trailingSignature != "" {
@@ -315,6 +339,7 @@ func (p *StreamingProcessor) processFunctionCall(fc *GeminiFunctionCall, signatu
 	var result bytes.Buffer
 
 	p.usedTool = true
+	p.hasContent = true
 
 	toolID := fc.ID
 	if toolID == "" {
