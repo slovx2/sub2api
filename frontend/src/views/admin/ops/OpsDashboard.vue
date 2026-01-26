@@ -177,7 +177,7 @@ const groupId = ref<number | null>(null)
 const queryMode = ref<QueryMode>('auto')
 const customStartTime = ref<string | null>(null)
 const customEndTime = ref<string | null>(null)
-const switchTrendWindowHours = 5
+const switchTrendWindowHours = 24
 const switchTrendTimeRange = `${switchTrendWindowHours}h`
 const switchTrendWindowMs = switchTrendWindowHours * 60 * 60 * 1000
 
