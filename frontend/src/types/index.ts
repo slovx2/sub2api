@@ -273,6 +273,8 @@ export interface Group {
   // 模型路由配置（仅 anthropic 平台使用）
   model_routing: Record<string, number[]> | null
   model_routing_enabled: boolean
+  // MCP XML 协议注入（仅 antigravity 平台使用）
+  mcp_xml_inject: boolean
   account_count?: number
   created_at: string
   updated_at: string
@@ -469,6 +471,9 @@ export interface Account {
   overload_until: string | null
   temp_unschedulable_until: string | null
   temp_unschedulable_reason: string | null
+
+  // Antigravity scope 级限流状态
+  scope_rate_limits?: Record<string, { reset_at: string; remaining_sec: number }>
 
   // Session window fields (5-hour window)
   session_window_start: string | null

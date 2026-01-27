@@ -1019,6 +1019,12 @@ export default {
         noRulesHint: '添加路由规则以将特定模型请求优先路由到指定账号',
         searchAccountPlaceholder: '搜索账号...',
         accountsHint: '选择此模型模式优先使用的账号'
+      },
+      mcpXml: {
+        title: 'MCP XML 协议注入',
+        tooltip: '启用后，当请求包含 MCP 工具时，会在 system prompt 中注入 XML 格式调用协议提示词。关闭此选项可避免对某些客户端造成干扰。',
+        enabled: '已启用',
+        disabled: '已禁用'
       }
     },
 
@@ -1203,6 +1209,7 @@ export default {
         limited: '限流',
         tempUnschedulable: '临时不可调度',
         rateLimitedUntil: '限流中，重置时间：{time}',
+        scopeRateLimitedUntil: '{scope} 限流中，重置时间：{time}',
         overloadedUntil: '负载过重，重置时间：{time}',
         viewTempUnschedDetails: '查看临时不可调度详情'
       },
