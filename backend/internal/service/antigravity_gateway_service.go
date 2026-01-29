@@ -1005,6 +1005,10 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 					Message:            upstreamMsg,
 					Detail:             upstreamDetail,
 				})
+				// prompt too long 也记录到 antigravity_bad_requests
+				if antigravityLogBadRequestsEnabled() {
+					s.logBadRequest(ctx, account, resp.Header.Get("x-request-id"), resp.StatusCode, body, respBody)
+				}
 				return nil, &PromptTooLongError{
 					StatusCode: resp.StatusCode,
 					RequestID:  resp.Header.Get("x-request-id"),
@@ -2989,12 +2993,21 @@ func (s *AntigravityGatewayService) logBadRequest(ctx context.Context, account *
 		errMsg = errMsg[:1024]
 	}
 
+	// request_body 超过 30MB 跳过保存，避免内存和存储压力
+	const maxRequestBodySize = 30 * 1024 * 1024
+	var reqBodyStr string
+	if len(requestBody) <= maxRequestBodySize {
+		reqBodyStr = string(requestBody)
+	} else {
+		reqBodyStr = fmt.Sprintf("[REQUEST_BODY_TOO_LARGE: %d bytes]", len(requestBody))
+	}
+
 	input := &AntigravityBadRequestInput{
 		AccountID:    account.ID,
 		AccountName:  account.Name,
 		RequestID:    requestID,
 		StatusCode:   statusCode,
-		RequestBody:  string(requestBody),
+		RequestBody:  reqBodyStr,
 		ResponseBody: string(responseBody),
 		ErrorMessage: errMsg,
 		CreatedAt:    time.Now(),
