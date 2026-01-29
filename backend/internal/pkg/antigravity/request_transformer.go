@@ -291,10 +291,62 @@ func buildContents(messages []ClaudeMessage, toolIDToName map[string]string, isT
 	strippedThinking := false
 	lastThoughtSignature := ""
 
+	// [Elastic-Recovery] 追踪待处理的 tool_use id
+	// 用于检测用户中断工具执行的场景（tool_use 后没有对应的 tool_result）
+	pendingToolUseIDs := make(map[string]bool)
+
+	// 预扫描：收集所有已存在的 tool_result id，避免重复注入
+	existingToolResultIDs := make(map[string]bool)
+	for _, msg := range messages {
+		var blocks []ContentBlock
+		if err := json.Unmarshal(msg.Content, &blocks); err == nil {
+			for _, block := range blocks {
+				if block.Type == "tool_result" && block.ToolUseID != "" {
+					existingToolResultIDs[block.ToolUseID] = true
+				}
+			}
+		}
+	}
+
 	for i, msg := range messages {
 		role := msg.Role
 		if role == "assistant" {
 			role = "model"
+		}
+
+		// [Elastic-Recovery] 处理 user 消息前，检查是否有未匹配的 tool_use
+		// 如果有，注入占位的 tool_result
+		if role == "user" && len(pendingToolUseIDs) > 0 {
+			var syntheticParts []GeminiPart
+			for toolID := range pendingToolUseIDs {
+				// 跳过已存在 tool_result 的
+				if existingToolResultIDs[toolID] {
+					continue
+				}
+				funcName := toolID
+				if name, ok := toolIDToName[toolID]; ok {
+					funcName = name
+				}
+				log.Printf("[Elastic-Recovery] Injecting missing tool_result for tool_use_id: %s", toolID)
+				syntheticParts = append(syntheticParts, GeminiPart{
+					FunctionResponse: &GeminiFunctionResponse{
+						Name: funcName,
+						Response: map[string]any{
+							"result": "Tool execution interrupted. No result provided.",
+						},
+						ID: toolID,
+					},
+				})
+			}
+			// 如果有需要注入的，先作为一个 user 消息添加
+			if len(syntheticParts) > 0 {
+				contents = append(contents, GeminiContent{
+					Role:  "user",
+					Parts: syntheticParts,
+				})
+			}
+			// 清空待处理列表
+			pendingToolUseIDs = make(map[string]bool)
 		}
 
 		parts, strippedThisMsg, err := buildParts(msg.Content, toolIDToName, allowDummyThought, isThinkingEnabled, &lastThoughtSignature)
@@ -303,6 +355,18 @@ func buildContents(messages []ClaudeMessage, toolIDToName map[string]string, isT
 		}
 		if strippedThisMsg {
 			strippedThinking = true
+		}
+
+		// [Elastic-Recovery] 收集当前消息中的 tool_use 和 tool_result
+		var blocks []ContentBlock
+		if err := json.Unmarshal(msg.Content, &blocks); err == nil {
+			for _, block := range blocks {
+				if block.Type == "tool_use" && block.ID != "" {
+					pendingToolUseIDs[block.ID] = true
+				} else if block.Type == "tool_result" && block.ToolUseID != "" {
+					delete(pendingToolUseIDs, block.ToolUseID)
+				}
+			}
 		}
 
 		// 只有 Gemini 模型支持 dummy thinking block workaround
@@ -334,6 +398,34 @@ func buildContents(messages []ClaudeMessage, toolIDToName map[string]string, isT
 			Role:  role,
 			Parts: parts,
 		})
+	}
+
+	// [Elastic-Recovery] 处理最后一条消息后仍有未匹配的 tool_use（最后一条是 assistant 消息且有 tool_use）
+	// 这种情况下，user 消息（最后一条）可能没有 tool_result，需要合并注入
+	if len(pendingToolUseIDs) > 0 && len(contents) > 0 {
+		lastContent := &contents[len(contents)-1]
+		if lastContent.Role == "user" {
+			for toolID := range pendingToolUseIDs {
+				if existingToolResultIDs[toolID] {
+					continue
+				}
+				funcName := toolID
+				if name, ok := toolIDToName[toolID]; ok {
+					funcName = name
+				}
+				log.Printf("[Elastic-Recovery] Prepending missing tool_result to last user message for tool_use_id: %s", toolID)
+				// 在 user 消息开头插入
+				lastContent.Parts = append([]GeminiPart{{
+					FunctionResponse: &GeminiFunctionResponse{
+						Name: funcName,
+						Response: map[string]any{
+							"result": "Tool execution interrupted. No result provided.",
+						},
+						ID: toolID,
+					},
+				}}, lastContent.Parts...)
+			}
+		}
 	}
 
 	return contents, strippedThinking, nil
