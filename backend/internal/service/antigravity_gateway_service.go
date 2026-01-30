@@ -1905,13 +1905,18 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 
 	prefaceLines := make([]string, 0, 2)
 	var firstPayloadLine string
+	peekLinesReceived := 0
+	peekStartTime := time.Now()
 	for firstPayloadLine == "" {
 		select {
 		case ev, ok := <-events:
 			if !ok {
+				log.Printf("[EmptyStream] phase=peek type=gemini reason=upstream_closed lines=%d elapsed=%v", peekLinesReceived, time.Since(peekStartTime))
 				return nil, &AntigravityEmptyStreamError{StatusCode: http.StatusBadGateway, Reason: "upstream_closed"}
 			}
+			peekLinesReceived++
 			if ev.err != nil {
+				log.Printf("[EmptyStream] phase=peek type=gemini reason=stream_read_error lines=%d elapsed=%v err=%v", peekLinesReceived, time.Since(peekStartTime), ev.err)
 				if errors.Is(ev.err, bufio.ErrTooLong) {
 					log.Printf("SSE line too long (antigravity): max_size=%d error=%v", maxLineSize, ev.err)
 					return nil, ev.err
@@ -1965,9 +1970,12 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 
 			firstPayloadLine = fmt.Sprintf("data: %s\n\n", payload)
 		case <-peekCh:
+			log.Printf("[EmptyStream] phase=peek type=gemini reason=peek_timeout lines=%d elapsed=%v timeout=%v", peekLinesReceived, time.Since(peekStartTime), peekTimeout)
 			return nil, &AntigravityEmptyStreamError{StatusCode: http.StatusGatewayTimeout, Reason: "peek_timeout"}
 		}
 	}
+
+	log.Printf("[EmptyStream] phase=peek type=gemini reason=success lines=%d elapsed=%v payload_len=%d", peekLinesReceived, time.Since(peekStartTime), len(firstPayloadLine))
 
 	c.Status(resp.StatusCode)
 	c.Header("Cache-Control", "no-cache")
@@ -2772,13 +2780,18 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 	}
 
 	var firstEvents []byte
+	peekLinesReceived := 0
+	peekStartTime := time.Now()
 	for len(firstEvents) == 0 {
 		select {
 		case ev, ok := <-events:
 			if !ok {
+				log.Printf("[EmptyStream] phase=peek type=claude reason=upstream_closed lines=%d elapsed=%v", peekLinesReceived, time.Since(peekStartTime))
 				return nil, &AntigravityEmptyStreamError{StatusCode: http.StatusBadGateway, Reason: "upstream_closed"}
 			}
+			peekLinesReceived++
 			if ev.err != nil {
+				log.Printf("[EmptyStream] phase=peek type=claude reason=stream_read_error lines=%d elapsed=%v err=%v", peekLinesReceived, time.Since(peekStartTime), ev.err)
 				if errors.Is(ev.err, bufio.ErrTooLong) {
 					log.Printf("SSE line too long (antigravity): max_size=%d error=%v", maxLineSize, ev.err)
 					return nil, ev.err
@@ -2801,9 +2814,12 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 				firstTokenMs = &ms
 			}
 		case <-peekCh:
+			log.Printf("[EmptyStream] phase=peek type=claude reason=peek_timeout lines=%d elapsed=%v timeout=%v", peekLinesReceived, time.Since(peekStartTime), peekTimeout)
 			return nil, &AntigravityEmptyStreamError{StatusCode: http.StatusGatewayTimeout, Reason: "peek_timeout"}
 		}
 	}
+
+	log.Printf("[EmptyStream] phase=peek type=claude reason=success lines=%d elapsed=%v events_len=%d", peekLinesReceived, time.Since(peekStartTime), len(firstEvents))
 
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")

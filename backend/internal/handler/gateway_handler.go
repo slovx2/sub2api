@@ -299,12 +299,17 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				if errors.As(err, &emptyStreamErr) {
 					failedAccountIDs[account.ID] = struct{}{}
 					lastFailoverStatus = emptyStreamErr.StatusCode
+					causeInfo := ""
+					if emptyStreamErr.Cause != nil {
+						causeInfo = fmt.Sprintf(" cause=%v", emptyStreamErr.Cause)
+					}
 					if maxEmptyStreamSwitches <= 0 || emptyStreamSwitchCount >= maxEmptyStreamSwitches {
+						log.Printf("[EmptyStream] phase=switch type=gemini account=%d reason=%s status=%d exhausted=true%s", account.ID, emptyStreamErr.Reason, emptyStreamErr.StatusCode, causeInfo)
 						h.handleFailoverExhausted(c, lastFailoverStatus, streamStarted)
 						return
 					}
 					emptyStreamSwitchCount++
-					log.Printf("Antigravity account %d: empty stream (%s), switching account %d/%d", account.ID, emptyStreamErr.Reason, emptyStreamSwitchCount, maxEmptyStreamSwitches)
+					log.Printf("[EmptyStream] phase=switch type=gemini account=%d reason=%s status=%d switch=%d/%d%s", account.ID, emptyStreamErr.Reason, emptyStreamErr.StatusCode, emptyStreamSwitchCount, maxEmptyStreamSwitches, causeInfo)
 					continue
 				}
 				var failoverErr *service.UpstreamFailoverError
@@ -495,12 +500,17 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				if errors.As(err, &emptyStreamErr) {
 					failedAccountIDs[account.ID] = struct{}{}
 					lastFailoverStatus = emptyStreamErr.StatusCode
+					causeInfo := ""
+					if emptyStreamErr.Cause != nil {
+						causeInfo = fmt.Sprintf(" cause=%v", emptyStreamErr.Cause)
+					}
 					if maxEmptyStreamSwitches <= 0 || emptyStreamSwitchCount >= maxEmptyStreamSwitches {
+						log.Printf("[EmptyStream] phase=switch type=claude account=%d reason=%s status=%d exhausted=true%s", account.ID, emptyStreamErr.Reason, emptyStreamErr.StatusCode, causeInfo)
 						h.handleFailoverExhausted(c, lastFailoverStatus, streamStarted)
 						return
 					}
 					emptyStreamSwitchCount++
-					log.Printf("Antigravity account %d: empty stream (%s), switching account %d/%d", account.ID, emptyStreamErr.Reason, emptyStreamSwitchCount, maxEmptyStreamSwitches)
+					log.Printf("[EmptyStream] phase=switch type=claude account=%d reason=%s status=%d switch=%d/%d%s", account.ID, emptyStreamErr.Reason, emptyStreamErr.StatusCode, emptyStreamSwitchCount, maxEmptyStreamSwitches, causeInfo)
 					continue
 				}
 				var failoverErr *service.UpstreamFailoverError
