@@ -156,6 +156,11 @@ func (p *StreamingProcessor) Finish() ([]byte, *ClaudeUsage) {
 	return result.Bytes(), usage
 }
 
+// HasThinkingOnly 检查是否只有 thinking 没有实际内容
+func (p *StreamingProcessor) HasThinkingOnly() bool {
+	return p.hasThinking && !p.hasContent
+}
+
 // emitMessageStart 发送 message_start 事件
 func (p *StreamingProcessor) emitMessageStart(v1Resp *V1InternalResponse) []byte {
 	if p.messageStartSent {

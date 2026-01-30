@@ -1975,7 +1975,7 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 		}
 	}
 
-	log.Printf("[EmptyStream] phase=peek type=gemini reason=success lines=%d elapsed=%v payload_len=%d", peekLinesReceived, time.Since(peekStartTime), len(firstPayloadLine))
+	log.Printf("[EmptyStream] phase=peek type=gemini reason=success lines=%d elapsed=%v", peekLinesReceived, time.Since(peekStartTime))
 
 	c.Status(resp.StatusCode)
 	c.Header("Cache-Control", "no-cache")
@@ -2016,6 +2016,10 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 		select {
 		case ev, ok := <-events:
 			if !ok {
+				// 记录流式传输完成状态
+				if usage != nil && usage.OutputTokens == 0 {
+					log.Printf("[EmptyStream] phase=finish type=gemini output_tokens=0 input_tokens=%d", usage.InputTokens)
+				}
 				return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs}, nil
 			}
 			if ev.err != nil {
@@ -2819,7 +2823,7 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 		}
 	}
 
-	log.Printf("[EmptyStream] phase=peek type=claude reason=success lines=%d elapsed=%v events_len=%d", peekLinesReceived, time.Since(peekStartTime), len(firstEvents))
+	log.Printf("[EmptyStream] phase=peek type=claude reason=success lines=%d elapsed=%v", peekLinesReceived, time.Since(peekStartTime))
 
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
@@ -2858,6 +2862,12 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 				if len(finalEvents) > 0 {
 					_, _ = c.Writer.Write(finalEvents)
 					flusher.Flush()
+				}
+				// 记录流式传输完成状态
+				if agUsage != nil && agUsage.OutputTokens == 0 {
+					log.Printf("[EmptyStream] phase=finish type=claude output_tokens=0 input_tokens=%d", agUsage.InputTokens)
+				} else if agUsage != nil && agUsage.OutputTokens == 100 && processor.HasThinkingOnly() {
+					log.Printf("[EmptyStream] phase=finish type=claude reason=thinking_only_fallback input_tokens=%d", agUsage.InputTokens)
 				}
 				return &antigravityStreamResult{usage: convertUsage(agUsage), firstTokenMs: firstTokenMs}, nil
 			}
