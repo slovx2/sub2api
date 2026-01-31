@@ -1313,12 +1313,15 @@ export default {
       bulkSchedulableDisabled: '成功停止 {count} 个账号的调度',
       bulkSchedulablePartial: '部分调度更新成功：成功 {success} 个，失败 {failed} 个',
       bulkSchedulableResultUnknown: '批量调度结果不完整，请稍后重试或刷新列表',
+      bulkResetStatusSuccess: '成功重置 {count} 个账号的状态',
+      bulkResetStatusPartial: '部分重置成功：成功 {success} 个，失败 {failed} 个',
       bulkActions: {
         selected: '已选择 {count} 个账号',
         selectCurrentPage: '本页全选',
         clear: '清除选择',
         edit: '批量编辑账号',
         delete: '批量删除',
+        resetStatus: '重置状态',
         enableScheduling: '批量启用调度',
         disableScheduling: '批量停止调度'
       },

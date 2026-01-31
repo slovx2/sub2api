@@ -73,6 +73,7 @@ type AccountBulkUpdate struct {
 	Priority       *int
 	RateMultiplier *float64
 	Status         *string
+	ErrorMessage   *string // 重置错误信息
 	Schedulable    *bool
 	Credentials    map[string]any
 	Extra          map[string]any

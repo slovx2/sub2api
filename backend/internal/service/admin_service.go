@@ -193,6 +193,10 @@ type BulkUpdateAccountsInput struct {
 	// SkipMixedChannelCheck skips the mixed channel risk check when binding groups.
 	// This should only be set when the caller has explicitly confirmed the risk.
 	SkipMixedChannelCheck bool
+	// 重置状态选项
+	ResetError           bool // 重置错误状态（status=active, error_message=""）
+	ResetRateLimit       bool // 重置限流状态
+	ResetTempUnscheduled bool // 重置临时不可调度状态
 }
 
 // BulkUpdateAccountResult captures the result for a single account update.
@@ -1101,6 +1105,13 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	if input.Schedulable != nil {
 		repoUpdates.Schedulable = input.Schedulable
 	}
+	// 处理重置错误状态：设置 status=active 并清空 error_message
+	if input.ResetError {
+		active := StatusActive
+		repoUpdates.Status = &active
+		emptyMsg := ""
+		repoUpdates.ErrorMessage = &emptyMsg
+	}
 
 	// Run bulk update for column/jsonb fields first.
 	if _, err := s.accountRepo.BulkUpdate(ctx, input.AccountIDs, repoUpdates); err != nil {
@@ -1140,6 +1151,30 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 			if err := s.accountRepo.BindGroups(ctx, accountID, *input.GroupIDs); err != nil {
 				entry.Success = false
 				entry.Error = err.Error()
+				result.Failed++
+				result.FailedIDs = append(result.FailedIDs, accountID)
+				result.Results = append(result.Results, entry)
+				continue
+			}
+		}
+
+		// 处理重置限流状态
+		if input.ResetRateLimit {
+			if err := s.accountRepo.ClearRateLimit(ctx, accountID); err != nil {
+				entry.Success = false
+				entry.Error = "clear rate limit: " + err.Error()
+				result.Failed++
+				result.FailedIDs = append(result.FailedIDs, accountID)
+				result.Results = append(result.Results, entry)
+				continue
+			}
+		}
+
+		// 处理重置临时不可调度状态
+		if input.ResetTempUnscheduled {
+			if err := s.accountRepo.ClearTempUnschedulable(ctx, accountID); err != nil {
+				entry.Success = false
+				entry.Error = "clear temp unschedulable: " + err.Error()
 				result.Failed++
 				result.FailedIDs = append(result.FailedIDs, accountID)
 				result.Results = append(result.Results, entry)

@@ -19,7 +19,7 @@
         </div>
       </template>
       <template #table>
-        <AccountBulkActionsBar :selected-ids="selIds" @delete="handleBulkDelete" @edit="showBulkEdit = true" @clear="selIds = []" @select-page="selectPage" @toggle-schedulable="handleBulkToggleSchedulable" />
+        <AccountBulkActionsBar :selected-ids="selIds" @delete="handleBulkDelete" @edit="showBulkEdit = true" @clear="selIds = []" @select-page="selectPage" @toggle-schedulable="handleBulkToggleSchedulable" @reset-status="handleBulkResetStatus" />
         <DataTable :columns="cols" :data="accounts" :loading="loading" row-key="id">
           <template #cell-select="{ row }">
             <input type="checkbox" :checked="selIds.includes(row.id)" @change="toggleSel(row.id)" class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
@@ -353,6 +353,27 @@ const handleBulkToggleSchedulable = async (schedulable: boolean) => {
     }
   } catch (error) {
     console.error('Failed to bulk toggle schedulable:', error)
+    appStore.showError(t('common.error'))
+  }
+}
+const handleBulkResetStatus = async () => {
+  const accountIds = [...selIds.value]
+  try {
+    const result = await adminAPI.accounts.bulkUpdate(accountIds, {
+      reset_error: true,
+      reset_rate_limit: true,
+      reset_temp_unscheduled: true
+    })
+    if (result.success > 0) {
+      appStore.showSuccess(t('admin.accounts.bulkResetStatusSuccess', { count: result.success }))
+      selIds.value = []
+      load()
+    }
+    if (result.failed > 0) {
+      appStore.showError(t('admin.accounts.bulkResetStatusPartial', { success: result.success, failed: result.failed }))
+    }
+  } catch (error) {
+    console.error('Failed to bulk reset status:', error)
     appStore.showError(t('common.error'))
   }
 }

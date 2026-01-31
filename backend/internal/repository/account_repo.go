@@ -1139,6 +1139,11 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 		args = append(args, *updates.Status)
 		idx++
 	}
+	if updates.ErrorMessage != nil {
+		setClauses = append(setClauses, "error_message = $"+itoa(idx))
+		args = append(args, *updates.ErrorMessage)
+		idx++
+	}
 	if updates.Schedulable != nil {
 		setClauses = append(setClauses, "schedulable = $"+itoa(idx))
 		args = append(args, *updates.Schedulable)

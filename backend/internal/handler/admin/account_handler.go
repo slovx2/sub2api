@@ -127,6 +127,10 @@ type BulkUpdateAccountsRequest struct {
 	Credentials             map[string]any `json:"credentials"`
 	Extra                   map[string]any `json:"extra"`
 	ConfirmMixedChannelRisk *bool          `json:"confirm_mixed_channel_risk"` // 用户确认混合渠道风险
+	// 重置状态选项
+	ResetError           *bool `json:"reset_error"`            // 重置错误状态
+	ResetRateLimit       *bool `json:"reset_rate_limit"`       // 重置限流状态
+	ResetTempUnscheduled *bool `json:"reset_temp_unscheduled"` // 重置临时不可调度
 }
 
 // AccountLookupRequest 用于凭证身份信息查找账号
@@ -882,7 +886,10 @@ func (h *AccountHandler) BulkUpdate(c *gin.Context) {
 		req.Schedulable != nil ||
 		req.GroupIDs != nil ||
 		len(req.Credentials) > 0 ||
-		len(req.Extra) > 0
+		len(req.Extra) > 0 ||
+		(req.ResetError != nil && *req.ResetError) ||
+		(req.ResetRateLimit != nil && *req.ResetRateLimit) ||
+		(req.ResetTempUnscheduled != nil && *req.ResetTempUnscheduled)
 
 	if !hasUpdates {
 		response.BadRequest(c, "No updates provided")
@@ -902,6 +909,9 @@ func (h *AccountHandler) BulkUpdate(c *gin.Context) {
 		Credentials:           req.Credentials,
 		Extra:                 req.Extra,
 		SkipMixedChannelCheck: skipCheck,
+		ResetError:            req.ResetError != nil && *req.ResetError,
+		ResetRateLimit:        req.ResetRateLimit != nil && *req.ResetRateLimit,
+		ResetTempUnscheduled:  req.ResetTempUnscheduled != nil && *req.ResetTempUnscheduled,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)
