@@ -161,6 +161,16 @@ func (p *StreamingProcessor) HasThinkingOnly() bool {
 	return p.hasThinking && !p.hasContent
 }
 
+// HasContent 检查是否有实际内容
+func (p *StreamingProcessor) HasContent() bool {
+	return p.hasContent
+}
+
+// HasThinking 检查是否有 thinking
+func (p *StreamingProcessor) HasThinking() bool {
+	return p.hasThinking
+}
+
 // emitMessageStart 发送 message_start 事件
 func (p *StreamingProcessor) emitMessageStart(v1Resp *V1InternalResponse) []byte {
 	if p.messageStartSent {

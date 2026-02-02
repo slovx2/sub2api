@@ -2823,7 +2823,12 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 		}
 	}
 
-	log.Printf("[EmptyStream] phase=peek type=claude reason=success lines=%d elapsed=%v", peekLinesReceived, time.Since(peekStartTime))
+	// 记录预读状态：检查首包是否有实际内容
+	if processor.HasContent() || processor.HasThinking() {
+		log.Printf("[EmptyStream] phase=peek type=claude reason=success lines=%d elapsed=%v has_content=%v has_thinking=%v", peekLinesReceived, time.Since(peekStartTime), processor.HasContent(), processor.HasThinking())
+	} else {
+		log.Printf("[EmptyStream] phase=peek type=claude reason=success_no_content lines=%d elapsed=%v", peekLinesReceived, time.Since(peekStartTime))
+	}
 
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
@@ -2864,10 +2869,9 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 					flusher.Flush()
 				}
 				// 记录流式传输完成状态
-				if agUsage != nil && agUsage.OutputTokens == 0 {
-					log.Printf("[EmptyStream] phase=finish type=claude output_tokens=0 input_tokens=%d", agUsage.InputTokens)
-				} else if agUsage != nil && agUsage.OutputTokens == 100 && processor.HasThinkingOnly() {
-					log.Printf("[EmptyStream] phase=finish type=claude reason=thinking_only_fallback input_tokens=%d", agUsage.InputTokens)
+				hasThinkingOnly := processor.HasThinkingOnly()
+				if agUsage != nil && (agUsage.OutputTokens == 0 || hasThinkingOnly) {
+					log.Printf("[EmptyStream] phase=finish type=claude output_tokens=%d input_tokens=%d has_thinking_only=%v", agUsage.OutputTokens, agUsage.InputTokens, hasThinkingOnly)
 				}
 				return &antigravityStreamResult{usage: convertUsage(agUsage), firstTokenMs: firstTokenMs}, nil
 			}
