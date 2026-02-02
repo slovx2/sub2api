@@ -2016,10 +2016,14 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 		select {
 		case ev, ok := <-events:
 			if !ok {
-				// 记录流式传输完成状态
-				if usage != nil && usage.OutputTokens == 0 {
-					log.Printf("[EmptyStream] phase=finish type=gemini output_tokens=0 input_tokens=%d", usage.InputTokens)
+				// 始终记录流式传输完成状态
+				outputTokens := 0
+				inputTokens := 0
+				if usage != nil {
+					outputTokens = usage.OutputTokens
+					inputTokens = usage.InputTokens
 				}
+				log.Printf("[EmptyStream] phase=finish type=gemini output_tokens=%d input_tokens=%d", outputTokens, inputTokens)
 				return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs}, nil
 			}
 			if ev.err != nil {
@@ -2868,11 +2872,17 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 					_, _ = c.Writer.Write(finalEvents)
 					flusher.Flush()
 				}
-				// 记录流式传输完成状态
+				// 始终记录流式传输完成状态
 				hasThinkingOnly := processor.HasThinkingOnly()
-				if agUsage != nil && (agUsage.OutputTokens == 0 || hasThinkingOnly) {
-					log.Printf("[EmptyStream] phase=finish type=claude output_tokens=%d input_tokens=%d has_thinking_only=%v", agUsage.OutputTokens, agUsage.InputTokens, hasThinkingOnly)
+				hasContent := processor.HasContent()
+				hasThinking := processor.HasThinking()
+				outputTokens := 0
+				inputTokens := 0
+				if agUsage != nil {
+					outputTokens = agUsage.OutputTokens
+					inputTokens = agUsage.InputTokens
 				}
+				log.Printf("[EmptyStream] phase=finish type=claude output_tokens=%d input_tokens=%d has_content=%v has_thinking=%v has_thinking_only=%v", outputTokens, inputTokens, hasContent, hasThinking, hasThinkingOnly)
 				return &antigravityStreamResult{usage: convertUsage(agUsage), firstTokenMs: firstTokenMs}, nil
 			}
 			if ev.err != nil {
