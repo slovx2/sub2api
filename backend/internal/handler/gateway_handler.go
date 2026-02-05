@@ -308,10 +308,6 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				if errors.As(err, &emptyStreamErr) {
 					failedAccountIDs[account.ID] = struct{}{}
 					lastFailoverStatus = emptyStreamErr.StatusCode
-					causeInfo := ""
-					if emptyStreamErr.Cause != nil {
-						causeInfo = fmt.Sprintf(" cause=%v", emptyStreamErr.Cause)
-					}
 					if maxEmptyStreamSwitches <= 0 || emptyStreamSwitchCount >= maxEmptyStreamSwitches {
 						h.handleFailoverExhausted(c, lastFailoverStatus, streamStarted)
 						return
@@ -511,10 +507,6 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				if errors.As(err, &emptyStreamErr) {
 					failedAccountIDs[account.ID] = struct{}{}
 					lastFailoverStatus = emptyStreamErr.StatusCode
-					causeInfo := ""
-					if emptyStreamErr.Cause != nil {
-						causeInfo = fmt.Sprintf(" cause=%v", emptyStreamErr.Cause)
-					}
 					if maxEmptyStreamSwitches <= 0 || emptyStreamSwitchCount >= maxEmptyStreamSwitches {
 						h.handleFailoverExhausted(c, lastFailoverStatus, streamStarted)
 						return

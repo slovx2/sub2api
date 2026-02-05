@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -356,10 +355,6 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 			if errors.As(err, &emptyStreamErr) {
 				failedAccountIDs[account.ID] = struct{}{}
 				lastFailoverStatus = emptyStreamErr.StatusCode
-				causeInfo := ""
-				if emptyStreamErr.Cause != nil {
-					causeInfo = fmt.Sprintf(" cause=%v", emptyStreamErr.Cause)
-				}
 				if maxEmptyStreamSwitches <= 0 || emptyStreamSwitchCount >= maxEmptyStreamSwitches {
 					handleGeminiFailoverExhausted(c, lastFailoverStatus)
 					return
