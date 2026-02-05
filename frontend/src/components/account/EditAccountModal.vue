@@ -512,9 +512,9 @@
         </div>
       </div>
 
-      <!-- Intercept Warmup Requests (Anthropic/Antigravity) -->
+      <!-- Intercept Warmup Requests (Anthropic only) -->
       <div
-        v-if="account?.platform === 'anthropic' || account?.platform === 'antigravity'"
+        v-if="account?.platform === 'anthropic'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between">
@@ -566,7 +566,7 @@
         </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.billingRateMultiplier') }}</label>
-          <input v-model.number="form.rate_multiplier" type="number" min="0" step="0.01" class="input" />
+          <input v-model.number="form.rate_multiplier" type="number" min="0" step="0.001" class="input" />
           <p class="input-hint">{{ t('admin.accounts.billingRateMultiplierHint') }}</p>
         </div>
       </div>
@@ -732,6 +732,60 @@
             </div>
           </div>
         </div>
+
+        <!-- TLS Fingerprint -->
+        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+          <div class="flex items-center justify-between">
+            <div>
+              <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.tlsFingerprint.label') }}</label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.quotaControl.tlsFingerprint.hint') }}
+              </p>
+            </div>
+            <button
+              type="button"
+              @click="tlsFingerprintEnabled = !tlsFingerprintEnabled"
+              :class="[
+                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                tlsFingerprintEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              ]"
+            >
+              <span
+                :class="[
+                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  tlsFingerprintEnabled ? 'translate-x-5' : 'translate-x-0'
+                ]"
+              />
+            </button>
+          </div>
+        </div>
+
+        <!-- Session ID Masking -->
+        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+          <div class="flex items-center justify-between">
+            <div>
+              <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.sessionIdMasking.label') }}</label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.quotaControl.sessionIdMasking.hint') }}
+              </p>
+            </div>
+            <button
+              type="button"
+              @click="sessionIdMaskingEnabled = !sessionIdMaskingEnabled"
+              :class="[
+                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                sessionIdMaskingEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              ]"
+            >
+              <span
+                :class="[
+                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  sessionIdMaskingEnabled ? 'translate-x-5' : 'translate-x-0'
+                ]"
+              />
+            </button>
+          </div>
+        </div>
       </div>
 
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
@@ -821,6 +875,18 @@
       </div>
     </template>
   </BaseDialog>
+
+  <!-- Mixed Channel Warning Dialog -->
+  <ConfirmDialog
+    :show="showMixedChannelWarning"
+    :title="t('admin.accounts.mixedChannelWarningTitle')"
+    :message="mixedChannelWarningDetails ? t('admin.accounts.mixedChannelWarning', mixedChannelWarningDetails) : ''"
+    :confirm-text="t('common.confirm')"
+    :cancel-text="t('common.cancel')"
+    :danger="true"
+    @confirm="handleMixedChannelConfirm"
+    @cancel="handleMixedChannelCancel"
+  />
 </template>
 
 <script setup lang="ts">
@@ -829,8 +895,9 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
-import type { Account, Proxy, Group } from '@/types'
+import type { Account, Proxy, AdminGroup } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Select from '@/components/common/Select.vue'
 import Icon from '@/components/icons/Icon.vue'
 import ProxySelector from '@/components/common/ProxySelector.vue'
@@ -847,7 +914,7 @@ interface Props {
   show: boolean
   account: Account | null
   proxies: Proxy[]
-  groups: Group[]
+  groups: AdminGroup[]
 }
 
 const props = defineProps<Props>()
@@ -897,6 +964,11 @@ const mixedScheduling = ref(false) // For antigravity accounts: enable mixed sch
 const tempUnschedEnabled = ref(false)
 const tempUnschedRules = ref<TempUnschedRuleForm[]>([])
 
+// Mixed channel warning dialog state
+const showMixedChannelWarning = ref(false)
+const mixedChannelWarningDetails = ref<{ groupName: string; currentPlatform: string; otherPlatform: string } | null>(null)
+const pendingUpdatePayload = ref<Record<string, unknown> | null>(null)
+
 // Quota control state (Anthropic OAuth/SetupToken only)
 const windowCostEnabled = ref(false)
 const windowCostLimit = ref<number | null>(null)
@@ -904,6 +976,8 @@ const windowCostStickyReserve = ref<number | null>(null)
 const sessionLimitEnabled = ref(false)
 const maxSessions = ref<number | null>(null)
 const sessionIdleTimeout = ref<number | null>(null)
+const tlsFingerprintEnabled = ref(false)
+const sessionIdMaskingEnabled = ref(false)
 
 // Computed: current preset mappings based on platform
 const presetMappings = computed(() => getPresetMappingsByPlatform(props.account?.platform || 'anthropic'))
@@ -1237,6 +1311,8 @@ function loadQuotaControlSettings(account: Account) {
   sessionLimitEnabled.value = false
   maxSessions.value = null
   sessionIdleTimeout.value = null
+  tlsFingerprintEnabled.value = false
+  sessionIdMaskingEnabled.value = false
 
   // Only applies to Anthropic OAuth/SetupToken accounts
   if (account.platform !== 'anthropic' || (account.type !== 'oauth' && account.type !== 'setup-token')) {
@@ -1254,6 +1330,16 @@ function loadQuotaControlSettings(account: Account) {
     sessionLimitEnabled.value = true
     maxSessions.value = account.max_sessions
     sessionIdleTimeout.value = account.session_idle_timeout_minutes ?? 5
+  }
+
+  // Load TLS fingerprint setting
+  if (account.enable_tls_fingerprint === true) {
+    tlsFingerprintEnabled.value = true
+  }
+
+  // Load session ID masking setting
+  if (account.session_id_masking_enabled === true) {
+    sessionIdMaskingEnabled.value = true
   }
 }
 
@@ -1298,8 +1384,8 @@ const handleSubmit = async () => {
   if (!props.account) return
 
   submitting.value = true
+  const updatePayload: Record<string, unknown> = { ...form }
   try {
-    const updatePayload: Record<string, unknown> = { ...form }
     // 后端期望 proxy_id: 0 表示清除代理，而不是 null
     if (updatePayload.proxy_id === null) {
       updatePayload.proxy_id = 0
@@ -1407,6 +1493,20 @@ const handleSubmit = async () => {
         delete newExtra.session_idle_timeout_minutes
       }
 
+      // TLS fingerprint setting
+      if (tlsFingerprintEnabled.value) {
+        newExtra.enable_tls_fingerprint = true
+      } else {
+        delete newExtra.enable_tls_fingerprint
+      }
+
+      // Session ID masking setting
+      if (sessionIdMaskingEnabled.value) {
+        newExtra.session_id_masking_enabled = true
+      } else {
+        delete newExtra.session_id_masking_enabled
+      }
+
       updatePayload.extra = newExtra
     }
 
@@ -1415,9 +1515,47 @@ const handleSubmit = async () => {
     emit('updated')
     handleClose()
   } catch (error: any) {
-    appStore.showError(error.response?.data?.message || error.response?.data?.detail || t('admin.accounts.failedToUpdate'))
+    // Handle 409 mixed_channel_warning - show confirmation dialog
+    if (error.response?.status === 409 && error.response?.data?.error === 'mixed_channel_warning') {
+      const details = error.response.data.details || {}
+      mixedChannelWarningDetails.value = {
+        groupName: details.group_name || 'Unknown',
+        currentPlatform: details.current_platform || 'Unknown',
+        otherPlatform: details.other_platform || 'Unknown'
+      }
+      pendingUpdatePayload.value = updatePayload
+      showMixedChannelWarning.value = true
+    } else {
+      appStore.showError(error.response?.data?.message || error.response?.data?.detail || t('admin.accounts.failedToUpdate'))
+    }
   } finally {
     submitting.value = false
   }
+}
+
+// Handle mixed channel warning confirmation
+const handleMixedChannelConfirm = async () => {
+  showMixedChannelWarning.value = false
+  if (pendingUpdatePayload.value && props.account) {
+    pendingUpdatePayload.value.confirm_mixed_channel_risk = true
+    submitting.value = true
+    try {
+      await adminAPI.accounts.update(props.account.id, pendingUpdatePayload.value)
+      appStore.showSuccess(t('admin.accounts.accountUpdated'))
+      emit('updated')
+      handleClose()
+    } catch (error: any) {
+      appStore.showError(error.response?.data?.message || error.response?.data?.detail || t('admin.accounts.failedToUpdate'))
+    } finally {
+      submitting.value = false
+      pendingUpdatePayload.value = null
+    }
+  }
+}
+
+const handleMixedChannelCancel = () => {
+  showMixedChannelWarning.value = false
+  pendingUpdatePayload.value = null
+  mixedChannelWarningDetails.value = null
 }
 </script>

@@ -22,6 +22,10 @@ type AdminService interface {
 	UpdateUserBalance(ctx context.Context, userID int64, balance float64, operation string, notes string) (*User, error)
 	GetUserAPIKeys(ctx context.Context, userID int64, page, pageSize int) ([]APIKey, int64, error)
 	GetUserUsageStats(ctx context.Context, userID int64, period string) (any, error)
+	// GetUserBalanceHistory returns paginated balance/concurrency change records for a user.
+	// codeType is optional - pass empty string to return all types.
+	// Also returns totalRecharged (sum of all positive balance top-ups).
+	GetUserBalanceHistory(ctx context.Context, userID int64, page, pageSize int, codeType string) ([]RedeemCode, int64, float64, error)
 
 	// Group management
 	ListGroups(ctx context.Context, page, pageSize int, platform, status, search string, isExclusive *bool) ([]Group, int64, error)
@@ -40,7 +44,6 @@ type AdminService interface {
 	CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error)
 	UpdateAccount(ctx context.Context, id int64, input *UpdateAccountInput) (*Account, error)
 	DeleteAccount(ctx context.Context, id int64) error
-	LookupAccountsByCredentialEmail(ctx context.Context, platform string, emails []string) ([]Account, error)
 	RefreshAccountCredentials(ctx context.Context, id int64) (*Account, error)
 	ClearAccountError(ctx context.Context, id int64) (*Account, error)
 	SetAccountError(ctx context.Context, id int64, errorMsg string) error
@@ -114,6 +117,10 @@ type CreateGroupInput struct {
 	ModelRouting        map[string][]int64
 	ModelRoutingEnabled bool // 是否启用模型路由
 	MCPXMLInject        *bool
+	// 支持的模型系列（仅 antigravity 平台使用）
+	SupportedModelScopes []string
+	// 从指定分组复制账号（创建分组后在同一事务内绑定）
+	CopyAccountsFromGroupIDs []int64
 }
 
 type UpdateGroupInput struct {
@@ -139,6 +146,10 @@ type UpdateGroupInput struct {
 	ModelRouting        map[string][]int64
 	ModelRoutingEnabled *bool // 是否启用模型路由
 	MCPXMLInject        *bool
+	// 支持的模型系列（仅 antigravity 平台使用）
+	SupportedModelScopes *[]string
+	// 从指定分组复制账号（同步操作：先清空当前分组的账号绑定，再绑定源分组的账号）
+	CopyAccountsFromGroupIDs []int64
 }
 
 type CreateAccountInput struct {
@@ -533,6 +544,21 @@ func (s *adminServiceImpl) GetUserUsageStats(ctx context.Context, userID int64, 
 	}, nil
 }
 
+// GetUserBalanceHistory returns paginated balance/concurrency change records for a user.
+func (s *adminServiceImpl) GetUserBalanceHistory(ctx context.Context, userID int64, page, pageSize int, codeType string) ([]RedeemCode, int64, float64, error) {
+	params := pagination.PaginationParams{Page: page, PageSize: pageSize}
+	codes, result, err := s.redeemCodeRepo.ListByUserPaginated(ctx, userID, params, codeType)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	// Aggregate total recharged amount (only once, regardless of type filter)
+	totalRecharged, err := s.redeemCodeRepo.SumPositiveBalanceByUser(ctx, userID)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	return codes, result.Total, totalRecharged, nil
+}
+
 // Group management implementations
 func (s *adminServiceImpl) ListGroups(ctx context.Context, page, pageSize int, platform, status, search string, isExclusive *bool) ([]Group, int64, error) {
 	params := pagination.PaginationParams{Page: page, PageSize: pageSize}
@@ -599,6 +625,38 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		mcpXMLInject = *input.MCPXMLInject
 	}
 
+	// 如果指定了复制账号的源分组，先获取账号 ID 列表
+	var accountIDsToCopy []int64
+	if len(input.CopyAccountsFromGroupIDs) > 0 {
+		// 去重源分组 IDs
+		seen := make(map[int64]struct{})
+		uniqueSourceGroupIDs := make([]int64, 0, len(input.CopyAccountsFromGroupIDs))
+		for _, srcGroupID := range input.CopyAccountsFromGroupIDs {
+			if _, exists := seen[srcGroupID]; !exists {
+				seen[srcGroupID] = struct{}{}
+				uniqueSourceGroupIDs = append(uniqueSourceGroupIDs, srcGroupID)
+			}
+		}
+
+		// 校验源分组的平台是否与新分组一致
+		for _, srcGroupID := range uniqueSourceGroupIDs {
+			srcGroup, err := s.groupRepo.GetByIDLite(ctx, srcGroupID)
+			if err != nil {
+				return nil, fmt.Errorf("source group %d not found: %w", srcGroupID, err)
+			}
+			if srcGroup.Platform != platform {
+				return nil, fmt.Errorf("source group %d platform mismatch: expected %s, got %s", srcGroupID, platform, srcGroup.Platform)
+			}
+		}
+
+		// 获取所有源分组的账号（去重）
+		var err error
+		accountIDsToCopy, err = s.groupRepo.GetAccountIDsByGroupIDs(ctx, uniqueSourceGroupIDs)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get accounts from source groups: %w", err)
+		}
+	}
+
 	group := &Group{
 		Name:                            input.Name,
 		Description:                     input.Description,
@@ -618,10 +676,20 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		FallbackGroupIDOnInvalidRequest: fallbackOnInvalidRequest,
 		ModelRouting:                    input.ModelRouting,
 		MCPXMLInject:                    mcpXMLInject,
+		SupportedModelScopes:            input.SupportedModelScopes,
 	}
 	if err := s.groupRepo.Create(ctx, group); err != nil {
 		return nil, err
 	}
+
+	// 如果有需要复制的账号，绑定到新分组
+	if len(accountIDsToCopy) > 0 {
+		if err := s.groupRepo.BindAccountsToGroup(ctx, group.ID, accountIDsToCopy); err != nil {
+			return nil, fmt.Errorf("failed to bind accounts to new group: %w", err)
+		}
+		group.AccountCount = int64(len(accountIDsToCopy))
+	}
+
 	return group, nil
 }
 
@@ -802,9 +870,62 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 		group.MCPXMLInject = *input.MCPXMLInject
 	}
 
+	// 支持的模型系列（仅 antigravity 平台使用）
+	if input.SupportedModelScopes != nil {
+		group.SupportedModelScopes = *input.SupportedModelScopes
+	}
+
 	if err := s.groupRepo.Update(ctx, group); err != nil {
 		return nil, err
 	}
+
+	// 如果指定了复制账号的源分组，同步绑定（替换当前分组的账号）
+	if len(input.CopyAccountsFromGroupIDs) > 0 {
+		// 去重源分组 IDs
+		seen := make(map[int64]struct{})
+		uniqueSourceGroupIDs := make([]int64, 0, len(input.CopyAccountsFromGroupIDs))
+		for _, srcGroupID := range input.CopyAccountsFromGroupIDs {
+			// 校验：源分组不能是自身
+			if srcGroupID == id {
+				return nil, fmt.Errorf("cannot copy accounts from self")
+			}
+			// 去重
+			if _, exists := seen[srcGroupID]; !exists {
+				seen[srcGroupID] = struct{}{}
+				uniqueSourceGroupIDs = append(uniqueSourceGroupIDs, srcGroupID)
+			}
+		}
+
+		// 校验源分组的平台是否与当前分组一致
+		for _, srcGroupID := range uniqueSourceGroupIDs {
+			srcGroup, err := s.groupRepo.GetByIDLite(ctx, srcGroupID)
+			if err != nil {
+				return nil, fmt.Errorf("source group %d not found: %w", srcGroupID, err)
+			}
+			if srcGroup.Platform != group.Platform {
+				return nil, fmt.Errorf("source group %d platform mismatch: expected %s, got %s", srcGroupID, group.Platform, srcGroup.Platform)
+			}
+		}
+
+		// 获取所有源分组的账号（去重）
+		accountIDsToCopy, err := s.groupRepo.GetAccountIDsByGroupIDs(ctx, uniqueSourceGroupIDs)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get accounts from source groups: %w", err)
+		}
+
+		// 先清空当前分组的所有账号绑定
+		if _, err := s.groupRepo.DeleteAccountGroupsByGroupID(ctx, id); err != nil {
+			return nil, fmt.Errorf("failed to clear existing account bindings: %w", err)
+		}
+
+		// 再绑定源分组的账号
+		if len(accountIDsToCopy) > 0 {
+			if err := s.groupRepo.BindAccountsToGroup(ctx, id, accountIDsToCopy); err != nil {
+				return nil, fmt.Errorf("failed to bind accounts to group: %w", err)
+			}
+		}
+	}
+
 	if s.authCacheInvalidator != nil {
 		s.authCacheInvalidator.InvalidateAuthCacheByGroupID(ctx, id)
 	}
@@ -868,13 +989,6 @@ func (s *adminServiceImpl) ListAccounts(ctx context.Context, page, pageSize int,
 
 func (s *adminServiceImpl) GetAccount(ctx context.Context, id int64) (*Account, error) {
 	return s.accountRepo.GetByID(ctx, id)
-}
-
-func (s *adminServiceImpl) LookupAccountsByCredentialEmail(ctx context.Context, platform string, emails []string) ([]Account, error) {
-	if platform == "" || len(emails) == 0 {
-		return []Account{}, nil
-	}
-	return s.accountRepo.ListByPlatformAndCredentialEmails(ctx, platform, emails)
 }
 
 func (s *adminServiceImpl) GetAccountsByIDs(ctx context.Context, ids []int64) ([]*Account, error) {

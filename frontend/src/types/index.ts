@@ -27,7 +27,6 @@ export interface FetchOptions {
 export interface User {
   id: number
   username: string
-  notes: string
   email: string
   role: 'admin' | 'user' // User role for authorization
   balance: number // User balance for API usage
@@ -37,6 +36,11 @@ export interface User {
   subscriptions?: UserSubscription[] // User's active subscriptions
   created_at: string
   updated_at: string
+}
+
+export interface AdminUser extends User {
+  // 管理员备注（普通用户接口不返回）
+  notes: string
 }
 
 export interface LoginRequest {
@@ -51,6 +55,7 @@ export interface RegisterRequest {
   verify_code?: string
   turnstile_token?: string
   promo_code?: string
+  invitation_code?: string
 }
 
 export interface SendVerifyCodeRequest {
@@ -66,6 +71,9 @@ export interface SendVerifyCodeResponse {
 export interface PublicSettings {
   registration_enabled: boolean
   email_verify_enabled: boolean
+  promo_code_enabled: boolean
+  password_reset_enabled: boolean
+  invitation_code_enabled: boolean
   turnstile_enabled: boolean
   turnstile_site_key: string
   site_name: string
@@ -75,6 +83,9 @@ export interface PublicSettings {
   contact_info: string
   doc_url: string
   home_content: string
+  hide_ccs_import_button: boolean
+  purchase_subscription_enabled: boolean
+  purchase_subscription_url: string
   linuxdo_oauth_enabled: boolean
   version: string
 }
@@ -118,6 +129,81 @@ export interface UpdateSubscriptionRequest {
   type?: Subscription['type']
   update_interval?: number
   is_active?: boolean
+}
+
+// ==================== Announcement Types ====================
+
+export type AnnouncementStatus = 'draft' | 'active' | 'archived'
+
+export type AnnouncementConditionType = 'subscription' | 'balance'
+
+export type AnnouncementOperator = 'in' | 'gt' | 'gte' | 'lt' | 'lte' | 'eq'
+
+export interface AnnouncementCondition {
+  type: AnnouncementConditionType
+  operator: AnnouncementOperator
+  group_ids?: number[]
+  value?: number
+}
+
+export interface AnnouncementConditionGroup {
+  all_of?: AnnouncementCondition[]
+}
+
+export interface AnnouncementTargeting {
+  any_of?: AnnouncementConditionGroup[]
+}
+
+export interface Announcement {
+  id: number
+  title: string
+  content: string
+  status: AnnouncementStatus
+  targeting: AnnouncementTargeting
+  starts_at?: string
+  ends_at?: string
+  created_by?: number
+  updated_by?: number
+  created_at: string
+  updated_at: string
+}
+
+export interface UserAnnouncement {
+  id: number
+  title: string
+  content: string
+  starts_at?: string
+  ends_at?: string
+  read_at?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateAnnouncementRequest {
+  title: string
+  content: string
+  status?: AnnouncementStatus
+  targeting: AnnouncementTargeting
+  starts_at?: number
+  ends_at?: number
+}
+
+export interface UpdateAnnouncementRequest {
+  title?: string
+  content?: string
+  status?: AnnouncementStatus
+  targeting?: AnnouncementTargeting
+  starts_at?: number
+  ends_at?: number
+}
+
+export interface AnnouncementUserReadStatus {
+  user_id: number
+  email: string
+  username: string
+  balance: number
+  eligible: boolean
+  read_at?: string
 }
 
 // ==================== Proxy Node Types ====================
@@ -270,14 +356,23 @@ export interface Group {
   claude_code_only: boolean
   fallback_group_id: number | null
   fallback_group_id_on_invalid_request: number | null
-  // 模型路由配置（仅 anthropic 平台使用）
-  model_routing: Record<string, number[]> | null
-  model_routing_enabled: boolean
-  // MCP XML 协议注入（仅 antigravity 平台使用）
-  mcp_xml_inject: boolean
-  account_count?: number
   created_at: string
   updated_at: string
+}
+
+export interface AdminGroup extends Group {
+  // 模型路由配置（仅管理员可见，内部信息）
+  model_routing: Record<string, number[]> | null
+  model_routing_enabled: boolean
+
+  // MCP XML 协议注入（仅 antigravity 平台使用）
+  mcp_xml_inject: boolean
+
+  // 支持的模型系列（仅 antigravity 平台使用）
+  supported_model_scopes?: string[]
+
+  // 分组下账号数量（仅管理员可见）
+  account_count?: number
 }
 
 export interface ApiKey {
@@ -286,9 +381,12 @@ export interface ApiKey {
   key: string
   name: string
   group_id: number | null
-  status: 'active' | 'inactive'
+  status: 'active' | 'inactive' | 'quota_exhausted' | 'expired'
   ip_whitelist: string[]
   ip_blacklist: string[]
+  quota: number // Quota limit in USD (0 = unlimited)
+  quota_used: number // Used quota amount in USD
+  expires_at: string | null // Expiration time (null = never expires)
   created_at: string
   updated_at: string
   group?: Group
@@ -300,6 +398,8 @@ export interface CreateApiKeyRequest {
   custom_key?: string // Optional custom API Key
   ip_whitelist?: string[]
   ip_blacklist?: string[]
+  quota?: number // Quota limit in USD (0 = unlimited)
+  expires_in_days?: number // Days until expiry (null = never expires)
 }
 
 export interface UpdateApiKeyRequest {
@@ -308,6 +408,9 @@ export interface UpdateApiKeyRequest {
   status?: 'active' | 'inactive'
   ip_whitelist?: string[]
   ip_blacklist?: string[]
+  quota?: number // Quota limit in USD (null = no change, 0 = unlimited)
+  expires_at?: string | null // Expiration time (null = no change)
+  reset_quota?: boolean // Reset quota_used to 0
 }
 
 export interface CreateGroupRequest {
@@ -326,6 +429,10 @@ export interface CreateGroupRequest {
   claude_code_only?: boolean
   fallback_group_id?: number | null
   fallback_group_id_on_invalid_request?: number | null
+  mcp_xml_inject?: boolean
+  supported_model_scopes?: string[]
+  // 从指定分组复制账号
+  copy_accounts_from_group_ids?: number[]
 }
 
 export interface UpdateGroupRequest {
@@ -345,12 +452,15 @@ export interface UpdateGroupRequest {
   claude_code_only?: boolean
   fallback_group_id?: number | null
   fallback_group_id_on_invalid_request?: number | null
+  mcp_xml_inject?: boolean
+  supported_model_scopes?: string[]
+  copy_accounts_from_group_ids?: number[]
 }
 
 // ==================== Account & Proxy Types ====================
 
 export type AccountPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity'
-export type AccountType = 'oauth' | 'setup-token' | 'apikey'
+export type AccountType = 'oauth' | 'setup-token' | 'apikey' | 'upstream'
 export type OAuthAddMethod = 'oauth' | 'setup-token'
 export type ProxyProtocol = 'http' | 'https' | 'socks5' | 'socks5h'
 
@@ -488,6 +598,13 @@ export interface Account {
   max_sessions?: number | null
   session_idle_timeout_minutes?: number | null
 
+  // TLS指纹伪装（仅 Anthropic OAuth/SetupToken 账号有效）
+  enable_tls_fingerprint?: boolean | null
+
+  // 会话ID伪装（仅 Anthropic OAuth/SetupToken 账号有效）
+  // 启用后将在15分钟内固定 metadata.user_id 中的 session ID
+  session_id_masking_enabled?: boolean | null
+
   // 运行时状态（仅当启用对应限制时返回）
   current_window_cost?: number | null // 当前窗口费用
   active_sessions?: number | null // 当前活跃会话数
@@ -610,7 +727,7 @@ export interface UpdateProxyRequest {
 
 // ==================== Usage & Redeem Types ====================
 
-export type RedeemCodeType = 'balance' | 'concurrency' | 'subscription'
+export type RedeemCodeType = 'balance' | 'concurrency' | 'subscription' | 'invitation'
 
 export interface UsageLog {
   id: number
@@ -619,6 +736,7 @@ export interface UsageLog {
   account_id: number | null
   request_id: string
   model: string
+  reasoning_effort?: string | null
 
   group_id: number | null
   subscription_id: number | null
@@ -637,7 +755,7 @@ export interface UsageLog {
   total_cost: number
   actual_cost: number
   rate_multiplier: number
-  account_rate_multiplier?: number | null
+  billing_type: number
 
   stream: boolean
   duration_ms: number
@@ -650,16 +768,55 @@ export interface UsageLog {
   // User-Agent
   user_agent: string | null
 
-  // IP 地址（仅管理员可见）
-  ip_address: string | null
-
   created_at: string
 
   user?: User
   api_key?: ApiKey
-  account?: Account
   group?: Group
   subscription?: UserSubscription
+}
+
+export interface UsageLogAccountSummary {
+  id: number
+  name: string
+}
+
+export interface AdminUsageLog extends UsageLog {
+  // 账号计费倍率（仅管理员可见）
+  account_rate_multiplier?: number | null
+
+  // 用户请求 IP（仅管理员可见）
+  ip_address?: string | null
+
+  // 最小账号信息（仅管理员接口返回）
+  account?: UsageLogAccountSummary
+}
+
+export interface UsageCleanupFilters {
+  start_time: string
+  end_time: string
+  user_id?: number
+  api_key_id?: number
+  account_id?: number
+  group_id?: number
+  model?: string | null
+  stream?: boolean | null
+  billing_type?: number | null
+}
+
+export interface UsageCleanupTask {
+  id: number
+  status: string
+  filters: UsageCleanupFilters
+  created_by: number
+  deleted_rows: number
+  error_message?: string | null
+  canceled_by?: number | null
+  canceled_at?: string | null
+  started_at?: string | null
+  finished_at?: string | null
+  created_at: string
+  updated_at: string
 }
 
 export interface RedeemCode {
@@ -885,6 +1042,7 @@ export interface UsageQueryParams {
   group_id?: number
   model?: string
   stream?: boolean
+  billing_type?: number | null
   start_date?: string
   end_date?: string
 }
@@ -1056,4 +1214,53 @@ export interface UpdatePromoCodeRequest {
   status?: 'active' | 'disabled'
   expires_at?: number | null
   notes?: string
+}
+
+// ==================== TOTP (2FA) Types ====================
+
+export interface TotpStatus {
+  enabled: boolean
+  enabled_at: number | null  // Unix timestamp in seconds
+  feature_enabled: boolean
+}
+
+export interface TotpSetupRequest {
+  email_code?: string
+  password?: string
+}
+
+export interface TotpSetupResponse {
+  secret: string
+  qr_code_url: string
+  setup_token: string
+  countdown: number
+}
+
+export interface TotpEnableRequest {
+  totp_code: string
+  setup_token: string
+}
+
+export interface TotpEnableResponse {
+  success: boolean
+}
+
+export interface TotpDisableRequest {
+  email_code?: string
+  password?: string
+}
+
+export interface TotpVerificationMethod {
+  method: 'email' | 'password'
+}
+
+export interface TotpLoginResponse {
+  requires_2fa: boolean
+  temp_token?: string
+  user_email_masked?: string
+}
+
+export interface TotpLogin2FARequest {
+  temp_token: string
+  totp_code: string
 }

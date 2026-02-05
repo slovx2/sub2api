@@ -22,7 +22,7 @@ import (
 	"github.com/lib/pq"
 )
 
-const usageLogSelectColumns = "id, user_id, api_key_id, account_id, request_id, model, group_id, subscription_id, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cache_creation_5m_tokens, cache_creation_1h_tokens, input_cost, output_cost, cache_creation_cost, cache_read_cost, total_cost, actual_cost, rate_multiplier, account_rate_multiplier, billing_type, stream, duration_ms, first_token_ms, user_agent, ip_address, image_count, image_size, created_at"
+const usageLogSelectColumns = "id, user_id, api_key_id, account_id, request_id, model, group_id, subscription_id, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cache_creation_5m_tokens, cache_creation_1h_tokens, input_cost, output_cost, cache_creation_cost, cache_read_cost, total_cost, actual_cost, rate_multiplier, account_rate_multiplier, billing_type, stream, duration_ms, first_token_ms, user_agent, ip_address, image_count, image_size, reasoning_effort, created_at"
 
 type usageLogRepository struct {
 	client *dbent.Client
@@ -111,21 +111,22 @@ func (r *usageLogRepository) Create(ctx context.Context, log *service.UsageLog) 
 			duration_ms,
 			first_token_ms,
 			user_agent,
-			ip_address,
-			image_count,
-			image_size,
-			created_at
-		) VALUES (
-			$1, $2, $3, $4, $5,
-			$6, $7,
-			$8, $9, $10, $11,
-			$12, $13,
-			$14, $15, $16, $17, $18, $19,
-			$20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30
-		)
-		ON CONFLICT (request_id, api_key_id) DO NOTHING
-		RETURNING id, created_at
-	`
+				ip_address,
+				image_count,
+				image_size,
+				reasoning_effort,
+				created_at
+			) VALUES (
+				$1, $2, $3, $4, $5,
+				$6, $7,
+				$8, $9, $10, $11,
+				$12, $13,
+				$14, $15, $16, $17, $18, $19,
+				$20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31
+			)
+			ON CONFLICT (request_id, api_key_id) DO NOTHING
+			RETURNING id, created_at
+		`
 
 	groupID := nullInt64(log.GroupID)
 	subscriptionID := nullInt64(log.SubscriptionID)
@@ -134,6 +135,7 @@ func (r *usageLogRepository) Create(ctx context.Context, log *service.UsageLog) 
 	userAgent := nullString(log.UserAgent)
 	ipAddress := nullString(log.IPAddress)
 	imageSize := nullString(log.ImageSize)
+	reasoningEffort := nullString(log.ReasoningEffort)
 
 	var requestIDArg any
 	if requestID != "" {
@@ -170,6 +172,7 @@ func (r *usageLogRepository) Create(ctx context.Context, log *service.UsageLog) 
 		ipAddress,
 		log.ImageCount,
 		imageSize,
+		reasoningEffort,
 		createdAt,
 	}
 	if err := scanSingleRow(ctx, sqlq, query, args, &log.ID, &log.CreatedAt); err != nil {
@@ -1411,7 +1414,7 @@ func (r *usageLogRepository) GetBatchAPIKeyUsageStats(ctx context.Context, apiKe
 }
 
 // GetUsageTrendWithFilters returns usage trend data with optional filters
-func (r *usageLogRepository) GetUsageTrendWithFilters(ctx context.Context, startTime, endTime time.Time, granularity string, userID, apiKeyID, accountID, groupID int64, model string, stream *bool) (results []TrendDataPoint, err error) {
+func (r *usageLogRepository) GetUsageTrendWithFilters(ctx context.Context, startTime, endTime time.Time, granularity string, userID, apiKeyID, accountID, groupID int64, model string, stream *bool, billingType *int8) (results []TrendDataPoint, err error) {
 	dateFormat := "YYYY-MM-DD"
 	if granularity == "hour" {
 		dateFormat = "YYYY-MM-DD HH24:00"
@@ -1456,6 +1459,10 @@ func (r *usageLogRepository) GetUsageTrendWithFilters(ctx context.Context, start
 		query += fmt.Sprintf(" AND stream = $%d", len(args)+1)
 		args = append(args, *stream)
 	}
+	if billingType != nil {
+		query += fmt.Sprintf(" AND billing_type = $%d", len(args)+1)
+		args = append(args, int16(*billingType))
+	}
 	query += " GROUP BY date ORDER BY date ASC"
 
 	rows, err := r.sql.QueryContext(ctx, query, args...)
@@ -1479,7 +1486,7 @@ func (r *usageLogRepository) GetUsageTrendWithFilters(ctx context.Context, start
 }
 
 // GetModelStatsWithFilters returns model statistics with optional filters
-func (r *usageLogRepository) GetModelStatsWithFilters(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, stream *bool) (results []ModelStat, err error) {
+func (r *usageLogRepository) GetModelStatsWithFilters(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, stream *bool, billingType *int8) (results []ModelStat, err error) {
 	actualCostExpr := "COALESCE(SUM(actual_cost), 0) as actual_cost"
 	// 当仅按 account_id 聚合时，实际费用使用账号倍率（total_cost * account_rate_multiplier）。
 	if accountID > 0 && userID == 0 && apiKeyID == 0 {
@@ -1519,6 +1526,10 @@ func (r *usageLogRepository) GetModelStatsWithFilters(ctx context.Context, start
 	if stream != nil {
 		query += fmt.Sprintf(" AND stream = $%d", len(args)+1)
 		args = append(args, *stream)
+	}
+	if billingType != nil {
+		query += fmt.Sprintf(" AND billing_type = $%d", len(args)+1)
+		args = append(args, int16(*billingType))
 	}
 	query += " GROUP BY model ORDER BY total_tokens DESC"
 
@@ -1825,7 +1836,7 @@ func (r *usageLogRepository) GetAccountUsageStats(ctx context.Context, accountID
 		}
 	}
 
-	models, err := r.GetModelStatsWithFilters(ctx, startTime, endTime, 0, 0, accountID, 0, nil)
+	models, err := r.GetModelStatsWithFilters(ctx, startTime, endTime, 0, 0, accountID, 0, nil, nil)
 	if err != nil {
 		models = []ModelStat{}
 	}
@@ -2082,6 +2093,7 @@ func scanUsageLog(scanner interface{ Scan(...any) error }) (*service.UsageLog, e
 		ipAddress             sql.NullString
 		imageCount            int
 		imageSize             sql.NullString
+		reasoningEffort       sql.NullString
 		createdAt             time.Time
 	)
 
@@ -2116,6 +2128,7 @@ func scanUsageLog(scanner interface{ Scan(...any) error }) (*service.UsageLog, e
 		&ipAddress,
 		&imageCount,
 		&imageSize,
+		&reasoningEffort,
 		&createdAt,
 	); err != nil {
 		return nil, err
@@ -2174,6 +2187,9 @@ func scanUsageLog(scanner interface{ Scan(...any) error }) (*service.UsageLog, e
 	}
 	if imageSize.Valid {
 		log.ImageSize = &imageSize.String
+	}
+	if reasoningEffort.Valid {
+		log.ReasoningEffort = &reasoningEffort.String
 	}
 
 	return log, nil

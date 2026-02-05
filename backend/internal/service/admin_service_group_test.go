@@ -108,6 +108,14 @@ func (s *groupRepoStubForAdmin) DeleteAccountGroupsByGroupID(_ context.Context, 
 	panic("unexpected DeleteAccountGroupsByGroupID call")
 }
 
+func (s *groupRepoStubForAdmin) BindAccountsToGroup(_ context.Context, _ int64, _ []int64) error {
+	panic("unexpected BindAccountsToGroup call")
+}
+
+func (s *groupRepoStubForAdmin) GetAccountIDsByGroupIDs(_ context.Context, _ []int64) ([]int64, error) {
+	panic("unexpected GetAccountIDsByGroupIDs call")
+}
+
 // TestAdminService_CreateGroup_WithImagePricing 测试创建分组时 ImagePrice 字段正确传递
 func TestAdminService_CreateGroup_WithImagePricing(t *testing.T) {
 	repo := &groupRepoStubForAdmin{}
@@ -379,6 +387,14 @@ func (s *groupRepoStubForFallbackCycle) DeleteAccountGroupsByGroupID(_ context.C
 	panic("unexpected DeleteAccountGroupsByGroupID call")
 }
 
+func (s *groupRepoStubForFallbackCycle) BindAccountsToGroup(_ context.Context, _ int64, _ []int64) error {
+	panic("unexpected BindAccountsToGroup call")
+}
+
+func (s *groupRepoStubForFallbackCycle) GetAccountIDsByGroupIDs(_ context.Context, _ []int64) ([]int64, error) {
+	panic("unexpected GetAccountIDsByGroupIDs call")
+}
+
 type groupRepoStubForInvalidRequestFallback struct {
 	groups  map[int64]*Group
 	created *Group
@@ -440,6 +456,14 @@ func (s *groupRepoStubForInvalidRequestFallback) GetAccountCount(_ context.Conte
 
 func (s *groupRepoStubForInvalidRequestFallback) DeleteAccountGroupsByGroupID(_ context.Context, _ int64) (int64, error) {
 	panic("unexpected DeleteAccountGroupsByGroupID call")
+}
+
+func (s *groupRepoStubForInvalidRequestFallback) GetAccountIDsByGroupIDs(_ context.Context, _ []int64) ([]int64, error) {
+	panic("unexpected GetAccountIDsByGroupIDs call")
+}
+
+func (s *groupRepoStubForInvalidRequestFallback) BindAccountsToGroup(_ context.Context, _ int64, _ []int64) error {
+	panic("unexpected BindAccountsToGroup call")
 }
 
 func TestAdminService_CreateGroup_InvalidRequestFallbackRejectsUnsupportedPlatform(t *testing.T) {

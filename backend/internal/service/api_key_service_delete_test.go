@@ -118,6 +118,10 @@ func (s *apiKeyRepoStub) ListKeysByGroupID(ctx context.Context, groupID int64) (
 	panic("unexpected ListKeysByGroupID call")
 }
 
+func (s *apiKeyRepoStub) IncrementQuotaUsed(ctx context.Context, id int64, amount float64) (float64, error) {
+	panic("unexpected IncrementQuotaUsed call")
+}
+
 // apiKeyCacheStub 是 APIKeyCache 接口的测试桩实现。
 // 用于验证删除操作时缓存清理逻辑是否被正确调用。
 //
@@ -165,6 +169,14 @@ func (s *apiKeyCacheStub) SetAuthCache(ctx context.Context, key string, entry *A
 
 func (s *apiKeyCacheStub) DeleteAuthCache(ctx context.Context, key string) error {
 	s.deleteAuthKeys = append(s.deleteAuthKeys, key)
+	return nil
+}
+
+func (s *apiKeyCacheStub) PublishAuthCacheInvalidation(ctx context.Context, cacheKey string) error {
+	return nil
+}
+
+func (s *apiKeyCacheStub) SubscribeAuthCacheInvalidation(ctx context.Context, handler func(cacheKey string)) error {
 	return nil
 }
 

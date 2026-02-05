@@ -95,7 +95,7 @@ func TestBuildParts_ThinkingBlockWithoutSignature(t *testing.T) {
 				if len(parts) != 3 {
 					t.Fatalf("expected 3 parts, got %d", len(parts))
 				}
-				if !parts[1].Thought || parts[1].ThoughtSignature != dummyThoughtSignature {
+				if !parts[1].Thought || parts[1].ThoughtSignature != DummyThoughtSignature {
 					t.Fatalf("expected dummy thought signature, got thought=%v signature=%q",
 						parts[1].Thought, parts[1].ThoughtSignature)
 				}
@@ -109,7 +109,7 @@ func TestBuildParts_ToolUseSignatureHandling(t *testing.T) {
 		{"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "ls"}, "signature": "%s"}
 	]`, validToolSignature)
 
-	t.Run("Gemini uses dummy tool_use signature", func(t *testing.T) {
+	t.Run("Gemini preserves provided tool_use signature", func(t *testing.T) {
 		toolIDToName := make(map[string]string)
 		lastSig := ""
 		parts, _, err := buildParts(json.RawMessage(content), toolIDToName, true, true, &lastSig)
@@ -119,8 +119,25 @@ func TestBuildParts_ToolUseSignatureHandling(t *testing.T) {
 		if len(parts) != 1 || parts[0].FunctionCall == nil {
 			t.Fatalf("expected 1 functionCall part, got %+v", parts)
 		}
-		if parts[0].ThoughtSignature != dummyThoughtSignature {
-			t.Fatalf("expected dummy tool signature %q, got %q", dummyThoughtSignature, parts[0].ThoughtSignature)
+		if parts[0].ThoughtSignature != "sig_tool_abc" {
+			t.Fatalf("expected preserved tool signature %q, got %q", "sig_tool_abc", parts[0].ThoughtSignature)
+		}
+	})
+
+	t.Run("Gemini falls back to dummy tool_use signature when missing", func(t *testing.T) {
+		contentNoSig := `[
+			{"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "ls"}}
+		]`
+		toolIDToName := make(map[string]string)
+		parts, _, err := buildParts(json.RawMessage(contentNoSig), toolIDToName, true)
+		if err != nil {
+			t.Fatalf("buildParts() error = %v", err)
+		}
+		if len(parts) != 1 || parts[0].FunctionCall == nil {
+			t.Fatalf("expected 1 functionCall part, got %+v", parts)
+		}
+		if parts[0].ThoughtSignature != DummyThoughtSignature {
+			t.Fatalf("expected dummy tool signature %q, got %q", DummyThoughtSignature, parts[0].ThoughtSignature)
 		}
 	})
 

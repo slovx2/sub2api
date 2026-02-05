@@ -29,7 +29,7 @@ func NewRedeemHandler(adminService service.AdminService) *RedeemHandler {
 // GenerateRedeemCodesRequest represents generate redeem codes request
 type GenerateRedeemCodesRequest struct {
 	Count        int     `json:"count" binding:"required,min=1,max=100"`
-	Type         string  `json:"type" binding:"required,oneof=balance concurrency subscription"`
+	Type         string  `json:"type" binding:"required,oneof=balance concurrency subscription invitation"`
 	Value        float64 `json:"value" binding:"min=0"`
 	GroupID      *int64  `json:"group_id"`                                    // 订阅类型必填
 	ValidityDays int     `json:"validity_days" binding:"omitempty,max=36500"` // 订阅类型使用，默认30天，最大100年
@@ -54,9 +54,9 @@ func (h *RedeemHandler) List(c *gin.Context) {
 		return
 	}
 
-	out := make([]dto.RedeemCode, 0, len(codes))
+	out := make([]dto.AdminRedeemCode, 0, len(codes))
 	for i := range codes {
-		out = append(out, *dto.RedeemCodeFromService(&codes[i]))
+		out = append(out, *dto.RedeemCodeFromServiceAdmin(&codes[i]))
 	}
 	response.Paginated(c, out, total, page, pageSize)
 }
@@ -76,7 +76,7 @@ func (h *RedeemHandler) GetByID(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, dto.RedeemCodeFromService(code))
+	response.Success(c, dto.RedeemCodeFromServiceAdmin(code))
 }
 
 // Generate handles generating new redeem codes
@@ -100,9 +100,9 @@ func (h *RedeemHandler) Generate(c *gin.Context) {
 		return
 	}
 
-	out := make([]dto.RedeemCode, 0, len(codes))
+	out := make([]dto.AdminRedeemCode, 0, len(codes))
 	for i := range codes {
-		out = append(out, *dto.RedeemCodeFromService(&codes[i]))
+		out = append(out, *dto.RedeemCodeFromServiceAdmin(&codes[i]))
 	}
 	response.Success(c, out)
 }
@@ -163,7 +163,7 @@ func (h *RedeemHandler) Expire(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, dto.RedeemCodeFromService(code))
+	response.Success(c, dto.RedeemCodeFromServiceAdmin(code))
 }
 
 // GetStats handles getting redeem code statistics

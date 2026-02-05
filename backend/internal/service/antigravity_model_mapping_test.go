@@ -30,7 +30,7 @@ func TestIsAntigravityModelSupported(t *testing.T) {
 		{"可映射 - claude-3-haiku-20240307", "claude-3-haiku-20240307", true},
 
 		// Gemini 前缀透传
-		{"Gemini前缀 - gemini-1.5-pro", "gemini-1.5-pro", true},
+		{"Gemini前缀 - gemini-2.5-pro", "gemini-2.5-pro", true},
 		{"Gemini前缀 - gemini-unknown-model", "gemini-unknown-model", true},
 		{"Gemini前缀 - gemini-future-version", "gemini-future-version", true},
 
@@ -134,18 +134,18 @@ func TestAntigravityGatewayService_GetMappedModel(t *testing.T) {
 			expected:       "claude-sonnet-4-5",
 		},
 
-		// 3. Gemini 透传
+		// 3. Gemini 2.5 → 3 映射
 		{
-			name:           "Gemini透传 - gemini-2.5-flash",
+			name:           "Gemini映射 - gemini-2.5-flash → gemini-3-flash",
 			requestedModel: "gemini-2.5-flash",
 			accountMapping: nil,
-			expected:       "gemini-2.5-flash",
+			expected:       "gemini-3-flash",
 		},
 		{
-			name:           "Gemini透传 - gemini-1.5-pro",
-			requestedModel: "gemini-1.5-pro",
+			name:           "Gemini映射 - gemini-2.5-pro → gemini-3-pro-high",
+			requestedModel: "gemini-2.5-pro",
 			accountMapping: nil,
-			expected:       "gemini-1.5-pro",
+			expected:       "gemini-3-pro-high",
 		},
 		{
 			name:           "Gemini透传 - gemini-future-model",

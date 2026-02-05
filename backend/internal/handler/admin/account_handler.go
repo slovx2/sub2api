@@ -45,6 +45,7 @@ type AccountHandler struct {
 	concurrencyService      *service.ConcurrencyService
 	crsSyncService          *service.CRSSyncService
 	sessionLimitCache       service.SessionLimitCache
+	tokenCacheInvalidator   service.TokenCacheInvalidator
 }
 
 // NewAccountHandler creates a new admin account handler
@@ -60,6 +61,7 @@ func NewAccountHandler(
 	concurrencyService *service.ConcurrencyService,
 	crsSyncService *service.CRSSyncService,
 	sessionLimitCache service.SessionLimitCache,
+	tokenCacheInvalidator service.TokenCacheInvalidator,
 ) *AccountHandler {
 	return &AccountHandler{
 		adminService:            adminService,
@@ -73,6 +75,7 @@ func NewAccountHandler(
 		concurrencyService:      concurrencyService,
 		crsSyncService:          crsSyncService,
 		sessionLimitCache:       sessionLimitCache,
+		tokenCacheInvalidator:   tokenCacheInvalidator,
 	}
 }
 
@@ -81,7 +84,7 @@ type CreateAccountRequest struct {
 	Name                    string         `json:"name" binding:"required"`
 	Notes                   *string        `json:"notes"`
 	Platform                string         `json:"platform" binding:"required"`
-	Type                    string         `json:"type" binding:"required,oneof=oauth setup-token apikey"`
+	Type                    string         `json:"type" binding:"required,oneof=oauth setup-token apikey upstream"`
 	Credentials             map[string]any `json:"credentials" binding:"required"`
 	Extra                   map[string]any `json:"extra"`
 	ProxyID                 *int64         `json:"proxy_id"`
@@ -99,7 +102,7 @@ type CreateAccountRequest struct {
 type UpdateAccountRequest struct {
 	Name                    string         `json:"name"`
 	Notes                   *string        `json:"notes"`
-	Type                    string         `json:"type" binding:"omitempty,oneof=oauth setup-token apikey"`
+	Type                    string         `json:"type" binding:"omitempty,oneof=oauth setup-token apikey upstream"`
 	Credentials             map[string]any `json:"credentials"`
 	Extra                   map[string]any `json:"extra"`
 	ProxyID                 *int64         `json:"proxy_id"`
@@ -131,13 +134,6 @@ type BulkUpdateAccountsRequest struct {
 	ResetError           *bool `json:"reset_error"`            // 重置错误状态
 	ResetRateLimit       *bool `json:"reset_rate_limit"`       // 重置限流状态
 	ResetTempUnscheduled *bool `json:"reset_temp_unscheduled"` // 重置临时不可调度
-}
-
-// AccountLookupRequest 用于凭证身份信息查找账号
-type AccountLookupRequest struct {
-	Platform     string   `json:"platform" binding:"required"`
-	Emails       []string `json:"emails" binding:"required,min=1"`
-	IdentityType string   `json:"identity_type"`
 }
 
 // AccountWithConcurrency extends Account with real-time concurrency info
@@ -184,6 +180,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 	// 识别需要查询窗口费用和会话数的账号（Anthropic OAuth/SetupToken 且启用了相应功能）
 	windowCostAccountIDs := make([]int64, 0)
 	sessionLimitAccountIDs := make([]int64, 0)
+	sessionIdleTimeouts := make(map[int64]time.Duration) // 各账号的会话空闲超时配置
 	for i := range accounts {
 		acc := &accounts[i]
 		if acc.IsAnthropicOAuthOrSetupToken() {
@@ -192,6 +189,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 			}
 			if acc.GetMaxSessions() > 0 {
 				sessionLimitAccountIDs = append(sessionLimitAccountIDs, acc.ID)
+				sessionIdleTimeouts[acc.ID] = time.Duration(acc.GetSessionIdleTimeoutMinutes()) * time.Minute
 			}
 		}
 	}
@@ -200,9 +198,9 @@ func (h *AccountHandler) List(c *gin.Context) {
 	var windowCosts map[int64]float64
 	var activeSessions map[int64]int
 
-	// 获取活跃会话数（批量查询）
+	// 获取活跃会话数（批量查询，传入各账号的 idleTimeout 配置）
 	if len(sessionLimitAccountIDs) > 0 && h.sessionLimitCache != nil {
-		activeSessions, _ = h.sessionLimitCache.GetActiveSessionCountBatch(c.Request.Context(), sessionLimitAccountIDs)
+		activeSessions, _ = h.sessionLimitCache.GetActiveSessionCountBatch(c.Request.Context(), sessionLimitAccountIDs, sessionIdleTimeouts)
 		if activeSessions == nil {
 			activeSessions = make(map[int64]int)
 		}
@@ -222,12 +220,8 @@ func (h *AccountHandler) List(c *gin.Context) {
 			}
 			accCopy := acc // 闭包捕获
 			g.Go(func() error {
-				var startTime time.Time
-				if accCopy.SessionWindowStart != nil {
-					startTime = *accCopy.SessionWindowStart
-				} else {
-					startTime = time.Now().Add(-5 * time.Hour)
-				}
+				// 使用统一的窗口开始时间计算逻辑（考虑窗口过期情况）
+				startTime := accCopy.GetCurrentWindowStartTime()
 				stats, err := h.accountUsageService.GetAccountWindowStats(gctx, accCopy.ID, startTime)
 				if err == nil && stats != nil {
 					mu.Lock()
@@ -267,87 +261,6 @@ func (h *AccountHandler) List(c *gin.Context) {
 	}
 
 	response.Paginated(c, result, total, page, pageSize)
-}
-
-// Lookup 根据凭证身份信息查找账号
-// POST /api/v1/admin/accounts/lookup
-func (h *AccountHandler) Lookup(c *gin.Context) {
-	var req AccountLookupRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-
-	identityType := strings.TrimSpace(req.IdentityType)
-	if identityType == "" {
-		identityType = "credential_email"
-	}
-	if identityType != "credential_email" {
-		response.BadRequest(c, "Unsupported identity_type")
-		return
-	}
-
-	platform := strings.TrimSpace(req.Platform)
-	if platform == "" {
-		response.BadRequest(c, "Platform is required")
-		return
-	}
-
-	normalized := make([]string, 0, len(req.Emails))
-	seen := make(map[string]struct{})
-	for _, email := range req.Emails {
-		cleaned := strings.ToLower(strings.TrimSpace(email))
-		if cleaned == "" {
-			continue
-		}
-		if _, ok := seen[cleaned]; ok {
-			continue
-		}
-		seen[cleaned] = struct{}{}
-		normalized = append(normalized, cleaned)
-	}
-	if len(normalized) == 0 {
-		response.BadRequest(c, "Emails is required")
-		return
-	}
-
-	accounts, err := h.adminService.LookupAccountsByCredentialEmail(c.Request.Context(), platform, normalized)
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-
-	matchedMap := make(map[string]service.Account)
-	for _, account := range accounts {
-		email := strings.ToLower(strings.TrimSpace(account.GetCredential("email")))
-		if email == "" {
-			continue
-		}
-		if _, ok := matchedMap[email]; ok {
-			continue
-		}
-		matchedMap[email] = account
-	}
-
-	matched := make([]gin.H, 0, len(matchedMap))
-	missing := make([]string, 0)
-	for _, email := range normalized {
-		if account, ok := matchedMap[email]; ok {
-			matched = append(matched, gin.H{
-				"email":      email,
-				"account_id": account.ID,
-				"platform":   account.Platform,
-				"name":       account.Name,
-			})
-			continue
-		}
-		missing = append(missing, email)
-	}
-
-	response.Success(c, gin.H{
-		"matched": matched,
-		"missing": missing,
-	})
 }
 
 // GetByID handles getting an account by ID
@@ -638,9 +551,18 @@ func (h *AccountHandler) Refresh(c *gin.Context) {
 			}
 		}
 
-		// 如果 project_id 获取失败，先更新凭证，再标记账户为 error
+		// 特殊处理 project_id：如果新值为空但旧值非空，保留旧值
+		// 这确保了即使 LoadCodeAssist 失败，project_id 也不会丢失
+		if newProjectID, _ := newCredentials["project_id"].(string); newProjectID == "" {
+			if oldProjectID := strings.TrimSpace(account.GetCredential("project_id")); oldProjectID != "" {
+				newCredentials["project_id"] = oldProjectID
+			}
+		}
+
+		// 如果 project_id 获取失败，更新凭证但不标记为 error
+		// LoadCodeAssist 失败可能是临时网络问题，给它机会在下次自动刷新时重试
 		if tokenInfo.ProjectIDMissing {
-			// 先更新凭证
+			// 先更新凭证（token 本身刷新成功了）
 			_, updateErr := h.adminService.UpdateAccount(c.Request.Context(), accountID, &service.UpdateAccountInput{
 				Credentials: newCredentials,
 			})
@@ -648,14 +570,10 @@ func (h *AccountHandler) Refresh(c *gin.Context) {
 				response.InternalError(c, "Failed to update credentials: "+updateErr.Error())
 				return
 			}
-			// 标记账户为 error
-			if setErr := h.adminService.SetAccountError(c.Request.Context(), accountID, "missing_project_id: 账户缺少project id，可能无法使用Antigravity"); setErr != nil {
-				response.InternalError(c, "Failed to set account error: "+setErr.Error())
-				return
-			}
+			// 不标记为 error，只返回警告信息
 			response.Success(c, gin.H{
-				"message": "Token refreshed but project_id is missing, account marked as error",
-				"warning": "missing_project_id",
+				"message": "Token refreshed successfully, but project_id could not be retrieved (will retry automatically)",
+				"warning": "missing_project_id_temporary",
 			})
 			return
 		}
@@ -700,6 +618,14 @@ func (h *AccountHandler) Refresh(c *gin.Context) {
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
+	}
+
+	// 刷新成功后，清除 token 缓存，确保下次请求使用新 token
+	if h.tokenCacheInvalidator != nil {
+		if invalidateErr := h.tokenCacheInvalidator.InvalidateToken(c.Request.Context(), updatedAccount); invalidateErr != nil {
+			// 缓存失效失败只记录日志，不影响主流程
+			_ = c.Error(invalidateErr)
+		}
 	}
 
 	response.Success(c, dto.AccountFromService(updatedAccount))
@@ -749,6 +675,15 @@ func (h *AccountHandler) ClearError(c *gin.Context) {
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
+	}
+
+	// 清除错误后，同时清除 token 缓存，确保下次请求会获取最新的 token（触发刷新或从 DB 读取）
+	// 这解决了管理员重置账号状态后，旧的失效 token 仍在缓存中导致立即再次 401 的问题
+	if h.tokenCacheInvalidator != nil && account.IsOAuth() {
+		if invalidateErr := h.tokenCacheInvalidator.InvalidateToken(c.Request.Context(), account); invalidateErr != nil {
+			// 缓存失效失败只记录日志，不影响主流程
+			_ = c.Error(invalidateErr)
+		}
 	}
 
 	response.Success(c, dto.AccountFromService(account))

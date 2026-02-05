@@ -24,6 +24,7 @@ import (
 type OpenAIGatewayHandler struct {
 	gatewayService      *service.OpenAIGatewayService
 	billingCacheService *service.BillingCacheService
+	apiKeyService       *service.APIKeyService
 	concurrencyHelper   *ConcurrencyHelper
 	maxAccountSwitches  int
 }
@@ -33,6 +34,7 @@ func NewOpenAIGatewayHandler(
 	gatewayService *service.OpenAIGatewayService,
 	concurrencyService *service.ConcurrencyService,
 	billingCacheService *service.BillingCacheService,
+	apiKeyService *service.APIKeyService,
 	cfg *config.Config,
 ) *OpenAIGatewayHandler {
 	pingInterval := time.Duration(0)
@@ -46,6 +48,7 @@ func NewOpenAIGatewayHandler(
 	return &OpenAIGatewayHandler{
 		gatewayService:      gatewayService,
 		billingCacheService: billingCacheService,
+		apiKeyService:       apiKeyService,
 		concurrencyHelper:   NewConcurrencyHelper(concurrencyService, SSEPingFormatComment, pingInterval),
 		maxAccountSwitches:  maxAccountSwitches,
 	}
@@ -192,8 +195,8 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		return
 	}
 
-	// Generate session hash (from header for OpenAI)
-	sessionHash := h.gatewayService.GenerateSessionHash(c)
+	// Generate session hash (header first; fallback to prompt_cache_key)
+	sessionHash := h.gatewayService.GenerateSessionHash(c, reqBody)
 
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
@@ -299,13 +302,14 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
-				Result:       result,
-				APIKey:       apiKey,
-				User:         apiKey.User,
-				Account:      usedAccount,
-				Subscription: subscription,
-				UserAgent:    ua,
-				IPAddress:    ip,
+				Result:        result,
+				APIKey:        apiKey,
+				User:          apiKey.User,
+				Account:       usedAccount,
+				Subscription:  subscription,
+				UserAgent:     ua,
+				IPAddress:     ip,
+				APIKeyService: h.apiKeyService,
 			}); err != nil {
 				log.Printf("Record usage failed: %v", err)
 			}

@@ -94,6 +94,20 @@ func (s *APIKeyService) initAuthCache(cfg *config.Config) {
 	s.authCacheL1 = cache
 }
 
+// StartAuthCacheInvalidationSubscriber starts the Pub/Sub subscriber for L1 cache invalidation.
+// This should be called after the service is fully initialized.
+func (s *APIKeyService) StartAuthCacheInvalidationSubscriber(ctx context.Context) {
+	if s.cache == nil || s.authCacheL1 == nil {
+		return
+	}
+	if err := s.cache.SubscribeAuthCacheInvalidation(ctx, func(cacheKey string) {
+		s.authCacheL1.Del(cacheKey)
+	}); err != nil {
+		// Log but don't fail - L1 cache will still work, just without cross-instance invalidation
+		println("[Service] Warning: failed to start auth cache invalidation subscriber:", err.Error())
+	}
+}
+
 func (s *APIKeyService) authCacheKey(key string) string {
 	sum := sha256.Sum256([]byte(key))
 	return hex.EncodeToString(sum[:])
@@ -149,6 +163,8 @@ func (s *APIKeyService) deleteAuthCache(ctx context.Context, cacheKey string) {
 		return
 	}
 	_ = s.cache.DeleteAuthCache(ctx, cacheKey)
+	// Publish invalidation message to other instances
+	_ = s.cache.PublishAuthCacheInvalidation(ctx, cacheKey)
 }
 
 func (s *APIKeyService) loadAuthCacheEntry(ctx context.Context, key, cacheKey string) (*APIKeyAuthCacheEntry, error) {
@@ -197,6 +213,9 @@ func (s *APIKeyService) snapshotFromAPIKey(apiKey *APIKey) *APIKeyAuthSnapshot {
 		Status:      apiKey.Status,
 		IPWhitelist: apiKey.IPWhitelist,
 		IPBlacklist: apiKey.IPBlacklist,
+		Quota:       apiKey.Quota,
+		QuotaUsed:   apiKey.QuotaUsed,
+		ExpiresAt:   apiKey.ExpiresAt,
 		User: APIKeyAuthUserSnapshot{
 			ID:          apiKey.User.ID,
 			Status:      apiKey.User.Status,
@@ -225,6 +244,7 @@ func (s *APIKeyService) snapshotFromAPIKey(apiKey *APIKey) *APIKeyAuthSnapshot {
 			ModelRouting:                    apiKey.Group.ModelRouting,
 			ModelRoutingEnabled:             apiKey.Group.ModelRoutingEnabled,
 			MCPXMLInject:                    apiKey.Group.MCPXMLInject,
+			SupportedModelScopes:            apiKey.Group.SupportedModelScopes,
 		}
 	}
 	return snapshot
@@ -242,6 +262,9 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 		Status:      snapshot.Status,
 		IPWhitelist: snapshot.IPWhitelist,
 		IPBlacklist: snapshot.IPBlacklist,
+		Quota:       snapshot.Quota,
+		QuotaUsed:   snapshot.QuotaUsed,
+		ExpiresAt:   snapshot.ExpiresAt,
 		User: &User{
 			ID:          snapshot.User.ID,
 			Status:      snapshot.User.Status,
@@ -271,6 +294,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			ModelRouting:                    snapshot.Group.ModelRouting,
 			ModelRoutingEnabled:             snapshot.Group.ModelRoutingEnabled,
 			MCPXMLInject:                    snapshot.Group.MCPXMLInject,
+			SupportedModelScopes:            snapshot.Group.SupportedModelScopes,
 		}
 	}
 	return apiKey

@@ -26,7 +26,7 @@ import (
 
 const (
 	antigravityStickySessionTTL  = time.Hour
-	antigravityDefaultMaxRetries = 5
+	antigravityDefaultMaxRetries = 3
 	antigravityRetryBaseDelay    = 1 * time.Second
 	antigravityRetryMaxDelay     = 16 * time.Second
 )
@@ -53,11 +53,11 @@ type antigravityRetryLoopParams struct {
 	action         string
 	body           []byte
 	quotaScope     AntigravityQuotaScope
+	maxRetries     int
 	c              *gin.Context
 	httpUpstream   HTTPUpstream
 	settingService *SettingService
 	handleError    func(ctx context.Context, prefix string, account *Account, statusCode int, headers http.Header, body []byte, quotaScope AntigravityQuotaScope)
-	maxRetries     int // 可选，0 表示使用平台级默认值
 }
 
 // antigravityRetryLoopResult 重试循环的结果
@@ -107,9 +107,10 @@ func antigravityRetryLoop(p antigravityRetryLoopParams) (*antigravityRetryLoopRe
 	if len(availableURLs) == 0 {
 		availableURLs = baseURLs
 	}
+
 	maxRetries := p.maxRetries
 	if maxRetries <= 0 {
-		maxRetries = antigravityMaxRetries()
+		maxRetries = antigravityDefaultMaxRetries
 	}
 
 	var resp *http.Response
@@ -186,7 +187,7 @@ urlFallbackLoop:
 					continue urlFallbackLoop
 				}
 
-				// 账户/模型配额限流，按最大重试次数做指数退避
+				// 账户/模型配额限流，重试 3 次（指数退避）
 				if attempt < maxRetries {
 					upstreamMsg := strings.TrimSpace(extractAntigravityErrorMessage(respBody))
 					upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
@@ -326,13 +327,11 @@ func logPrefix(sessionID, accountName string) string {
 }
 
 // Antigravity 直接支持的模型（精确匹配透传）
+// 注意：gemini-2.5 系列已移除，统一映射到 gemini-3 系列
 var antigravitySupportedModels = map[string]bool{
 	"claude-opus-4-5-thinking":   true,
 	"claude-sonnet-4-5":          true,
 	"claude-sonnet-4-5-thinking": true,
-	"gemini-2.5-flash":           true,
-	"gemini-2.5-flash-lite":      true,
-	"gemini-2.5-flash-thinking":  true,
 	"gemini-3-flash":             true,
 	"gemini-3-pro-low":           true,
 	"gemini-3-pro-high":          true,
@@ -341,23 +340,32 @@ var antigravitySupportedModels = map[string]bool{
 
 // Antigravity 前缀映射表（按前缀长度降序排列，确保最长匹配优先）
 // 用于处理模型版本号变化（如 -20251111, -thinking, -preview 等后缀）
+// gemini-2.5 系列统一映射到 gemini-3 系列（Antigravity 上游不再支持 2.5）
 var antigravityPrefixMapping = []struct {
 	prefix string
 	target string
 }{
-	// 长前缀优先
-	{"gemini-2.5-flash-image", "gemini-3-pro-image"}, // gemini-2.5-flash-image → 3-pro-image
-	{"gemini-3-pro-image", "gemini-3-pro-image"},     // gemini-3-pro-image-preview 等
-	{"gemini-3-flash", "gemini-3-flash"},             // gemini-3-flash-preview 等 → gemini-3-flash
-	{"claude-3-5-sonnet", "claude-sonnet-4-5"},       // 旧版 claude-3-5-sonnet-xxx
-	{"claude-sonnet-4-5", "claude-sonnet-4-5"},       // claude-sonnet-4-5-xxx
-	{"claude-haiku-4-5", "claude-sonnet-4-5"},        // claude-haiku-4-5-xxx → sonnet
+	// gemini-2.5 → gemini-3 映射（长前缀优先）
+	{"gemini-2.5-flash-thinking", "gemini-3-flash"},  // gemini-2.5-flash-thinking → gemini-3-flash
+	{"gemini-2.5-flash-image", "gemini-3-pro-image"}, // gemini-2.5-flash-image → gemini-3-pro-image
+	{"gemini-2.5-flash-lite", "gemini-3-flash"},      // gemini-2.5-flash-lite → gemini-3-flash
+	{"gemini-2.5-flash", "gemini-3-flash"},           // gemini-2.5-flash → gemini-3-flash
+	{"gemini-2.5-pro-preview", "gemini-3-pro-high"},  // gemini-2.5-pro-preview → gemini-3-pro-high
+	{"gemini-2.5-pro-exp", "gemini-3-pro-high"},      // gemini-2.5-pro-exp → gemini-3-pro-high
+	{"gemini-2.5-pro", "gemini-3-pro-high"},          // gemini-2.5-pro → gemini-3-pro-high
+	// gemini-3 前缀映射
+	{"gemini-3-pro-image", "gemini-3-pro-image"}, // gemini-3-pro-image-preview 等
+	{"gemini-3-flash", "gemini-3-flash"},         // gemini-3-flash-preview 等 → gemini-3-flash
+	{"gemini-3-pro", "gemini-3-pro-high"},        // gemini-3-pro, gemini-3-pro-preview 等
+	// Claude 映射
+	{"claude-3-5-sonnet", "claude-sonnet-4-5"}, // 旧版 claude-3-5-sonnet-xxx
+	{"claude-sonnet-4-5", "claude-sonnet-4-5"}, // claude-sonnet-4-5-xxx
+	{"claude-haiku-4-5", "claude-sonnet-4-5"},  // claude-haiku-4-5-xxx → sonnet
 	{"claude-opus-4-5", "claude-opus-4-5-thinking"},
 	{"claude-3-haiku", "claude-sonnet-4-5"}, // 旧版 claude-3-haiku-xxx → sonnet
 	{"claude-sonnet-4", "claude-sonnet-4-5"},
 	{"claude-haiku-4", "claude-sonnet-4-5"}, // → sonnet
 	{"claude-opus-4", "claude-opus-4-5-thinking"},
-	{"gemini-3-pro", "gemini-3-pro-high"}, // gemini-3-pro, gemini-3-pro-preview 等
 }
 
 // AntigravityGatewayService 处理 Antigravity 平台的 API 转发
@@ -439,6 +447,11 @@ type TestConnectionResult struct {
 // TestConnection 测试 Antigravity 账号连接（非流式，无重试、无计费）
 // 支持 Claude 和 Gemini 两种协议，根据 modelID 前缀自动选择
 func (s *AntigravityGatewayService) TestConnection(ctx context.Context, account *Account, modelID string) (*TestConnectionResult, error) {
+	// 上游透传账号使用专用测试方法
+	if account.Type == AccountTypeUpstream {
+		return s.testUpstreamConnection(ctx, account, modelID)
+	}
+
 	// 获取 token
 	if s.tokenProvider == nil {
 		return nil, errors.New("antigravity token provider not configured")
@@ -531,6 +544,87 @@ func (s *AntigravityGatewayService) TestConnection(ctx context.Context, account 
 	}
 
 	return nil, lastErr
+}
+
+// testUpstreamConnection 测试上游透传账号连接
+func (s *AntigravityGatewayService) testUpstreamConnection(ctx context.Context, account *Account, modelID string) (*TestConnectionResult, error) {
+	baseURL := strings.TrimSpace(account.GetCredential("base_url"))
+	apiKey := strings.TrimSpace(account.GetCredential("api_key"))
+	if baseURL == "" || apiKey == "" {
+		return nil, errors.New("upstream account missing base_url or api_key")
+	}
+	baseURL = strings.TrimSuffix(baseURL, "/")
+
+	// 使用 Claude 模型进行测试
+	if modelID == "" {
+		modelID = "claude-sonnet-4-20250514"
+	}
+
+	// 构建最小测试请求
+	testReq := map[string]any{
+		"model":      modelID,
+		"max_tokens": 1,
+		"messages": []map[string]any{
+			{"role": "user", "content": "."},
+		},
+	}
+	requestBody, err := json.Marshal(testReq)
+	if err != nil {
+		return nil, fmt.Errorf("构建请求失败: %w", err)
+	}
+
+	// 构建 HTTP 请求
+	upstreamURL := baseURL + "/v1/messages"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, upstreamURL, bytes.NewReader(requestBody))
+	if err != nil {
+		return nil, fmt.Errorf("创建请求失败: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("x-api-key", apiKey)
+	req.Header.Set("anthropic-version", "2023-06-01")
+
+	// 代理 URL
+	proxyURL := ""
+	if account.ProxyID != nil && account.Proxy != nil {
+		proxyURL = account.Proxy.URL()
+	}
+
+	log.Printf("[antigravity-Test-Upstream] account=%s url=%s", account.Name, upstreamURL)
+
+	// 发送请求
+	resp, err := s.httpUpstream.Do(req, proxyURL, account.ID, account.Concurrency)
+	if err != nil {
+		return nil, fmt.Errorf("请求失败: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if err != nil {
+		return nil, fmt.Errorf("读取响应失败: %w", err)
+	}
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("API 返回 %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	// 提取响应文本
+	var respData map[string]any
+	text := ""
+	if json.Unmarshal(respBody, &respData) == nil {
+		if content, ok := respData["content"].([]any); ok && len(content) > 0 {
+			if block, ok := content[0].(map[string]any); ok {
+				if t, ok := block["text"].(string); ok {
+					text = t
+				}
+			}
+		}
+	}
+
+	return &TestConnectionResult{
+		Text:        text,
+		MappedModel: modelID,
+	}, nil
 }
 
 // buildGeminiTestRequest 构建 Gemini 格式测试请求
@@ -755,6 +849,11 @@ func isModelNotFoundError(statusCode int, body []byte) bool {
 
 // Forward 转发 Claude 协议请求（Claude → Gemini 转换）
 func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (*ForwardResult, error) {
+	// 上游透传账号直接转发，不走 OAuth token 刷新
+	if account.Type == AccountTypeUpstream {
+		return s.ForwardUpstream(ctx, c, account, body)
+	}
+
 	startTime := time.Now()
 	sessionID := getSessionID(c)
 	prefix := logPrefix(sessionID, account.Name)
@@ -1081,7 +1180,7 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 	return &ForwardResult{
 		RequestID:    requestID,
 		Usage:        *usage,
-		Model:        billingModel,
+		Model:        billingModel, // 计费模型（可按映射模型覆盖）
 		Stream:       claudeReq.Stream,
 		Duration:     time.Since(startTime),
 		FirstTokenMs: firstTokenMs,
@@ -1103,6 +1202,12 @@ func isSignatureRelatedError(respBody []byte) bool {
 	// Also detect thinking block structural errors:
 	// "Expected `thinking` or `redacted_thinking`, but found `text`"
 	if strings.Contains(msg, "expected") && (strings.Contains(msg, "thinking") || strings.Contains(msg, "redacted_thinking")) {
+		return true
+	}
+
+	// Detect thinking block modification errors:
+	// "thinking or redacted_thinking blocks in the latest assistant message cannot be modified"
+	if strings.Contains(msg, "cannot be modified") && (strings.Contains(msg, "thinking") || strings.Contains(msg, "redacted_thinking")) {
 		return true
 	}
 
@@ -1385,6 +1490,208 @@ func stripSignatureSensitiveBlocksFromClaudeRequest(req *antigravity.ClaudeReque
 	return changed, nil
 }
 
+// ForwardUpstream 透传请求到上游 Antigravity 服务
+// 用于 upstream 类型账号，直接使用 base_url + api_key 转发，不走 OAuth token
+func (s *AntigravityGatewayService) ForwardUpstream(ctx context.Context, c *gin.Context, account *Account, body []byte) (*ForwardResult, error) {
+	startTime := time.Now()
+	sessionID := getSessionID(c)
+	prefix := logPrefix(sessionID, account.Name)
+
+	// 获取上游配置
+	baseURL := strings.TrimSpace(account.GetCredential("base_url"))
+	apiKey := strings.TrimSpace(account.GetCredential("api_key"))
+	if baseURL == "" || apiKey == "" {
+		return nil, fmt.Errorf("upstream account missing base_url or api_key")
+	}
+	baseURL = strings.TrimSuffix(baseURL, "/")
+
+	// 解析请求获取模型信息
+	var claudeReq antigravity.ClaudeRequest
+	if err := json.Unmarshal(body, &claudeReq); err != nil {
+		return nil, fmt.Errorf("parse claude request: %w", err)
+	}
+	if strings.TrimSpace(claudeReq.Model) == "" {
+		return nil, fmt.Errorf("missing model")
+	}
+	originalModel := claudeReq.Model
+	billingModel := originalModel
+
+	// 构建上游请求 URL
+	upstreamURL := baseURL + "/v1/messages"
+
+	// 创建请求
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, upstreamURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create upstream request: %w", err)
+	}
+
+	// 设置请求头
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("x-api-key", apiKey) // Claude API 兼容
+
+	// 透传 Claude 相关 headers
+	if v := c.GetHeader("anthropic-version"); v != "" {
+		req.Header.Set("anthropic-version", v)
+	}
+	if v := c.GetHeader("anthropic-beta"); v != "" {
+		req.Header.Set("anthropic-beta", v)
+	}
+
+	// 代理 URL
+	proxyURL := ""
+	if account.ProxyID != nil && account.Proxy != nil {
+		proxyURL = account.Proxy.URL()
+	}
+
+	// 发送请求
+	resp, err := s.httpUpstream.Do(req, proxyURL, account.ID, account.Concurrency)
+	if err != nil {
+		log.Printf("%s upstream request failed: %v", prefix, err)
+		return nil, fmt.Errorf("upstream request failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	// 处理错误响应
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+
+		// 429 错误时标记账号限流
+		if resp.StatusCode == http.StatusTooManyRequests {
+			s.handleUpstreamError(ctx, prefix, account, resp.StatusCode, resp.Header, respBody, AntigravityQuotaScopeClaude)
+		}
+
+		// 透传上游错误
+		c.Header("Content-Type", resp.Header.Get("Content-Type"))
+		c.Status(resp.StatusCode)
+		_, _ = c.Writer.Write(respBody)
+
+		return &ForwardResult{
+			Model: billingModel,
+		}, nil
+	}
+
+	// 处理成功响应（流式/非流式）
+	var usage *ClaudeUsage
+	var firstTokenMs *int
+
+	if claudeReq.Stream {
+		// 流式响应：透传
+		c.Header("Content-Type", "text/event-stream")
+		c.Header("Cache-Control", "no-cache")
+		c.Header("Connection", "keep-alive")
+		c.Header("X-Accel-Buffering", "no")
+		c.Status(http.StatusOK)
+
+		usage, firstTokenMs = s.streamUpstreamResponse(c, resp, startTime)
+	} else {
+		// 非流式响应：直接透传
+		respBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("read upstream response: %w", err)
+		}
+
+		// 提取 usage
+		usage = s.extractClaudeUsage(respBody)
+
+		c.Header("Content-Type", resp.Header.Get("Content-Type"))
+		c.Status(http.StatusOK)
+		_, _ = c.Writer.Write(respBody)
+	}
+
+	// 构建计费结果
+	duration := time.Since(startTime)
+	log.Printf("%s status=success duration_ms=%d", prefix, duration.Milliseconds())
+
+	return &ForwardResult{
+		Model:        billingModel,
+		Stream:       claudeReq.Stream,
+		Duration:     duration,
+		FirstTokenMs: firstTokenMs,
+		Usage: ClaudeUsage{
+			InputTokens:              usage.InputTokens,
+			OutputTokens:             usage.OutputTokens,
+			CacheReadInputTokens:     usage.CacheReadInputTokens,
+			CacheCreationInputTokens: usage.CacheCreationInputTokens,
+		},
+	}, nil
+}
+
+// streamUpstreamResponse 透传上游流式响应并提取 usage
+func (s *AntigravityGatewayService) streamUpstreamResponse(c *gin.Context, resp *http.Response, startTime time.Time) (*ClaudeUsage, *int) {
+	usage := &ClaudeUsage{}
+	var firstTokenMs *int
+	var firstTokenRecorded bool
+
+	scanner := bufio.NewScanner(resp.Body)
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
+
+		// 记录首 token 时间
+		if !firstTokenRecorded && len(line) > 0 {
+			ms := int(time.Since(startTime).Milliseconds())
+			firstTokenMs = &ms
+			firstTokenRecorded = true
+		}
+
+		// 尝试从 message_delta 或 message_stop 事件提取 usage
+		if bytes.HasPrefix(line, []byte("data: ")) {
+			dataStr := bytes.TrimPrefix(line, []byte("data: "))
+			var event map[string]any
+			if json.Unmarshal(dataStr, &event) == nil {
+				if u, ok := event["usage"].(map[string]any); ok {
+					if v, ok := u["input_tokens"].(float64); ok && int(v) > 0 {
+						usage.InputTokens = int(v)
+					}
+					if v, ok := u["output_tokens"].(float64); ok && int(v) > 0 {
+						usage.OutputTokens = int(v)
+					}
+					if v, ok := u["cache_read_input_tokens"].(float64); ok && int(v) > 0 {
+						usage.CacheReadInputTokens = int(v)
+					}
+					if v, ok := u["cache_creation_input_tokens"].(float64); ok && int(v) > 0 {
+						usage.CacheCreationInputTokens = int(v)
+					}
+				}
+			}
+		}
+
+		// 透传行
+		_, _ = c.Writer.Write(line)
+		_, _ = c.Writer.Write([]byte("\n"))
+		c.Writer.Flush()
+	}
+
+	return usage, firstTokenMs
+}
+
+// extractClaudeUsage 从非流式 Claude 响应提取 usage
+func (s *AntigravityGatewayService) extractClaudeUsage(body []byte) *ClaudeUsage {
+	usage := &ClaudeUsage{}
+	var resp map[string]any
+	if json.Unmarshal(body, &resp) != nil {
+		return usage
+	}
+	if u, ok := resp["usage"].(map[string]any); ok {
+		if v, ok := u["input_tokens"].(float64); ok {
+			usage.InputTokens = int(v)
+		}
+		if v, ok := u["output_tokens"].(float64); ok {
+			usage.OutputTokens = int(v)
+		}
+		if v, ok := u["cache_read_input_tokens"].(float64); ok {
+			usage.CacheReadInputTokens = int(v)
+		}
+		if v, ok := u["cache_creation_input_tokens"].(float64); ok {
+			usage.CacheCreationInputTokens = int(v)
+		}
+	}
+	return usage
+}
+
 // ForwardGemini 转发 Gemini 协议请求
 func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Context, account *Account, originalModel string, action string, stream bool, body []byte) (*ForwardResult, error) {
 	startTime := time.Now()
@@ -1449,8 +1756,15 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		proxyURL = account.Proxy.URL()
 	}
 
+	// 过滤掉 parts 为空的消息（Gemini API 不接受空 parts）
+	filteredBody, err := filterEmptyPartsFromGeminiRequest(body)
+	if err != nil {
+		log.Printf("[Antigravity] Failed to filter empty parts: %v", err)
+		filteredBody = body
+	}
+
 	// Antigravity 上游要求必须包含身份提示词，注入到请求中
-	injectedBody, err := injectIdentityPatchToGeminiRequest(body)
+	injectedBody, err := injectIdentityPatchToGeminiRequest(filteredBody)
 	if err != nil {
 		return nil, err
 	}
@@ -1687,7 +2001,11 @@ func sleepAntigravityBackoffWithContext(ctx context.Context, attempt int) bool {
 
 func antigravityUseScopeRateLimit() bool {
 	v := strings.ToLower(strings.TrimSpace(os.Getenv(antigravityScopeRateLimitEnv)))
-	return v == "1" || v == "true" || v == "yes" || v == "on"
+	// 默认开启按配额域限流，只有明确设置为禁用值时才关闭
+	if v == "0" || v == "false" || v == "no" || v == "off" {
+		return false
+	}
+	return true
 }
 
 func antigravityHasAccountSwitch(ctx context.Context) bool {
@@ -1765,7 +2083,6 @@ func antigravityFallbackCooldownSeconds() (time.Duration, bool) {
 	}
 	return time.Duration(seconds) * time.Second, true
 }
-
 func (s *AntigravityGatewayService) handleUpstreamError(ctx context.Context, prefix string, account *Account, statusCode int, headers http.Header, body []byte, quotaScope AntigravityQuotaScope) {
 	// 429 使用 Gemini 格式解析（从 body 解析重置时间）
 	if statusCode == 429 {
@@ -1778,8 +2095,8 @@ func (s *AntigravityGatewayService) handleUpstreamError(ctx context.Context, pre
 				fallbackMinutes = s.settingService.cfg.Gateway.AntigravityFallbackCooldownMinutes
 			}
 			defaultDur := time.Duration(fallbackMinutes) * time.Minute
-			if override, ok := antigravityFallbackCooldownSeconds(); ok {
-				defaultDur = override
+			if fallbackDur, ok := antigravityFallbackCooldownSeconds(); ok {
+				defaultDur = fallbackDur
 			}
 			ra := time.Now().Add(defaultDur)
 			if useScopeLimit {
@@ -2333,6 +2650,58 @@ func getOrCreateGeminiParts(response map[string]any) (result map[string]any, exi
 	return result, existingParts, setParts
 }
 
+// mergeCollectedPartsToResponse 将收集的所有 parts 合并到 Gemini 响应中
+// 这个函数会合并所有类型的 parts：text、thinking、functionCall、inlineData 等
+// 保持原始顺序，只合并连续的普通 text parts
+func mergeCollectedPartsToResponse(response map[string]any, collectedParts []map[string]any) map[string]any {
+	if len(collectedParts) == 0 {
+		return response
+	}
+
+	result, _, setParts := getOrCreateGeminiParts(response)
+
+	// 合并策略：
+	// 1. 保持原始顺序
+	// 2. 连续的普通 text parts 合并为一个
+	// 3. thinking、functionCall、inlineData 等保持原样
+	var mergedParts []any
+	var textBuffer strings.Builder
+
+	flushTextBuffer := func() {
+		if textBuffer.Len() > 0 {
+			mergedParts = append(mergedParts, map[string]any{
+				"text": textBuffer.String(),
+			})
+			textBuffer.Reset()
+		}
+	}
+
+	for _, part := range collectedParts {
+		// 检查是否是普通 text part
+		if text, ok := part["text"].(string); ok {
+			// 检查是否有 thought 标记
+			if thought, _ := part["thought"].(bool); thought {
+				// thinking part，先刷新 text buffer，然后保留原样
+				flushTextBuffer()
+				mergedParts = append(mergedParts, part)
+			} else {
+				// 普通 text，累积到 buffer
+				_, _ = textBuffer.WriteString(text)
+			}
+		} else {
+			// 非 text part（functionCall、inlineData 等），先刷新 text buffer，然后保留原样
+			flushTextBuffer()
+			mergedParts = append(mergedParts, part)
+		}
+	}
+
+	// 刷新剩余的 text
+	flushTextBuffer()
+
+	setParts(mergedParts)
+	return result
+}
+
 // mergeImagePartsToResponse 将收集到的图片 parts 合并到 Gemini 响应中
 func mergeImagePartsToResponse(response map[string]any, imageParts []map[string]any) map[string]any {
 	if len(imageParts) == 0 {
@@ -2520,8 +2889,7 @@ func (s *AntigravityGatewayService) handleClaudeStreamToNonStreaming(c *gin.Cont
 	var firstTokenMs *int
 	var last map[string]any
 	var lastWithParts map[string]any
-	var collectedImageParts []map[string]any // 收集所有包含图片的 parts
-	var collectedTextParts []string          // 收集所有文本片段
+	var collectedParts []map[string]any // 收集所有 parts（包括 text、thinking、functionCall、inlineData 等）
 
 	type scanEvent struct {
 		line string
@@ -2616,18 +2984,12 @@ func (s *AntigravityGatewayService) handleClaudeStreamToNonStreaming(c *gin.Cont
 
 			last = parsed
 
-			// 保留最后一个有 parts 的响应
+			// 保留最后一个有 parts 的响应，并收集所有 parts
 			if parts := extractGeminiParts(parsed); len(parts) > 0 {
 				lastWithParts = parsed
-				// 收集包含图片和文本的 parts
-				for _, part := range parts {
-					if _, ok := part["inlineData"].(map[string]any); ok {
-						collectedImageParts = append(collectedImageParts, part)
-					}
-					if text, ok := part["text"].(string); ok && text != "" {
-						collectedTextParts = append(collectedTextParts, text)
-					}
-				}
+
+				// 收集所有 parts（text、thinking、functionCall、inlineData 等）
+				collectedParts = append(collectedParts, parts...)
 			}
 
 		case <-intervalCh:
@@ -2650,32 +3012,13 @@ returnResponse:
 		return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", "Empty response from upstream")
 	}
 
-	// 如果收集到了图片 parts，需要合并到最终响应中
-	if len(collectedImageParts) > 0 {
-		finalResponse = mergeImagePartsToResponse(finalResponse, collectedImageParts)
-	}
-
-	// 如果收集到了文本，需要合并到最终响应中
-	if len(collectedTextParts) > 0 {
-		finalResponse = mergeTextPartsToResponse(finalResponse, collectedTextParts)
-	}
-
-	geminiPayload := finalResponse
-	if _, ok := finalResponse["response"]; !ok {
-		wrapped := map[string]any{
-			"response": finalResponse,
-		}
-		if respID, ok := finalResponse["responseId"]; ok {
-			wrapped["responseId"] = respID
-		}
-		if modelVersion, ok := finalResponse["modelVersion"]; ok {
-			wrapped["modelVersion"] = modelVersion
-		}
-		geminiPayload = wrapped
+	// 将收集的所有 parts 合并到最终响应中
+	if len(collectedParts) > 0 {
+		finalResponse = mergeCollectedPartsToResponse(finalResponse, collectedParts)
 	}
 
 	// 序列化为 JSON（Gemini 格式）
-	geminiBody, err := json.Marshal(geminiPayload)
+	geminiBody, err := json.Marshal(finalResponse)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal gemini response: %w", err)
 	}
@@ -3061,4 +3404,56 @@ func (s *AntigravityGatewayService) logBadRequest(ctx context.Context, account *
 			log.Printf("[Antigravity] logBadRequest failed: %v", err)
 		}
 	}()
+}
+
+// filterEmptyPartsFromGeminiRequest 过滤 Gemini 请求中 parts 为空的消息
+// Gemini API 不接受 parts 为空数组的消息，会返回 400 错误
+func filterEmptyPartsFromGeminiRequest(body []byte) ([]byte, error) {
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, err
+	}
+
+	contents, ok := payload["contents"].([]any)
+	if !ok || len(contents) == 0 {
+		return body, nil
+	}
+
+	filtered := make([]any, 0, len(contents))
+	modified := false
+
+	for _, c := range contents {
+		contentMap, ok := c.(map[string]any)
+		if !ok {
+			filtered = append(filtered, c)
+			continue
+		}
+
+		parts, hasParts := contentMap["parts"]
+		if !hasParts {
+			filtered = append(filtered, c)
+			continue
+		}
+
+		partsSlice, ok := parts.([]any)
+		if !ok {
+			filtered = append(filtered, c)
+			continue
+		}
+
+		// 跳过 parts 为空数组的消息
+		if len(partsSlice) == 0 {
+			modified = true
+			continue
+		}
+
+		filtered = append(filtered, c)
+	}
+
+	if !modified {
+		return body, nil
+	}
+
+	payload["contents"] = filtered
+	return json.Marshal(payload)
 }

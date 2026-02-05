@@ -300,8 +300,29 @@
             </span>
           </template>
 
-          <template #cell-balance="{ value }">
-            <span class="font-medium text-gray-900 dark:text-white">${{ value.toFixed(2) }}</span>
+          <template #cell-balance="{ value, row }">
+            <div class="flex items-center gap-2">
+              <div class="group relative">
+                <button
+                  class="font-medium text-gray-900 underline decoration-dashed decoration-gray-300 underline-offset-4 transition-colors hover:text-primary-600 dark:text-white dark:decoration-dark-500 dark:hover:text-primary-400"
+                  @click="handleBalanceHistory(row)"
+                >
+                  ${{ value.toFixed(2) }}
+                </button>
+                <!-- Instant tooltip -->
+                <div class="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded bg-gray-900 px-2 py-1 text-xs text-white opacity-0 shadow-lg transition-opacity duration-75 group-hover:opacity-100 dark:bg-dark-600">
+                  {{ t('admin.users.balanceHistoryTip') }}
+                  <div class="absolute left-1/2 top-full -translate-x-1/2 border-4 border-transparent border-t-gray-900 dark:border-t-dark-600"></div>
+                </div>
+              </div>
+              <button
+                @click.stop="handleDeposit(row)"
+                class="rounded px-2 py-0.5 text-xs font-medium text-emerald-600 transition-colors hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-900/20"
+                :title="t('admin.users.deposit')"
+              >
+                {{ t('admin.users.deposit') }}
+              </button>
+            </div>
           </template>
 
           <template #cell-usage="{ row }">
@@ -456,6 +477,15 @@
                 {{ t('admin.users.withdraw') }}
               </button>
 
+              <!-- Balance History -->
+              <button
+                @click="handleBalanceHistory(user); closeActionMenu()"
+                class="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
+              >
+                <Icon name="dollar" size="sm" class="text-gray-400" :stroke-width="2" />
+                {{ t('admin.users.balanceHistory') }}
+              </button>
+
               <div class="my-1 border-t border-gray-100 dark:border-dark-700"></div>
 
               <!-- Delete (not for admin) -->
@@ -479,6 +509,7 @@
     <UserApiKeysModal :show="showApiKeysModal" :user="viewingUser" @close="closeApiKeysModal" />
     <UserAllowedGroupsModal :show="showAllowedGroupsModal" :user="allowedGroupsUser" @close="closeAllowedGroupsModal" @success="loadUsers" />
     <UserBalanceModal :show="showBalanceModal" :user="balanceUser" :operation="balanceOperation" @close="closeBalanceModal" @success="loadUsers" />
+    <UserBalanceHistoryModal :show="showBalanceHistoryModal" :user="balanceHistoryUser" @close="closeBalanceHistoryModal" @deposit="handleDepositFromHistory" @withdraw="handleWithdrawFromHistory" />
     <UserAttributesConfigModal :show="showAttributesModal" @close="handleAttributesModalClose" />
   </AppLayout>
 </template>
@@ -492,7 +523,7 @@ import Icon from '@/components/icons/Icon.vue'
 
 const { t } = useI18n()
 import { adminAPI } from '@/api/admin'
-import type { User, UserAttributeDefinition } from '@/types'
+import type { AdminUser, UserAttributeDefinition } from '@/types'
 import type { BatchUserUsageStats } from '@/api/admin/dashboard'
 import type { Column } from '@/components/common/types'
 import AppLayout from '@/components/layout/AppLayout.vue'
@@ -509,6 +540,7 @@ import UserEditModal from '@/components/admin/user/UserEditModal.vue'
 import UserApiKeysModal from '@/components/admin/user/UserApiKeysModal.vue'
 import UserAllowedGroupsModal from '@/components/admin/user/UserAllowedGroupsModal.vue'
 import UserBalanceModal from '@/components/admin/user/UserBalanceModal.vue'
+import UserBalanceHistoryModal from '@/components/admin/user/UserBalanceHistoryModal.vue'
 
 const appStore = useAppStore()
 
@@ -637,7 +669,7 @@ const columns = computed<Column[]>(() =>
   )
 )
 
-const users = ref<User[]>([])
+const users = ref<AdminUser[]>([])
 const loading = ref(false)
 const searchQuery = ref('')
 
@@ -736,16 +768,16 @@ const showEditModal = ref(false)
 const showDeleteDialog = ref(false)
 const showApiKeysModal = ref(false)
 const showAttributesModal = ref(false)
-const editingUser = ref<User | null>(null)
-const deletingUser = ref<User | null>(null)
-const viewingUser = ref<User | null>(null)
+const editingUser = ref<AdminUser | null>(null)
+const deletingUser = ref<AdminUser | null>(null)
+const viewingUser = ref<AdminUser | null>(null)
 let abortController: AbortController | null = null
 
 // Action Menu State
 const activeMenuId = ref<number | null>(null)
 const menuPosition = ref<{ top: number; left: number } | null>(null)
 
-const openActionMenu = (user: User, e: MouseEvent) => {
+const openActionMenu = (user: AdminUser, e: MouseEvent) => {
   if (activeMenuId.value === user.id) {
     closeActionMenu()
   } else {
@@ -821,12 +853,16 @@ const handleClickOutside = (event: MouseEvent) => {
 
 // Allowed groups modal state
 const showAllowedGroupsModal = ref(false)
-const allowedGroupsUser = ref<User | null>(null)
+const allowedGroupsUser = ref<AdminUser | null>(null)
 
 // Balance (Deposit/Withdraw) modal state
 const showBalanceModal = ref(false)
-const balanceUser = ref<User | null>(null)
+const balanceUser = ref<AdminUser | null>(null)
 const balanceOperation = ref<'add' | 'subtract'>('add')
+
+// Balance History modal state
+const showBalanceHistoryModal = ref(false)
+const balanceHistoryUser = ref<AdminUser | null>(null)
 
 // 计算剩余天数
 const getDaysRemaining = (expiresAt: string): number => {
@@ -998,7 +1034,7 @@ const applyFilter = () => {
   loadUsers()
 }
 
-const handleEdit = (user: User) => {
+const handleEdit = (user: AdminUser) => {
   editingUser.value = user
   showEditModal.value = true
 }
@@ -1008,7 +1044,7 @@ const closeEditModal = () => {
   editingUser.value = null
 }
 
-const handleToggleStatus = async (user: User) => {
+const handleToggleStatus = async (user: AdminUser) => {
   const newStatus = user.status === 'active' ? 'disabled' : 'active'
   try {
     await adminAPI.users.toggleStatus(user.id, newStatus)
@@ -1022,7 +1058,7 @@ const handleToggleStatus = async (user: User) => {
   }
 }
 
-const handleViewApiKeys = (user: User) => {
+const handleViewApiKeys = (user: AdminUser) => {
   viewingUser.value = user
   showApiKeysModal.value = true
 }
@@ -1032,7 +1068,7 @@ const closeApiKeysModal = () => {
   viewingUser.value = null
 }
 
-const handleAllowedGroups = (user: User) => {
+const handleAllowedGroups = (user: AdminUser) => {
   allowedGroupsUser.value = user
   showAllowedGroupsModal.value = true
 }
@@ -1042,7 +1078,7 @@ const closeAllowedGroupsModal = () => {
   allowedGroupsUser.value = null
 }
 
-const handleDelete = (user: User) => {
+const handleDelete = (user: AdminUser) => {
   deletingUser.value = user
   showDeleteDialog.value = true
 }
@@ -1061,13 +1097,13 @@ const confirmDelete = async () => {
   }
 }
 
-const handleDeposit = (user: User) => {
+const handleDeposit = (user: AdminUser) => {
   balanceUser.value = user
   balanceOperation.value = 'add'
   showBalanceModal.value = true
 }
 
-const handleWithdraw = (user: User) => {
+const handleWithdraw = (user: AdminUser) => {
   balanceUser.value = user
   balanceOperation.value = 'subtract'
   showBalanceModal.value = true
@@ -1076,6 +1112,30 @@ const handleWithdraw = (user: User) => {
 const closeBalanceModal = () => {
   showBalanceModal.value = false
   balanceUser.value = null
+}
+
+const handleBalanceHistory = (user: AdminUser) => {
+  balanceHistoryUser.value = user
+  showBalanceHistoryModal.value = true
+}
+
+const closeBalanceHistoryModal = () => {
+  showBalanceHistoryModal.value = false
+  balanceHistoryUser.value = null
+}
+
+// Handle deposit from balance history modal
+const handleDepositFromHistory = () => {
+  if (balanceHistoryUser.value) {
+    handleDeposit(balanceHistoryUser.value)
+  }
+}
+
+// Handle withdraw from balance history modal
+const handleWithdrawFromHistory = () => {
+  if (balanceHistoryUser.value) {
+    handleWithdraw(balanceHistoryUser.value)
+  }
 }
 
 // 滚动时关闭菜单

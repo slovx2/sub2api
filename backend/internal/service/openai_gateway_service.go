@@ -60,6 +60,92 @@ type OpenAICodexUsageSnapshot struct {
 	UpdatedAt                   string   `json:"updated_at,omitempty"`
 }
 
+// NormalizedCodexLimits contains normalized 5h/7d rate limit data
+type NormalizedCodexLimits struct {
+	Used5hPercent   *float64
+	Reset5hSeconds  *int
+	Window5hMinutes *int
+	Used7dPercent   *float64
+	Reset7dSeconds  *int
+	Window7dMinutes *int
+}
+
+// Normalize converts primary/secondary fields to canonical 5h/7d fields.
+// Strategy: Compare window_minutes to determine which is 5h vs 7d.
+// Returns nil if snapshot is nil or has no useful data.
+func (s *OpenAICodexUsageSnapshot) Normalize() *NormalizedCodexLimits {
+	if s == nil {
+		return nil
+	}
+
+	result := &NormalizedCodexLimits{}
+
+	primaryMins := 0
+	secondaryMins := 0
+	hasPrimaryWindow := false
+	hasSecondaryWindow := false
+
+	if s.PrimaryWindowMinutes != nil {
+		primaryMins = *s.PrimaryWindowMinutes
+		hasPrimaryWindow = true
+	}
+	if s.SecondaryWindowMinutes != nil {
+		secondaryMins = *s.SecondaryWindowMinutes
+		hasSecondaryWindow = true
+	}
+
+	// Determine mapping based on window_minutes
+	use5hFromPrimary := false
+	use7dFromPrimary := false
+
+	if hasPrimaryWindow && hasSecondaryWindow {
+		// Both known: smaller window is 5h, larger is 7d
+		if primaryMins < secondaryMins {
+			use5hFromPrimary = true
+		} else {
+			use7dFromPrimary = true
+		}
+	} else if hasPrimaryWindow {
+		// Only primary known: classify by threshold (<=360 min = 6h -> 5h window)
+		if primaryMins <= 360 {
+			use5hFromPrimary = true
+		} else {
+			use7dFromPrimary = true
+		}
+	} else if hasSecondaryWindow {
+		// Only secondary known: classify by threshold
+		if secondaryMins <= 360 {
+			// 5h from secondary, so primary (if any data) is 7d
+			use7dFromPrimary = true
+		} else {
+			// 7d from secondary, so primary (if any data) is 5h
+			use5hFromPrimary = true
+		}
+	} else {
+		// No window_minutes: fall back to legacy assumption (primary=7d, secondary=5h)
+		use7dFromPrimary = true
+	}
+
+	// Assign values
+	if use5hFromPrimary {
+		result.Used5hPercent = s.PrimaryUsedPercent
+		result.Reset5hSeconds = s.PrimaryResetAfterSeconds
+		result.Window5hMinutes = s.PrimaryWindowMinutes
+		result.Used7dPercent = s.SecondaryUsedPercent
+		result.Reset7dSeconds = s.SecondaryResetAfterSeconds
+		result.Window7dMinutes = s.SecondaryWindowMinutes
+	} else if use7dFromPrimary {
+		result.Used7dPercent = s.PrimaryUsedPercent
+		result.Reset7dSeconds = s.PrimaryResetAfterSeconds
+		result.Window7dMinutes = s.PrimaryWindowMinutes
+		result.Used5hPercent = s.SecondaryUsedPercent
+		result.Reset5hSeconds = s.SecondaryResetAfterSeconds
+		result.Window5hMinutes = s.SecondaryWindowMinutes
+	}
+
+	return result
+}
+
 // OpenAIUsage represents OpenAI API response usage
 type OpenAIUsage struct {
 	InputTokens              int `json:"input_tokens"`
@@ -70,12 +156,15 @@ type OpenAIUsage struct {
 
 // OpenAIForwardResult represents the result of forwarding
 type OpenAIForwardResult struct {
-	RequestID    string
-	Usage        OpenAIUsage
-	Model        string
-	Stream       bool
-	Duration     time.Duration
-	FirstTokenMs *int
+	RequestID string
+	Usage     OpenAIUsage
+	Model     string
+	// ReasoningEffort is extracted from request body (reasoning.effort) or derived from model suffix.
+	// Stored for usage records display; nil means not provided / not applicable.
+	ReasoningEffort *string
+	Stream          bool
+	Duration        time.Duration
+	FirstTokenMs    *int
 }
 
 // OpenAIGatewayService handles OpenAI API gateway operations
@@ -133,12 +222,30 @@ func NewOpenAIGatewayService(
 	}
 }
 
-// GenerateSessionHash generates session hash from header (OpenAI uses session_id header)
-func (s *OpenAIGatewayService) GenerateSessionHash(c *gin.Context) string {
-	sessionID := c.GetHeader("session_id")
+// GenerateSessionHash generates a sticky-session hash for OpenAI requests.
+//
+// Priority:
+//  1. Header: session_id
+//  2. Header: conversation_id
+//  3. Body:   prompt_cache_key (opencode)
+func (s *OpenAIGatewayService) GenerateSessionHash(c *gin.Context, reqBody map[string]any) string {
+	if c == nil {
+		return ""
+	}
+
+	sessionID := strings.TrimSpace(c.GetHeader("session_id"))
+	if sessionID == "" {
+		sessionID = strings.TrimSpace(c.GetHeader("conversation_id"))
+	}
+	if sessionID == "" && reqBody != nil {
+		if v, ok := reqBody["prompt_cache_key"].(string); ok {
+			sessionID = strings.TrimSpace(v)
+		}
+	}
 	if sessionID == "" {
 		return ""
 	}
+
 	hash := sha256.Sum256([]byte(sessionID))
 	return hex.EncodeToString(hash[:])
 }
@@ -162,67 +269,26 @@ func (s *OpenAIGatewayService) SelectAccountForModel(ctx context.Context, groupI
 }
 
 // SelectAccountForModelWithExclusions selects an account supporting the requested model while excluding specified accounts.
+// SelectAccountForModelWithExclusions 选择支持指定模型的账号，同时排除指定的账号。
 func (s *OpenAIGatewayService) SelectAccountForModelWithExclusions(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*Account, error) {
-	// 1. Check sticky session
-	if sessionHash != "" {
-		accountID, err := s.cache.GetSessionAccountID(ctx, derefGroupID(groupID), "openai:"+sessionHash)
-		if err == nil && accountID > 0 {
-			if _, excluded := excludedIDs[accountID]; !excluded {
-				account, err := s.getSchedulableAccount(ctx, accountID)
-				if err == nil && account.IsSchedulable() && account.IsOpenAI() && (requestedModel == "" || account.IsModelSupported(requestedModel)) {
-					// Refresh sticky session TTL
-					_ = s.cache.RefreshSessionTTL(ctx, derefGroupID(groupID), "openai:"+sessionHash, openaiStickySessionTTL)
-					return account, nil
-				}
-			}
-		}
+	cacheKey := "openai:" + sessionHash
+
+	// 1. 尝试粘性会话命中
+	// Try sticky session hit
+	if account := s.tryStickySessionHit(ctx, groupID, sessionHash, cacheKey, requestedModel, excludedIDs); account != nil {
+		return account, nil
 	}
 
-	// 2. Get schedulable OpenAI accounts
+	// 2. 获取可调度的 OpenAI 账号
+	// Get schedulable OpenAI accounts
 	accounts, err := s.listSchedulableAccounts(ctx, groupID)
 	if err != nil {
 		return nil, fmt.Errorf("query accounts failed: %w", err)
 	}
 
-	// 3. Select by priority + LRU
-	var selected *Account
-	for i := range accounts {
-		acc := &accounts[i]
-		if _, excluded := excludedIDs[acc.ID]; excluded {
-			continue
-		}
-		// Scheduler snapshots can be temporarily stale; re-check schedulability here to
-		// avoid selecting accounts that were recently rate-limited/overloaded.
-		if !acc.IsSchedulable() {
-			continue
-		}
-		// Check model support
-		if requestedModel != "" && !acc.IsModelSupported(requestedModel) {
-			continue
-		}
-		if selected == nil {
-			selected = acc
-			continue
-		}
-		// Lower priority value means higher priority
-		if acc.Priority < selected.Priority {
-			selected = acc
-		} else if acc.Priority == selected.Priority {
-			switch {
-			case acc.LastUsedAt == nil && selected.LastUsedAt != nil:
-				selected = acc
-			case acc.LastUsedAt != nil && selected.LastUsedAt == nil:
-				// keep selected (never used is preferred)
-			case acc.LastUsedAt == nil && selected.LastUsedAt == nil:
-				// keep selected (both never used)
-			default:
-				// Same priority, select least recently used
-				if acc.LastUsedAt.Before(*selected.LastUsedAt) {
-					selected = acc
-				}
-			}
-		}
-	}
+	// 3. 按优先级 + LRU 选择最佳账号
+	// Select by priority + LRU
+	selected := s.selectBestAccount(accounts, requestedModel, excludedIDs)
 
 	if selected == nil {
 		if requestedModel != "" {
@@ -231,12 +297,136 @@ func (s *OpenAIGatewayService) SelectAccountForModelWithExclusions(ctx context.C
 		return nil, errors.New("no available OpenAI accounts")
 	}
 
-	// 4. Set sticky session
+	// 4. 设置粘性会话绑定
+	// Set sticky session binding
 	if sessionHash != "" {
-		_ = s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), "openai:"+sessionHash, selected.ID, openaiStickySessionTTL)
+		_ = s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), cacheKey, selected.ID, openaiStickySessionTTL)
 	}
 
 	return selected, nil
+}
+
+// tryStickySessionHit 尝试从粘性会话获取账号。
+// 如果命中且账号可用则返回账号；如果账号不可用则清理会话并返回 nil。
+//
+// tryStickySessionHit attempts to get account from sticky session.
+// Returns account if hit and usable; clears session and returns nil if account is unavailable.
+func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID *int64, sessionHash, cacheKey, requestedModel string, excludedIDs map[int64]struct{}) *Account {
+	if sessionHash == "" {
+		return nil
+	}
+
+	accountID, err := s.cache.GetSessionAccountID(ctx, derefGroupID(groupID), cacheKey)
+	if err != nil || accountID <= 0 {
+		return nil
+	}
+
+	if _, excluded := excludedIDs[accountID]; excluded {
+		return nil
+	}
+
+	account, err := s.getSchedulableAccount(ctx, accountID)
+	if err != nil {
+		return nil
+	}
+
+	// 检查账号是否需要清理粘性会话
+	// Check if sticky session should be cleared
+	if shouldClearStickySession(account) {
+		_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), cacheKey)
+		return nil
+	}
+
+	// 验证账号是否可用于当前请求
+	// Verify account is usable for current request
+	if !account.IsSchedulable() || !account.IsOpenAI() {
+		return nil
+	}
+	if requestedModel != "" && !account.IsModelSupported(requestedModel) {
+		return nil
+	}
+
+	// 刷新会话 TTL 并返回账号
+	// Refresh session TTL and return account
+	_ = s.cache.RefreshSessionTTL(ctx, derefGroupID(groupID), cacheKey, openaiStickySessionTTL)
+	return account
+}
+
+// selectBestAccount 从候选账号中选择最佳账号（优先级 + LRU）。
+// 返回 nil 表示无可用账号。
+//
+// selectBestAccount selects the best account from candidates (priority + LRU).
+// Returns nil if no available account.
+func (s *OpenAIGatewayService) selectBestAccount(accounts []Account, requestedModel string, excludedIDs map[int64]struct{}) *Account {
+	var selected *Account
+
+	for i := range accounts {
+		acc := &accounts[i]
+
+		// 跳过被排除的账号
+		// Skip excluded accounts
+		if _, excluded := excludedIDs[acc.ID]; excluded {
+			continue
+		}
+
+		// 调度器快照可能暂时过时，这里重新检查可调度性和平台
+		// Scheduler snapshots can be temporarily stale; re-check schedulability and platform
+		if !acc.IsSchedulable() || !acc.IsOpenAI() {
+			continue
+		}
+
+		// 检查模型支持
+		// Check model support
+		if requestedModel != "" && !acc.IsModelSupported(requestedModel) {
+			continue
+		}
+
+		// 选择优先级最高且最久未使用的账号
+		// Select highest priority and least recently used
+		if selected == nil {
+			selected = acc
+			continue
+		}
+
+		if s.isBetterAccount(acc, selected) {
+			selected = acc
+		}
+	}
+
+	return selected
+}
+
+// isBetterAccount 判断 candidate 是否比 current 更优。
+// 规则：优先级更高（数值更小）优先；同优先级时，未使用过的优先，其次是最久未使用的。
+//
+// isBetterAccount checks if candidate is better than current.
+// Rules: higher priority (lower value) wins; same priority: never used > least recently used.
+func (s *OpenAIGatewayService) isBetterAccount(candidate, current *Account) bool {
+	// 优先级更高（数值更小）
+	// Higher priority (lower value)
+	if candidate.Priority < current.Priority {
+		return true
+	}
+	if candidate.Priority > current.Priority {
+		return false
+	}
+
+	// 同优先级，比较最后使用时间
+	// Same priority, compare last used time
+	switch {
+	case candidate.LastUsedAt == nil && current.LastUsedAt != nil:
+		// candidate 从未使用，优先
+		return true
+	case candidate.LastUsedAt != nil && current.LastUsedAt == nil:
+		// current 从未使用，保持
+		return false
+	case candidate.LastUsedAt == nil && current.LastUsedAt == nil:
+		// 都未使用，保持
+		return false
+	default:
+		// 都使用过，选择最久未使用的
+		return candidate.LastUsedAt.Before(*current.LastUsedAt)
+	}
 }
 
 // SelectAccountWithLoadAwareness selects an account with load-awareness and wait plan.
@@ -307,29 +497,35 @@ func (s *OpenAIGatewayService) SelectAccountWithLoadAwareness(ctx context.Contex
 		accountID, err := s.cache.GetSessionAccountID(ctx, derefGroupID(groupID), "openai:"+sessionHash)
 		if err == nil && accountID > 0 && !isExcluded(accountID) {
 			account, err := s.getSchedulableAccount(ctx, accountID)
-			if err == nil && account.IsSchedulable() && account.IsOpenAI() &&
-				(requestedModel == "" || account.IsModelSupported(requestedModel)) {
-				result, err := s.tryAcquireAccountSlot(ctx, accountID, account.Concurrency)
-				if err == nil && result.Acquired {
-					_ = s.cache.RefreshSessionTTL(ctx, derefGroupID(groupID), "openai:"+sessionHash, openaiStickySessionTTL)
-					return &AccountSelectionResult{
-						Account:     account,
-						Acquired:    true,
-						ReleaseFunc: result.ReleaseFunc,
-					}, nil
+			if err == nil {
+				clearSticky := shouldClearStickySession(account)
+				if clearSticky {
+					_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), "openai:"+sessionHash)
 				}
+				if !clearSticky && account.IsSchedulable() && account.IsOpenAI() &&
+					(requestedModel == "" || account.IsModelSupported(requestedModel)) {
+					result, err := s.tryAcquireAccountSlot(ctx, accountID, account.Concurrency)
+					if err == nil && result.Acquired {
+						_ = s.cache.RefreshSessionTTL(ctx, derefGroupID(groupID), "openai:"+sessionHash, openaiStickySessionTTL)
+						return &AccountSelectionResult{
+							Account:     account,
+							Acquired:    true,
+							ReleaseFunc: result.ReleaseFunc,
+						}, nil
+					}
 
-				waitingCount, _ := s.concurrencyService.GetAccountWaitingCount(ctx, accountID)
-				if waitingCount < cfg.StickySessionMaxWaiting {
-					return &AccountSelectionResult{
-						Account: account,
-						WaitPlan: &AccountWaitPlan{
-							AccountID:      accountID,
-							MaxConcurrency: account.Concurrency,
-							Timeout:        cfg.StickySessionWaitTimeout,
-							MaxWaiting:     cfg.StickySessionMaxWaiting,
-						},
-					}, nil
+					waitingCount, _ := s.concurrencyService.GetAccountWaitingCount(ctx, accountID)
+					if waitingCount < cfg.StickySessionMaxWaiting {
+						return &AccountSelectionResult{
+							Account: account,
+							WaitPlan: &AccountWaitPlan{
+								AccountID:      accountID,
+								MaxConcurrency: account.Concurrency,
+								Timeout:        cfg.StickySessionWaitTimeout,
+								MaxWaiting:     cfg.StickySessionMaxWaiting,
+							},
+						}, nil
+					}
 				}
 			}
 		}
@@ -600,8 +796,8 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		}
 	}
 
-	if account.Type == AccountTypeOAuth && !isCodexCLI {
-		codexResult := applyCodexOAuthTransform(reqBody)
+	if account.Type == AccountTypeOAuth {
+		codexResult := applyCodexOAuthTransform(reqBody, isCodexCLI)
 		if codexResult.Modified {
 			bodyModified = true
 		}
@@ -648,6 +844,12 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 				delete(reqBody, "max_completion_tokens")
 				bodyModified = true
 			}
+		}
+
+		// Remove prompt_cache_retention (not supported by upstream OpenAI API)
+		if _, has := reqBody["prompt_cache_retention"]; has {
+			delete(reqBody, "prompt_cache_retention")
+			bodyModified = true
 		}
 	}
 
@@ -760,18 +962,21 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 
 	// Extract and save Codex usage snapshot from response headers (for OAuth accounts)
 	if account.Type == AccountTypeOAuth {
-		if snapshot := extractCodexUsageHeaders(resp.Header); snapshot != nil {
+		if snapshot := ParseCodexRateLimitHeaders(resp.Header); snapshot != nil {
 			s.updateCodexUsageSnapshot(ctx, account.ID, snapshot)
 		}
 	}
 
+	reasoningEffort := extractOpenAIReasoningEffort(reqBody, originalModel)
+
 	return &OpenAIForwardResult{
-		RequestID:    resp.Header.Get("x-request-id"),
-		Usage:        *usage,
-		Model:        originalModel,
-		Stream:       reqStream,
-		Duration:     time.Since(startTime),
-		FirstTokenMs: firstTokenMs,
+		RequestID:       resp.Header.Get("x-request-id"),
+		Usage:           *usage,
+		Model:           originalModel,
+		ReasoningEffort: reasoningEffort,
+		Stream:          reqStream,
+		Duration:        time.Since(startTime),
+		FirstTokenMs:    firstTokenMs,
 	}, nil
 }
 
@@ -1067,15 +1272,29 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 	// 记录上次收到上游数据的时间，用于控制 keepalive 发送频率
 	lastDataAt := time.Now()
 
-	// 仅发送一次错误事件，避免多次写入导致协议混乱（写失败时尽力通知客户端）
+	// 仅发送一次错误事件，避免多次写入导致协议混乱。
+	// 注意：OpenAI `/v1/responses` streaming 事件必须符合 OpenAI Responses schema；
+	// 否则下游 SDK（例如 OpenCode）会因为类型校验失败而报错。
 	errorEventSent := false
+	clientDisconnected := false // 客户端断开后继续 drain 上游以收集 usage
 	sendErrorEvent := func(reason string) {
-		if errorEventSent {
+		if errorEventSent || clientDisconnected {
 			return
 		}
 		errorEventSent = true
-		_, _ = fmt.Fprintf(w, "event: error\ndata: {\"error\":\"%s\"}\n\n", reason)
-		flusher.Flush()
+		payload := map[string]any{
+			"type":            "error",
+			"sequence_number": 0,
+			"error": map[string]any{
+				"type":    "upstream_error",
+				"message": reason,
+				"code":    reason,
+			},
+		}
+		if b, err := json.Marshal(payload); err == nil {
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", b)
+			flusher.Flush()
+		}
 	}
 
 	needModelReplace := originalModel != mappedModel
@@ -1087,6 +1306,17 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 				return &openaiStreamingResult{usage: usage, firstTokenMs: firstTokenMs}, nil
 			}
 			if ev.err != nil {
+				// 客户端断开/取消请求时，上游读取往往会返回 context canceled。
+				// /v1/responses 的 SSE 事件必须符合 OpenAI 协议；这里不注入自定义 error event，避免下游 SDK 解析失败。
+				if errors.Is(ev.err, context.Canceled) || errors.Is(ev.err, context.DeadlineExceeded) {
+					log.Printf("Context canceled during streaming, returning collected usage")
+					return &openaiStreamingResult{usage: usage, firstTokenMs: firstTokenMs}, nil
+				}
+				// 客户端已断开时，上游出错仅影响体验，不影响计费；返回已收集 usage
+				if clientDisconnected {
+					log.Printf("Upstream read error after client disconnect: %v, returning collected usage", ev.err)
+					return &openaiStreamingResult{usage: usage, firstTokenMs: firstTokenMs}, nil
+				}
 				if errors.Is(ev.err, bufio.ErrTooLong) {
 					log.Printf("SSE line too long: account=%d max_size=%d error=%v", account.ID, maxLineSize, ev.err)
 					sendErrorEvent("response_too_large")
@@ -1110,15 +1340,19 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 
 				// Correct Codex tool calls if needed (apply_patch -> edit, etc.)
 				if correctedData, corrected := s.toolCorrector.CorrectToolCallsInSSEData(data); corrected {
+					data = correctedData
 					line = "data: " + correctedData
 				}
 
-				// Forward line
-				if _, err := fmt.Fprintf(w, "%s\n", line); err != nil {
-					sendErrorEvent("write_failed")
-					return &openaiStreamingResult{usage: usage, firstTokenMs: firstTokenMs}, err
+				// 写入客户端（客户端断开后继续 drain 上游）
+				if !clientDisconnected {
+					if _, err := fmt.Fprintf(w, "%s\n", line); err != nil {
+						clientDisconnected = true
+						log.Printf("Client disconnected during streaming, continuing to drain upstream for billing")
+					} else {
+						flusher.Flush()
+					}
 				}
-				flusher.Flush()
 
 				// Record first token time
 				if firstTokenMs == nil && data != "" && data != "[DONE]" {
@@ -1128,17 +1362,24 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 				s.parseSSEUsage(data, usage)
 			} else {
 				// Forward non-data lines as-is
-				if _, err := fmt.Fprintf(w, "%s\n", line); err != nil {
-					sendErrorEvent("write_failed")
-					return &openaiStreamingResult{usage: usage, firstTokenMs: firstTokenMs}, err
+				if !clientDisconnected {
+					if _, err := fmt.Fprintf(w, "%s\n", line); err != nil {
+						clientDisconnected = true
+						log.Printf("Client disconnected during streaming, continuing to drain upstream for billing")
+					} else {
+						flusher.Flush()
+					}
 				}
-				flusher.Flush()
 			}
 
 		case <-intervalCh:
 			lastRead := time.Unix(0, atomic.LoadInt64(&lastReadAt))
 			if time.Since(lastRead) < streamInterval {
 				continue
+			}
+			if clientDisconnected {
+				log.Printf("Upstream timeout after client disconnect, returning collected usage")
+				return &openaiStreamingResult{usage: usage, firstTokenMs: firstTokenMs}, nil
 			}
 			log.Printf("Stream data interval timeout: account=%d model=%s interval=%s", account.ID, originalModel, streamInterval)
 			// 处理流超时，可能标记账户为临时不可调度或错误状态
@@ -1149,11 +1390,16 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 			return &openaiStreamingResult{usage: usage, firstTokenMs: firstTokenMs}, fmt.Errorf("stream data interval timeout")
 
 		case <-keepaliveCh:
+			if clientDisconnected {
+				continue
+			}
 			if time.Since(lastDataAt) < keepaliveInterval {
 				continue
 			}
 			if _, err := fmt.Fprint(w, ":\n\n"); err != nil {
-				return &openaiStreamingResult{usage: usage, firstTokenMs: firstTokenMs}, err
+				clientDisconnected = true
+				log.Printf("Client disconnected during streaming, continuing to drain upstream for billing")
+				continue
 			}
 			flusher.Flush()
 		}
@@ -1435,13 +1681,14 @@ func (s *OpenAIGatewayService) replaceModelInResponseBody(body []byte, fromModel
 
 // OpenAIRecordUsageInput input for recording usage
 type OpenAIRecordUsageInput struct {
-	Result       *OpenAIForwardResult
-	APIKey       *APIKey
-	User         *User
-	Account      *Account
-	Subscription *UserSubscription
-	UserAgent    string // 请求的 User-Agent
-	IPAddress    string // 请求的客户端 IP 地址
+	Result        *OpenAIForwardResult
+	APIKey        *APIKey
+	User          *User
+	Account       *Account
+	Subscription  *UserSubscription
+	UserAgent     string // 请求的 User-Agent
+	IPAddress     string // 请求的客户端 IP 地址
+	APIKeyService APIKeyQuotaUpdater
 }
 
 // RecordUsage records usage and deducts balance
@@ -1494,6 +1741,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		AccountID:             account.ID,
 		RequestID:             result.RequestID,
 		Model:                 result.Model,
+		ReasoningEffort:       result.ReasoningEffort,
 		InputTokens:           actualInputTokens,
 		OutputTokens:          result.Usage.OutputTokens,
 		CacheCreationTokens:   result.Usage.CacheCreationInputTokens,
@@ -1552,14 +1800,22 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		}
 	}
 
+	// Update API key quota if applicable (only for balance mode with quota set)
+	if shouldBill && cost.ActualCost > 0 && apiKey.Quota > 0 && input.APIKeyService != nil {
+		if err := input.APIKeyService.UpdateQuotaUsed(ctx, apiKey.ID, cost.ActualCost); err != nil {
+			log.Printf("Update API key quota failed: %v", err)
+		}
+	}
+
 	// Schedule batch update for account last_used_at
 	s.deferredService.ScheduleLastUsedUpdate(account.ID)
 
 	return nil
 }
 
-// extractCodexUsageHeaders extracts Codex usage limits from response headers
-func extractCodexUsageHeaders(headers http.Header) *OpenAICodexUsageSnapshot {
+// ParseCodexRateLimitHeaders extracts Codex usage limits from response headers.
+// Exported for use in ratelimit_service when handling OpenAI 429 responses.
+func ParseCodexRateLimitHeaders(headers http.Header) *OpenAICodexUsageSnapshot {
 	snapshot := &OpenAICodexUsageSnapshot{}
 	hasData := false
 
@@ -1633,6 +1889,8 @@ func (s *OpenAIGatewayService) updateCodexUsageSnapshot(ctx context.Context, acc
 
 	// Convert snapshot to map for merging into Extra
 	updates := make(map[string]any)
+
+	// Save raw primary/secondary fields for debugging/tracing
 	if snapshot.PrimaryUsedPercent != nil {
 		updates["codex_primary_used_percent"] = *snapshot.PrimaryUsedPercent
 	}
@@ -1656,109 +1914,25 @@ func (s *OpenAIGatewayService) updateCodexUsageSnapshot(ctx context.Context, acc
 	}
 	updates["codex_usage_updated_at"] = snapshot.UpdatedAt
 
-	// Normalize to canonical 5h/7d fields based on window_minutes
-	// This fixes the issue where OpenAI's primary/secondary naming is reversed
-	// Strategy: Compare the two windows and assign the smaller one to 5h, larger one to 7d
-
-	// IMPORTANT: We can only reliably determine window type from window_minutes field
-	// The reset_after_seconds is remaining time, not window size, so it cannot be used for comparison
-
-	var primaryWindowMins, secondaryWindowMins int
-	var hasPrimaryWindow, hasSecondaryWindow bool
-
-	// Only use window_minutes for reliable window size comparison
-	if snapshot.PrimaryWindowMinutes != nil {
-		primaryWindowMins = *snapshot.PrimaryWindowMinutes
-		hasPrimaryWindow = true
-	}
-
-	if snapshot.SecondaryWindowMinutes != nil {
-		secondaryWindowMins = *snapshot.SecondaryWindowMinutes
-		hasSecondaryWindow = true
-	}
-
-	// Determine which is 5h and which is 7d
-	var use5hFromPrimary, use7dFromPrimary bool
-	var use5hFromSecondary, use7dFromSecondary bool
-
-	if hasPrimaryWindow && hasSecondaryWindow {
-		// Both window sizes known: compare and assign smaller to 5h, larger to 7d
-		if primaryWindowMins < secondaryWindowMins {
-			use5hFromPrimary = true
-			use7dFromSecondary = true
-		} else {
-			use5hFromSecondary = true
-			use7dFromPrimary = true
+	// Normalize to canonical 5h/7d fields
+	if normalized := snapshot.Normalize(); normalized != nil {
+		if normalized.Used5hPercent != nil {
+			updates["codex_5h_used_percent"] = *normalized.Used5hPercent
 		}
-	} else if hasPrimaryWindow {
-		// Only primary window size known: classify by absolute threshold
-		if primaryWindowMins <= 360 {
-			use5hFromPrimary = true
-		} else {
-			use7dFromPrimary = true
+		if normalized.Reset5hSeconds != nil {
+			updates["codex_5h_reset_after_seconds"] = *normalized.Reset5hSeconds
 		}
-	} else if hasSecondaryWindow {
-		// Only secondary window size known: classify by absolute threshold
-		if secondaryWindowMins <= 360 {
-			use5hFromSecondary = true
-		} else {
-			use7dFromSecondary = true
+		if normalized.Window5hMinutes != nil {
+			updates["codex_5h_window_minutes"] = *normalized.Window5hMinutes
 		}
-	} else {
-		// No window_minutes available: cannot reliably determine window types
-		// Fall back to legacy assumption (may be incorrect)
-		// Assume primary=7d, secondary=5h based on historical observation
-		if snapshot.SecondaryUsedPercent != nil || snapshot.SecondaryResetAfterSeconds != nil || snapshot.SecondaryWindowMinutes != nil {
-			use5hFromSecondary = true
+		if normalized.Used7dPercent != nil {
+			updates["codex_7d_used_percent"] = *normalized.Used7dPercent
 		}
-		if snapshot.PrimaryUsedPercent != nil || snapshot.PrimaryResetAfterSeconds != nil || snapshot.PrimaryWindowMinutes != nil {
-			use7dFromPrimary = true
+		if normalized.Reset7dSeconds != nil {
+			updates["codex_7d_reset_after_seconds"] = *normalized.Reset7dSeconds
 		}
-	}
-
-	// Write canonical 5h fields
-	if use5hFromPrimary {
-		if snapshot.PrimaryUsedPercent != nil {
-			updates["codex_5h_used_percent"] = *snapshot.PrimaryUsedPercent
-		}
-		if snapshot.PrimaryResetAfterSeconds != nil {
-			updates["codex_5h_reset_after_seconds"] = *snapshot.PrimaryResetAfterSeconds
-		}
-		if snapshot.PrimaryWindowMinutes != nil {
-			updates["codex_5h_window_minutes"] = *snapshot.PrimaryWindowMinutes
-		}
-	} else if use5hFromSecondary {
-		if snapshot.SecondaryUsedPercent != nil {
-			updates["codex_5h_used_percent"] = *snapshot.SecondaryUsedPercent
-		}
-		if snapshot.SecondaryResetAfterSeconds != nil {
-			updates["codex_5h_reset_after_seconds"] = *snapshot.SecondaryResetAfterSeconds
-		}
-		if snapshot.SecondaryWindowMinutes != nil {
-			updates["codex_5h_window_minutes"] = *snapshot.SecondaryWindowMinutes
-		}
-	}
-
-	// Write canonical 7d fields
-	if use7dFromPrimary {
-		if snapshot.PrimaryUsedPercent != nil {
-			updates["codex_7d_used_percent"] = *snapshot.PrimaryUsedPercent
-		}
-		if snapshot.PrimaryResetAfterSeconds != nil {
-			updates["codex_7d_reset_after_seconds"] = *snapshot.PrimaryResetAfterSeconds
-		}
-		if snapshot.PrimaryWindowMinutes != nil {
-			updates["codex_7d_window_minutes"] = *snapshot.PrimaryWindowMinutes
-		}
-	} else if use7dFromSecondary {
-		if snapshot.SecondaryUsedPercent != nil {
-			updates["codex_7d_used_percent"] = *snapshot.SecondaryUsedPercent
-		}
-		if snapshot.SecondaryResetAfterSeconds != nil {
-			updates["codex_7d_reset_after_seconds"] = *snapshot.SecondaryResetAfterSeconds
-		}
-		if snapshot.SecondaryWindowMinutes != nil {
-			updates["codex_7d_window_minutes"] = *snapshot.SecondaryWindowMinutes
+		if normalized.Window7dMinutes != nil {
+			updates["codex_7d_window_minutes"] = *normalized.Window7dMinutes
 		}
 	}
 
@@ -1768,4 +1942,87 @@ func (s *OpenAIGatewayService) updateCodexUsageSnapshot(ctx context.Context, acc
 		defer cancel()
 		_ = s.accountRepo.UpdateExtra(updateCtx, accountID, updates)
 	}()
+}
+
+func getOpenAIReasoningEffortFromReqBody(reqBody map[string]any) (value string, present bool) {
+	if reqBody == nil {
+		return "", false
+	}
+
+	// Primary: reasoning.effort
+	if reasoning, ok := reqBody["reasoning"].(map[string]any); ok {
+		if effort, ok := reasoning["effort"].(string); ok {
+			return normalizeOpenAIReasoningEffort(effort), true
+		}
+	}
+
+	// Fallback: some clients may use a flat field.
+	if effort, ok := reqBody["reasoning_effort"].(string); ok {
+		return normalizeOpenAIReasoningEffort(effort), true
+	}
+
+	return "", false
+}
+
+func deriveOpenAIReasoningEffortFromModel(model string) string {
+	if strings.TrimSpace(model) == "" {
+		return ""
+	}
+
+	modelID := strings.TrimSpace(model)
+	if strings.Contains(modelID, "/") {
+		parts := strings.Split(modelID, "/")
+		modelID = parts[len(parts)-1]
+	}
+
+	parts := strings.FieldsFunc(strings.ToLower(modelID), func(r rune) bool {
+		switch r {
+		case '-', '_', ' ':
+			return true
+		default:
+			return false
+		}
+	})
+	if len(parts) == 0 {
+		return ""
+	}
+
+	return normalizeOpenAIReasoningEffort(parts[len(parts)-1])
+}
+
+func extractOpenAIReasoningEffort(reqBody map[string]any, requestedModel string) *string {
+	if value, present := getOpenAIReasoningEffortFromReqBody(reqBody); present {
+		if value == "" {
+			return nil
+		}
+		return &value
+	}
+
+	value := deriveOpenAIReasoningEffortFromModel(requestedModel)
+	if value == "" {
+		return nil
+	}
+	return &value
+}
+
+func normalizeOpenAIReasoningEffort(raw string) string {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	if value == "" {
+		return ""
+	}
+
+	// Normalize separators for "x-high"/"x_high" variants.
+	value = strings.NewReplacer("-", "", "_", "", " ", "").Replace(value)
+
+	switch value {
+	case "none", "minimal":
+		return ""
+	case "low", "medium", "high":
+		return value
+	case "xhigh", "extrahigh":
+		return "xhigh"
+	default:
+		// Only store known effort levels for now to keep UI consistent.
+		return ""
+	}
 }

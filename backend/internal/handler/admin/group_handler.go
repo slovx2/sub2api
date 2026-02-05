@@ -45,6 +45,10 @@ type CreateGroupRequest struct {
 	ModelRouting        map[string][]int64 `json:"model_routing"`
 	ModelRoutingEnabled bool               `json:"model_routing_enabled"`
 	MCPXMLInject        *bool              `json:"mcp_xml_inject"`
+	// 支持的模型系列（仅 antigravity 平台使用）
+	SupportedModelScopes []string `json:"supported_model_scopes"`
+	// 从指定分组复制账号（创建后自动绑定）
+	CopyAccountsFromGroupIDs []int64 `json:"copy_accounts_from_group_ids"`
 }
 
 // UpdateGroupRequest represents update group request
@@ -70,6 +74,10 @@ type UpdateGroupRequest struct {
 	ModelRouting        map[string][]int64 `json:"model_routing"`
 	ModelRoutingEnabled *bool              `json:"model_routing_enabled"`
 	MCPXMLInject        *bool              `json:"mcp_xml_inject"`
+	// 支持的模型系列（仅 antigravity 平台使用）
+	SupportedModelScopes *[]string `json:"supported_model_scopes"`
+	// 从指定分组复制账号（同步操作：先清空当前分组的账号绑定，再绑定源分组的账号）
+	CopyAccountsFromGroupIDs []int64 `json:"copy_accounts_from_group_ids"`
 }
 
 // List handles listing all groups with pagination
@@ -98,9 +106,9 @@ func (h *GroupHandler) List(c *gin.Context) {
 		return
 	}
 
-	outGroups := make([]dto.Group, 0, len(groups))
+	outGroups := make([]dto.AdminGroup, 0, len(groups))
 	for i := range groups {
-		outGroups = append(outGroups, *dto.GroupFromService(&groups[i]))
+		outGroups = append(outGroups, *dto.GroupFromServiceAdmin(&groups[i]))
 	}
 	response.Paginated(c, outGroups, total, page, pageSize)
 }
@@ -124,9 +132,9 @@ func (h *GroupHandler) GetAll(c *gin.Context) {
 		return
 	}
 
-	outGroups := make([]dto.Group, 0, len(groups))
+	outGroups := make([]dto.AdminGroup, 0, len(groups))
 	for i := range groups {
-		outGroups = append(outGroups, *dto.GroupFromService(&groups[i]))
+		outGroups = append(outGroups, *dto.GroupFromServiceAdmin(&groups[i]))
 	}
 	response.Success(c, outGroups)
 }
@@ -146,7 +154,7 @@ func (h *GroupHandler) GetByID(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, dto.GroupFromService(group))
+	response.Success(c, dto.GroupFromServiceAdmin(group))
 }
 
 // Create handles creating a new group
@@ -177,13 +185,15 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		ModelRouting:                    req.ModelRouting,
 		ModelRoutingEnabled:             req.ModelRoutingEnabled,
 		MCPXMLInject:                    req.MCPXMLInject,
+		SupportedModelScopes:            req.SupportedModelScopes,
+		CopyAccountsFromGroupIDs:        req.CopyAccountsFromGroupIDs,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 
-	response.Success(c, dto.GroupFromService(group))
+	response.Success(c, dto.GroupFromServiceAdmin(group))
 }
 
 // Update handles updating a group
@@ -221,13 +231,15 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		ModelRouting:                    req.ModelRouting,
 		ModelRoutingEnabled:             req.ModelRoutingEnabled,
 		MCPXMLInject:                    req.MCPXMLInject,
+		SupportedModelScopes:            req.SupportedModelScopes,
+		CopyAccountsFromGroupIDs:        req.CopyAccountsFromGroupIDs,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 
-	response.Success(c, dto.GroupFromService(group))
+	response.Success(c, dto.GroupFromServiceAdmin(group))
 }
 
 // Delete handles deleting a group

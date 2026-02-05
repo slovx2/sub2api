@@ -15,7 +15,7 @@ RUN go mod download
 COPY . .
 
 # 构建应用
-RUN go build -o main cmd/server/main.go
+RUN go build -o main ./cmd/server/
 
 # 暴露端口
 EXPOSE 8080

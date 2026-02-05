@@ -385,7 +385,7 @@ func buildContents(messages []ClaudeMessage, toolIDToName map[string]string, isT
 				parts = append([]GeminiPart{{
 					Text:             "Thinking...",
 					Thought:          true,
-					ThoughtSignature: dummyThoughtSignature,
+					ThoughtSignature: DummyThoughtSignature,
 				}}, parts...)
 			}
 		}
@@ -450,7 +450,7 @@ func minThoughtSignatureLen() int {
 
 func normalizeThoughtSignature(sig string) string {
 	trimmed := strings.TrimSpace(sig)
-	if trimmed == "" || trimmed == dummyThoughtSignature {
+	if trimmed == "" || trimmed == DummyThoughtSignature {
 		return trimmed
 	}
 	if idx := strings.Index(trimmed, "#"); idx > 0 {
@@ -464,7 +464,7 @@ func normalizeThoughtSignature(sig string) string {
 
 func isValidThoughtSignature(sig string) bool {
 	normalized := normalizeThoughtSignature(sig)
-	return len(normalized) >= minThoughtSignatureLen() && normalized != dummyThoughtSignature
+	return len(normalized) >= minThoughtSignatureLen() && normalized != DummyThoughtSignature
 }
 
 // hasToolUseWithoutSignature 检测是否存在无法回填签名的 tool_use
@@ -495,9 +495,10 @@ func hasToolUseWithoutSignature(messages []ClaudeMessage) bool {
 	return false
 }
 
-// dummyThoughtSignature 用于跳过 Gemini 3 thought_signature 验证
+// DummyThoughtSignature 用于跳过 Gemini 3 thought_signature 验证
 // 参考: https://ai.google.dev/gemini-api/docs/thought-signatures
-const dummyThoughtSignature = "skip_thought_signature_validator"
+// 导出供跨包使用（如 gemini_native_signature_cleaner 跨账号修复）
+const DummyThoughtSignature = "skip_thought_signature_validator"
 
 // buildParts 构建消息的 parts
 // allowDummyThought: 只有 Gemini 模型支持 dummy thought signature
@@ -554,7 +555,7 @@ func buildParts(content json.RawMessage, toolIDToName map[string]string, allowDu
 				continue
 			} else {
 				// Gemini 模型使用 dummy signature
-				part.ThoughtSignature = dummyThoughtSignature
+				part.ThoughtSignature = DummyThoughtSignature
 			}
 			parts = append(parts, part)
 
@@ -585,7 +586,7 @@ func buildParts(content json.RawMessage, toolIDToName map[string]string, allowDu
 			// - Gemini 模型：使用 dummy signature（跳过 thought_signature 校验）
 			// - Claude 模型：透传上游返回的真实 signature（Vertex/Google 需要完整签名链路）
 			if allowDummyThought && isThinkingEnabled {
-				part.ThoughtSignature = dummyThoughtSignature
+				part.ThoughtSignature = DummyThoughtSignature
 			} else if isThinkingEnabled {
 				if sig := normalizeThoughtSignature(block.Signature); isValidThoughtSignature(sig) {
 					part.ThoughtSignature = sig

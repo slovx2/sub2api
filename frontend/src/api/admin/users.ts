@@ -4,7 +4,7 @@
  */
 
 import { apiClient } from '../client'
-import type { User, UpdateUserRequest, PaginatedResponse } from '@/types'
+import type { AdminUser, UpdateUserRequest, PaginatedResponse } from '@/types'
 
 /**
  * List all users with pagination
@@ -26,7 +26,7 @@ export async function list(
   options?: {
     signal?: AbortSignal
   }
-): Promise<PaginatedResponse<User>> {
+): Promise<PaginatedResponse<AdminUser>> {
   // Build params with attribute filters in attr[id]=value format
   const params: Record<string, any> = {
     page,
@@ -44,8 +44,7 @@ export async function list(
       }
     }
   }
-
-  const { data } = await apiClient.get<PaginatedResponse<User>>('/admin/users', {
+  const { data } = await apiClient.get<PaginatedResponse<AdminUser>>('/admin/users', {
     params,
     signal: options?.signal
   })
@@ -57,8 +56,8 @@ export async function list(
  * @param id - User ID
  * @returns User details
  */
-export async function getById(id: number): Promise<User> {
-  const { data } = await apiClient.get<User>(`/admin/users/${id}`)
+export async function getById(id: number): Promise<AdminUser> {
+  const { data } = await apiClient.get<AdminUser>(`/admin/users/${id}`)
   return data
 }
 
@@ -73,8 +72,8 @@ export async function create(userData: {
   balance?: number
   concurrency?: number
   allowed_groups?: number[] | null
-}): Promise<User> {
-  const { data } = await apiClient.post<User>('/admin/users', userData)
+}): Promise<AdminUser> {
+  const { data } = await apiClient.post<AdminUser>('/admin/users', userData)
   return data
 }
 
@@ -84,8 +83,8 @@ export async function create(userData: {
  * @param updates - Fields to update
  * @returns Updated user
  */
-export async function update(id: number, updates: UpdateUserRequest): Promise<User> {
-  const { data } = await apiClient.put<User>(`/admin/users/${id}`, updates)
+export async function update(id: number, updates: UpdateUserRequest): Promise<AdminUser> {
+  const { data } = await apiClient.put<AdminUser>(`/admin/users/${id}`, updates)
   return data
 }
 
@@ -112,8 +111,8 @@ export async function updateBalance(
   balance: number,
   operation: 'set' | 'add' | 'subtract' = 'set',
   notes?: string
-): Promise<User> {
-  const { data } = await apiClient.post<User>(`/admin/users/${id}/balance`, {
+): Promise<AdminUser> {
+  const { data } = await apiClient.post<AdminUser>(`/admin/users/${id}/balance`, {
     balance,
     operation,
     notes: notes || ''
@@ -127,7 +126,7 @@ export async function updateBalance(
  * @param concurrency - New concurrency limit
  * @returns Updated user
  */
-export async function updateConcurrency(id: number, concurrency: number): Promise<User> {
+export async function updateConcurrency(id: number, concurrency: number): Promise<AdminUser> {
   return update(id, { concurrency })
 }
 
@@ -137,7 +136,7 @@ export async function updateConcurrency(id: number, concurrency: number): Promis
  * @param status - New status
  * @returns Updated user
  */
-export async function toggleStatus(id: number, status: 'active' | 'disabled'): Promise<User> {
+export async function toggleStatus(id: number, status: 'active' | 'disabled'): Promise<AdminUser> {
   return update(id, { status })
 }
 
@@ -175,6 +174,53 @@ export async function getUserUsageStats(
   return data
 }
 
+/**
+ * Balance history item returned from the API
+ */
+export interface BalanceHistoryItem {
+  id: number
+  code: string
+  type: string
+  value: number
+  status: string
+  used_by: number | null
+  used_at: string | null
+  created_at: string
+  group_id: number | null
+  validity_days: number
+  notes: string
+  user?: { id: number; email: string } | null
+  group?: { id: number; name: string } | null
+}
+
+// Balance history response extends pagination with total_recharged summary
+export interface BalanceHistoryResponse extends PaginatedResponse<BalanceHistoryItem> {
+  total_recharged: number
+}
+
+/**
+ * Get user's balance/concurrency change history
+ * @param id - User ID
+ * @param page - Page number
+ * @param pageSize - Items per page
+ * @param type - Optional type filter (balance, admin_balance, concurrency, admin_concurrency, subscription)
+ * @returns Paginated balance history with total_recharged
+ */
+export async function getUserBalanceHistory(
+  id: number,
+  page: number = 1,
+  pageSize: number = 20,
+  type?: string
+): Promise<BalanceHistoryResponse> {
+  const params: Record<string, any> = { page, page_size: pageSize }
+  if (type) params.type = type
+  const { data } = await apiClient.get<BalanceHistoryResponse>(
+    `/admin/users/${id}/balance-history`,
+    { params }
+  )
+  return data
+}
+
 export const usersAPI = {
   list,
   getById,
@@ -185,7 +231,8 @@ export const usersAPI = {
   updateConcurrency,
   toggleStatus,
   getUserApiKeys,
-  getUserUsageStats
+  getUserUsageStats,
+  getUserBalanceHistory
 }
 
 export default usersAPI

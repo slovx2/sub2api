@@ -99,6 +99,10 @@ func (s *authRepoStub) ListKeysByGroupID(ctx context.Context, groupID int64) ([]
 	return s.listKeysByGroupID(ctx, groupID)
 }
 
+func (s *authRepoStub) IncrementQuotaUsed(ctx context.Context, id int64, amount float64) (float64, error) {
+	panic("unexpected IncrementQuotaUsed call")
+}
+
 type authCacheStub struct {
 	getAuthCache   func(ctx context.Context, key string) (*APIKeyAuthCacheEntry, error)
 	setAuthKeys    []string
@@ -139,6 +143,14 @@ func (s *authCacheStub) SetAuthCache(ctx context.Context, key string, entry *API
 
 func (s *authCacheStub) DeleteAuthCache(ctx context.Context, key string) error {
 	s.deleteAuthKeys = append(s.deleteAuthKeys, key)
+	return nil
+}
+
+func (s *authCacheStub) PublishAuthCacheInvalidation(ctx context.Context, cacheKey string) error {
+	return nil
+}
+
+func (s *authCacheStub) SubscribeAuthCacheInvalidation(ctx context.Context, handler func(cacheKey string)) error {
 	return nil
 }
 
