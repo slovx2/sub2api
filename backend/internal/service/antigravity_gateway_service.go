@@ -2222,15 +2222,12 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 
 	prefaceLines := make([]string, 0, 2)
 	var firstPayloadLine string
-	peekLinesReceived := 0
-	peekStartTime := time.Now()
 	for firstPayloadLine == "" {
 		select {
 		case ev, ok := <-events:
 			if !ok {
 				return nil, &AntigravityEmptyStreamError{StatusCode: http.StatusBadGateway, Reason: "upstream_closed"}
 			}
-			peekLinesReceived++
 			if ev.err != nil {
 				if errors.Is(ev.err, bufio.ErrTooLong) {
 					log.Printf("SSE line too long (antigravity): max_size=%d error=%v", maxLineSize, ev.err)
@@ -2328,13 +2325,6 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 		select {
 		case ev, ok := <-events:
 			if !ok {
-				// 始终记录流式传输完成状态
-				outputTokens := 0
-				inputTokens := 0
-				if usage != nil {
-					outputTokens = usage.OutputTokens
-					inputTokens = usage.InputTokens
-				}
 				return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs}, nil
 			}
 			if ev.err != nil {
@@ -3123,15 +3113,12 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 	}
 
 	var firstEvents []byte
-	peekLinesReceived := 0
-	peekStartTime := time.Now()
 	for len(firstEvents) == 0 {
 		select {
 		case ev, ok := <-events:
 			if !ok {
 				return nil, &AntigravityEmptyStreamError{StatusCode: http.StatusBadGateway, Reason: "upstream_closed"}
 			}
-			peekLinesReceived++
 			if ev.err != nil {
 				if errors.Is(ev.err, bufio.ErrTooLong) {
 					log.Printf("SSE line too long (antigravity): max_size=%d error=%v", maxLineSize, ev.err)
@@ -3196,16 +3183,6 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 				if len(finalEvents) > 0 {
 					_, _ = c.Writer.Write(finalEvents)
 					flusher.Flush()
-				}
-				// 始终记录流式传输完成状态
-				hasThinkingOnly := processor.HasThinkingOnly()
-				hasContent := processor.HasContent()
-				hasThinking := processor.HasThinking()
-				outputTokens := 0
-				inputTokens := 0
-				if agUsage != nil {
-					outputTokens = agUsage.OutputTokens
-					inputTokens = agUsage.InputTokens
 				}
 				return &antigravityStreamResult{usage: convertUsage(agUsage), firstTokenMs: firstTokenMs}, nil
 			}

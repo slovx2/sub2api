@@ -329,6 +329,10 @@ func (s *adminServiceStub) UpdateUserBalance(ctx context.Context, userID int64, 
 	return &baseservice.User{ID: userID, Balance: balance}, nil
 }
 
+func (s *adminServiceStub) GetUserBalanceHistory(ctx context.Context, userID int64, page, pageSize int, codeType string) ([]baseservice.RedeemCode, int64, float64, error) {
+	return nil, 0, 0, nil
+}
+
 func (s *adminServiceStub) GetUserAPIKeys(ctx context.Context, userID int64, page, pageSize int) ([]baseservice.APIKey, int64, error) {
 	return nil, 0, nil
 }
