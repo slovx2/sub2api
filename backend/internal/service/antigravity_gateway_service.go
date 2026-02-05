@@ -2569,6 +2569,7 @@ returnResponse:
 
 	// 处理空响应情况
 	if last == nil && lastWithParts == nil {
+		return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", "Empty response from upstream")
 	}
 
 	// 如果收集到了图片 parts，需要合并到最终响应中
