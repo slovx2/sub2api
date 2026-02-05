@@ -2228,12 +2228,10 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 		select {
 		case ev, ok := <-events:
 			if !ok {
-				log.Printf("[EmptyStream] phase=peek type=gemini reason=upstream_closed lines=%d elapsed=%v", peekLinesReceived, time.Since(peekStartTime))
 				return nil, &AntigravityEmptyStreamError{StatusCode: http.StatusBadGateway, Reason: "upstream_closed"}
 			}
 			peekLinesReceived++
 			if ev.err != nil {
-				log.Printf("[EmptyStream] phase=peek type=gemini reason=stream_read_error lines=%d elapsed=%v err=%v", peekLinesReceived, time.Since(peekStartTime), ev.err)
 				if errors.Is(ev.err, bufio.ErrTooLong) {
 					log.Printf("SSE line too long (antigravity): max_size=%d error=%v", maxLineSize, ev.err)
 					return nil, ev.err
@@ -2287,12 +2285,9 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 
 			firstPayloadLine = fmt.Sprintf("data: %s\n\n", payload)
 		case <-peekCh:
-			log.Printf("[EmptyStream] phase=peek type=gemini reason=peek_timeout lines=%d elapsed=%v timeout=%v", peekLinesReceived, time.Since(peekStartTime), peekTimeout)
 			return nil, &AntigravityEmptyStreamError{StatusCode: http.StatusGatewayTimeout, Reason: "peek_timeout"}
 		}
 	}
-
-	log.Printf("[EmptyStream] phase=peek type=gemini reason=success lines=%d elapsed=%v", peekLinesReceived, time.Since(peekStartTime))
 
 	c.Status(resp.StatusCode)
 	c.Header("Cache-Control", "no-cache")
@@ -2340,7 +2335,6 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 					outputTokens = usage.OutputTokens
 					inputTokens = usage.InputTokens
 				}
-				log.Printf("[EmptyStream] phase=finish type=gemini output_tokens=%d input_tokens=%d", outputTokens, inputTokens)
 				return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs}, nil
 			}
 			if ev.err != nil {
@@ -2585,7 +2579,6 @@ returnResponse:
 
 	// 处理空响应情况
 	if last == nil && lastWithParts == nil {
-		log.Printf("[antigravity-Forward] warning: empty stream response, no valid chunks received")
 	}
 
 	// 如果收集到了图片 parts，需要合并到最终响应中
@@ -3008,7 +3001,6 @@ returnResponse:
 
 	// 处理空响应情况
 	if last == nil && lastWithParts == nil {
-		log.Printf("[antigravity-Forward] warning: empty stream response, no valid chunks received")
 		return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", "Empty response from upstream")
 	}
 
@@ -3137,12 +3129,10 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 		select {
 		case ev, ok := <-events:
 			if !ok {
-				log.Printf("[EmptyStream] phase=peek type=claude reason=upstream_closed lines=%d elapsed=%v", peekLinesReceived, time.Since(peekStartTime))
 				return nil, &AntigravityEmptyStreamError{StatusCode: http.StatusBadGateway, Reason: "upstream_closed"}
 			}
 			peekLinesReceived++
 			if ev.err != nil {
-				log.Printf("[EmptyStream] phase=peek type=claude reason=stream_read_error lines=%d elapsed=%v err=%v", peekLinesReceived, time.Since(peekStartTime), ev.err)
 				if errors.Is(ev.err, bufio.ErrTooLong) {
 					log.Printf("SSE line too long (antigravity): max_size=%d error=%v", maxLineSize, ev.err)
 					return nil, ev.err
@@ -3165,16 +3155,8 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 				firstTokenMs = &ms
 			}
 		case <-peekCh:
-			log.Printf("[EmptyStream] phase=peek type=claude reason=peek_timeout lines=%d elapsed=%v timeout=%v", peekLinesReceived, time.Since(peekStartTime), peekTimeout)
 			return nil, &AntigravityEmptyStreamError{StatusCode: http.StatusGatewayTimeout, Reason: "peek_timeout"}
 		}
-	}
-
-	// 记录预读状态：检查首包是否有实际内容
-	if processor.HasContent() || processor.HasThinking() {
-		log.Printf("[EmptyStream] phase=peek type=claude reason=success lines=%d elapsed=%v has_content=%v has_thinking=%v", peekLinesReceived, time.Since(peekStartTime), processor.HasContent(), processor.HasThinking())
-	} else {
-		log.Printf("[EmptyStream] phase=peek type=claude reason=success_no_content lines=%d elapsed=%v", peekLinesReceived, time.Since(peekStartTime))
 	}
 
 	c.Header("Content-Type", "text/event-stream")
@@ -3225,7 +3207,6 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 					outputTokens = agUsage.OutputTokens
 					inputTokens = agUsage.InputTokens
 				}
-				log.Printf("[EmptyStream] phase=finish type=claude output_tokens=%d input_tokens=%d has_content=%v has_thinking=%v has_thinking_only=%v", outputTokens, inputTokens, hasContent, hasThinking, hasThinkingOnly)
 				return &antigravityStreamResult{usage: convertUsage(agUsage), firstTokenMs: firstTokenMs}, nil
 			}
 			if ev.err != nil {
