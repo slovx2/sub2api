@@ -61,6 +61,11 @@ func initLogger() {
 }
 
 func main() {
+	// 根据环境变量提前设置 Gin 模式，确保 slog 级别正确
+	if mode := os.Getenv("SERVER_MODE"); strings.EqualFold(mode, "release") {
+		gin.SetMode(gin.ReleaseMode)
+	}
+
 	// Initialize slog logger based on gin mode
 	initLogger()
 
