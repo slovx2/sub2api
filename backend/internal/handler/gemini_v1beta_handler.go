@@ -354,9 +354,9 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 			var emptyStreamErr *service.AntigravityEmptyStreamError
 			if errors.As(err, &emptyStreamErr) {
 				failedAccountIDs[account.ID] = struct{}{}
-				lastFailoverStatus = emptyStreamErr.StatusCode
 				if maxEmptyStreamSwitches <= 0 || emptyStreamSwitchCount >= maxEmptyStreamSwitches {
-					handleGeminiFailoverExhausted(c, lastFailoverStatus)
+					status, message := mapGeminiUpstreamError(emptyStreamErr.StatusCode)
+					googleError(c, status, message)
 					return
 				}
 				emptyStreamSwitchCount++

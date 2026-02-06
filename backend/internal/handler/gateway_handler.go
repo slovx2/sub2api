@@ -314,9 +314,8 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				var emptyStreamErr *service.AntigravityEmptyStreamError
 				if errors.As(err, &emptyStreamErr) {
 					failedAccountIDs[account.ID] = struct{}{}
-					lastFailoverStatus = emptyStreamErr.StatusCode
 					if maxEmptyStreamSwitches <= 0 || emptyStreamSwitchCount >= maxEmptyStreamSwitches {
-						h.handleFailoverExhausted(c, lastFailoverStatus, streamStarted)
+						h.handleFailoverExhaustedSimple(c, emptyStreamErr.StatusCode, streamStarted)
 						return
 					}
 					emptyStreamSwitchCount++
@@ -514,17 +513,16 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					_ = h.antigravityGatewayService.WriteMappedClaudeError(c, account, promptTooLongErr.StatusCode, promptTooLongErr.RequestID, promptTooLongErr.Body)
 					return
 				}
-				var emptyStreamErr *service.AntigravityEmptyStreamError
-				if errors.As(err, &emptyStreamErr) {
-					failedAccountIDs[account.ID] = struct{}{}
-					lastFailoverStatus = emptyStreamErr.StatusCode
-					if maxEmptyStreamSwitches <= 0 || emptyStreamSwitchCount >= maxEmptyStreamSwitches {
-						h.handleFailoverExhausted(c, lastFailoverStatus, streamStarted)
-						return
-					}
-					emptyStreamSwitchCount++
-					continue
+			var emptyStreamErr *service.AntigravityEmptyStreamError
+			if errors.As(err, &emptyStreamErr) {
+				failedAccountIDs[account.ID] = struct{}{}
+				if maxEmptyStreamSwitches <= 0 || emptyStreamSwitchCount >= maxEmptyStreamSwitches {
+					h.handleFailoverExhaustedSimple(c, emptyStreamErr.StatusCode, streamStarted)
+					return
 				}
+				emptyStreamSwitchCount++
+				continue
+			}
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
 					failedAccountIDs[account.ID] = struct{}{}
