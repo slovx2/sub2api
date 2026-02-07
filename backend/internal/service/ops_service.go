@@ -183,6 +183,7 @@ func (s *OpsService) RecordError(ctx context.Context, entry *OpsInsertErrorLogIn
 
 			out.Platform = strings.TrimSpace(out.Platform)
 			out.UpstreamRequestID = truncateString(strings.TrimSpace(out.UpstreamRequestID), 128)
+			out.UpstreamRequestURL = truncateString(strings.TrimSpace(out.UpstreamRequestURL), 2048)
 			out.Kind = truncateString(strings.TrimSpace(out.Kind), 64)
 
 			if out.AccountID < 0 {
