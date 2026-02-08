@@ -144,13 +144,8 @@ urlFallbackLoop:
 			}
 
 			// Capture upstream request body for ops retry of this attempt.
-			if p.c != nil {
-				if upstreamReq != nil {
-					p.c.Set(OpsUpstreamRequestURLKey, upstreamReq.URL.String())
-				}
-				if len(p.body) > 0 {
-					p.c.Set(OpsUpstreamRequestBodyKey, string(p.body))
-				}
+			if p.c != nil && len(p.body) > 0 {
+				p.c.Set(OpsUpstreamRequestBodyKey, string(p.body))
 			}
 
 			resp, err = p.httpUpstream.Do(upstreamReq, p.proxyURL, p.account.ID, p.account.Concurrency)
@@ -2794,39 +2789,7 @@ func (s *AntigravityGatewayService) writeMappedClaudeError(c *gin.Context, accou
 
 	// 记录上游错误详情便于排障（可选：由配置控制；不回显到客户端）
 	if logBody {
-		upstreamURL := ""
-		upstreamReqBody := ""
-		if c != nil {
-			if v, ok := c.Get(OpsUpstreamRequestBodyKey); ok {
-				if s, ok := v.(string); ok {
-					upstreamReqBody = strings.TrimSpace(s)
-				}
-			}
-		}
-		if upstreamReqBody != "" {
-			if sanitized, truncated, _ := sanitizeAndTrimRequestBody([]byte(upstreamReqBody), maxBytes); sanitized != "" {
-				upstreamReqBody = sanitized
-				if truncated {
-					upstreamReqBody = upstreamReqBody + "..."
-				}
-			} else {
-				upstreamReqBody = "<non-json request body redacted>"
-			}
-		}
-		if c != nil {
-			if v, ok := c.Get(OpsUpstreamRequestURLKey); ok {
-				if s, ok := v.(string); ok {
-					upstreamURL = strings.TrimSpace(s)
-				}
-			}
-		}
-		log.Printf(
-			"[antigravity-Forward] upstream_error status=%d url=%s request=%s body=%s",
-			upstreamStatus,
-			upstreamURL,
-			upstreamReqBody,
-			truncateForLog(body, maxBytes),
-		)
+		log.Printf("[antigravity-Forward] upstream_error status=%d body=%s", upstreamStatus, truncateForLog(body, maxBytes))
 	}
 
 	var statusCode int

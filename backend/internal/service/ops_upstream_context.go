@@ -8,20 +8,17 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// 用于在 gin.Context 中暂存上游错误信息，供 Ops 错误日志落库使用。
-// 这些 key 由 gateway service 写入，由 handler/ops_error_logger.go 读取。
+// Gin context keys used by Ops error logger for capturing upstream error details.
+// These keys are set by gateway services and consumed by handler/ops_error_logger.go.
 const (
 	OpsUpstreamStatusCodeKey   = "ops_upstream_status_code"
 	OpsUpstreamErrorMessageKey = "ops_upstream_error_message"
 	OpsUpstreamErrorDetailKey  = "ops_upstream_error_detail"
 	OpsUpstreamErrorsKey       = "ops_upstream_errors"
 
-	// 用于记录当前上游请求 URL（最佳努力）。
-	// 会在落库前做截断。
-	OpsUpstreamRequestURLKey = "ops_upstream_request_url"
-
-	// 用于记录当前上游请求体（最佳努力），便于 Ops 重试某一次具体的上游请求。
-	// 会在落库前做脱敏和截断。
+	// Best-effort capture of the current upstream request body so ops can
+	// retry the specific upstream attempt (not just the client request).
+	// This value is sanitized+trimmed before being persisted.
 	OpsUpstreamRequestBodyKey = "ops_upstream_request_body"
 )
 
@@ -56,7 +53,6 @@ type OpsUpstreamErrorEvent struct {
 
 	// Best-effort upstream request capture (sanitized+trimmed).
 	// Required for retrying a specific upstream attempt.
-	UpstreamRequestURL  string `json:"upstream_request_url,omitempty"`
 	UpstreamRequestBody string `json:"upstream_request_body,omitempty"`
 
 	// Best-effort upstream response capture (sanitized+trimmed).
@@ -78,7 +74,6 @@ func appendOpsUpstreamError(c *gin.Context, ev OpsUpstreamErrorEvent) {
 	}
 	ev.Platform = strings.TrimSpace(ev.Platform)
 	ev.UpstreamRequestID = strings.TrimSpace(ev.UpstreamRequestID)
-	ev.UpstreamRequestURL = strings.TrimSpace(ev.UpstreamRequestURL)
 	ev.UpstreamRequestBody = strings.TrimSpace(ev.UpstreamRequestBody)
 	ev.UpstreamResponseBody = strings.TrimSpace(ev.UpstreamResponseBody)
 	ev.Kind = strings.TrimSpace(ev.Kind)
@@ -90,13 +85,6 @@ func appendOpsUpstreamError(c *gin.Context, ev OpsUpstreamErrorEvent) {
 
 	// If the caller didn't explicitly pass upstream request body but the gateway
 	// stored it on the context, attach it so ops can retry this specific attempt.
-	if ev.UpstreamRequestURL == "" {
-		if v, ok := c.Get(OpsUpstreamRequestURLKey); ok {
-			if s, ok := v.(string); ok {
-				ev.UpstreamRequestURL = strings.TrimSpace(s)
-			}
-		}
-	}
 	if ev.UpstreamRequestBody == "" {
 		if v, ok := c.Get(OpsUpstreamRequestBodyKey); ok {
 			if s, ok := v.(string); ok {
