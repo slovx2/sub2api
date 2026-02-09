@@ -329,6 +329,7 @@ func logPrefix(sessionID, accountName string) string {
 // Antigravity 直接支持的模型（精确匹配透传）
 // 注意：gemini-2.5 系列已移除，统一映射到 gemini-3 系列
 var antigravitySupportedModels = map[string]bool{
+	"claude-opus-4-6-thinking":   true,
 	"claude-opus-4-5-thinking":   true,
 	"claude-sonnet-4-5":          true,
 	"claude-sonnet-4-5-thinking": true,
@@ -362,6 +363,8 @@ var antigravityPrefixMapping = []struct {
 	{"claude-sonnet-4-5", "claude-sonnet-4-5"}, // claude-sonnet-4-5-xxx
 	{"claude-haiku-4-5", "claude-sonnet-4-5"},  // claude-haiku-4-5-xxx → sonnet
 	{"claude-opus-4-5", "claude-opus-4-5-thinking"},
+	{"claude-opus-4-6", "claude-opus-4-6-thinking"},
+	{"claude-opus-4.6", "claude-opus-4-6-thinking"},
 	{"claude-3-haiku", "claude-sonnet-4-5"}, // 旧版 claude-3-haiku-xxx → sonnet
 	{"claude-sonnet-4", "claude-sonnet-4-5"},
 	{"claude-haiku-4", "claude-sonnet-4-5"}, // → sonnet
@@ -847,6 +850,33 @@ func isModelNotFoundError(statusCode int, body []byte) bool {
 	return true // 404 without specific message also treated as model not found
 }
 
+// antigravityOpus46FallbackModel 在 Opus 4.6 404 时给出 4.5 的模型兜底
+func antigravityOpus46FallbackModel(statusCode int, modelID string) (string, bool) {
+	if statusCode != http.StatusNotFound {
+		return "", false
+	}
+
+	trimmed := strings.TrimSpace(modelID)
+	if trimmed == "" {
+		return "", false
+	}
+
+	lower := strings.ToLower(trimmed)
+	if !strings.HasPrefix(lower, "claude-opus-") {
+		return "", false
+	}
+	if !strings.Contains(lower, "4-6") && !strings.Contains(lower, "4.6") {
+		return "", false
+	}
+
+	fallback := strings.ReplaceAll(trimmed, "4.6", "4.5")
+	fallback = strings.ReplaceAll(fallback, "4-6", "4-5")
+	if fallback == trimmed {
+		return "", false
+	}
+	return fallback, true
+}
+
 // Forward 转发 Claude 协议请求（Claude → Gemini 转换）
 func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (*ForwardResult, error) {
 	// 上游透传账号直接转发，不走 OAuth token 刷新
@@ -934,6 +964,74 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 
 	if resp.StatusCode >= 400 {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+
+		if fallbackModel, ok := antigravityOpus46FallbackModel(resp.StatusCode, mappedModel); ok {
+			log.Printf("%s status=404 model=%s retry_with_fallback_model=%s", prefix, mappedModel, fallbackModel)
+			retryGeminiBody, txErr := antigravity.TransformClaudeToGeminiWithOptions(&claudeReq, projectID, fallbackModel, transformOpts)
+			if txErr != nil {
+				log.Printf("%s status=404 fallback_transform_error model=%s fallback_model=%s error=%v", prefix, mappedModel, fallbackModel, txErr)
+			} else {
+				retryResult, retryErr := antigravityRetryLoop(antigravityRetryLoopParams{
+					ctx:            ctx,
+					prefix:         prefix,
+					account:        account,
+					proxyURL:       proxyURL,
+					accessToken:    accessToken,
+					action:         action,
+					body:           retryGeminiBody,
+					quotaScope:     quotaScope,
+					c:              c,
+					httpUpstream:   s.httpUpstream,
+					settingService: s.settingService,
+					handleError:    s.handleUpstreamError,
+					maxRetries:     maxRetries,
+				})
+				if retryErr != nil {
+					appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+						Platform:           account.Platform,
+						AccountID:          account.ID,
+						AccountName:        account.Name,
+						UpstreamStatusCode: 0,
+						Kind:               "model_fallback_retry_request_error",
+						Message:            sanitizeUpstreamErrorMessage(retryErr.Error()),
+					})
+					log.Printf("%s status=404 fallback_retry_request_failed model=%s fallback_model=%s error=%v", prefix, mappedModel, fallbackModel, retryErr)
+				} else {
+					retryResp := retryResult.resp
+					if retryResp.StatusCode < 400 {
+						_ = resp.Body.Close()
+						resp = retryResp
+						respBody = nil
+						mappedModel = fallbackModel
+						if antigravityUseMappedModelForBilling() && strings.TrimSpace(mappedModel) != "" {
+							billingModel = mappedModel
+						}
+					} else {
+						retryBody, _ := io.ReadAll(io.LimitReader(retryResp.Body, 2<<20))
+						_ = retryResp.Body.Close()
+
+						retryUpstreamMsg := strings.TrimSpace(extractAntigravityErrorMessage(retryBody))
+						retryUpstreamMsg = sanitizeUpstreamErrorMessage(retryUpstreamMsg)
+						appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+							Platform:           account.Platform,
+							AccountID:          account.ID,
+							AccountName:        account.Name,
+							UpstreamStatusCode: retryResp.StatusCode,
+							UpstreamRequestID:  retryResp.Header.Get("x-request-id"),
+							Kind:               "model_fallback_retry",
+							Message:            retryUpstreamMsg,
+						})
+
+						respBody = retryBody
+						resp = &http.Response{
+							StatusCode: retryResp.StatusCode,
+							Header:     retryResp.Header.Clone(),
+							Body:       io.NopCloser(bytes.NewReader(retryBody)),
+						}
+					}
+				}
+			}
+		}
 
 		// 优先检测 thinking block 的 signature 相关错误（400）并重试一次：
 		// Antigravity /v1internal 链路在部分场景会对 thought/thinking signature 做严格校验，
