@@ -2,7 +2,7 @@
   <AppLayout>
     <div class="mx-auto max-w-3xl space-y-6">
       <div
-        v-if="rechargeDisabled"
+        v-if="!paymentAvailable"
         class="card border-amber-200 bg-amber-50 dark:border-amber-800/40 dark:bg-amber-900/20"
       >
         <div class="p-6">
@@ -13,20 +13,10 @@
               <Icon name="exclamationTriangle" size="md" class="text-amber-600 dark:text-amber-400" />
             </div>
             <div class="flex-1">
-              <h3 class="text-sm font-semibold text-amber-800 dark:text-amber-300">充值渠道维护中</h3>
+              <h3 class="text-sm font-semibold text-amber-800 dark:text-amber-300">充值暂未开放</h3>
               <p class="mt-2 text-sm text-amber-700 dark:text-amber-400">
-                充值渠道维护中，请联系管理员充值
+                请联系管理员开启支付功能
               </p>
-
-              <div class="mt-4">
-                <a
-                  href="/docs/contact/"
-                  class="btn btn-primary inline-flex w-full items-center justify-center gap-2 sm:w-auto"
-                >
-                  <Icon name="externalLink" size="sm" />
-                  联系管理员
-                </a>
-              </div>
             </div>
           </div>
         </div>
@@ -355,8 +345,6 @@ import { paymentAPI, type PaymentChannel, type PaymentConfig, type PaymentOrder 
 import { useClipboard } from '@/composables/useClipboard'
 import { formatCurrency, formatDateTime } from '@/utils/format'
 
-const rechargeDisabled = true
-
 const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
@@ -642,9 +630,6 @@ function handleOrderPageSizeChange(size: number): void {
 }
 
 watch([minAmount, maxAmount], () => {
-  if (rechargeDisabled) {
-    return
-  }
   if (!amountValid.value) {
     initAmount()
   }
@@ -653,9 +638,6 @@ watch([minAmount, maxAmount], () => {
 watch(
   () => paymentAvailable.value,
   (enabled) => {
-    if (rechargeDisabled) {
-      return
-    }
     if (enabled) {
       loadOrders()
     }
@@ -665,17 +647,11 @@ watch(
 watch(
   () => route.query.paid,
   () => {
-    if (rechargeDisabled) {
-      return
-    }
     handleReturnToast()
   }
 )
 
 onMounted(async () => {
-  if (rechargeDisabled) {
-    return
-  }
   initAmount()
   await loadConfig()
   await loadOrders()
