@@ -69,7 +69,7 @@ func (s *stubAntigravityAccountRepo) SetRateLimited(ctx context.Context, id int6
 	return nil
 }
 
-func TestAntigravityRetryLoop_URLFallback_UsesLatestSuccess(t *testing.T) {
+func TestAntigravityRetryLoop_DailyOnly_NoURLFallback(t *testing.T) {
 	oldBaseURLs := append([]string(nil), antigravity.BaseURLs...)
 	oldAvailability := antigravity.DefaultURLAvailability
 	defer func() {
@@ -112,15 +112,16 @@ func TestAntigravityRetryLoop_URLFallback_UsesLatestSuccess(t *testing.T) {
 	require.NotNil(t, result)
 	require.NotNil(t, result.resp)
 	defer func() { _ = result.resp.Body.Close() }()
-	require.Equal(t, http.StatusOK, result.resp.StatusCode)
-	require.False(t, handleErrorCalled)
-	require.Len(t, upstream.calls, 2)
-	require.True(t, strings.HasPrefix(upstream.calls[0], base1))
-	require.True(t, strings.HasPrefix(upstream.calls[1], base2))
+	require.Equal(t, http.StatusTooManyRequests, result.resp.StatusCode)
+	require.True(t, handleErrorCalled)
+	require.Len(t, upstream.calls, 3)
+	for _, callURL := range upstream.calls {
+		require.True(t, strings.HasPrefix(callURL, base1))
+	}
 
 	available := antigravity.DefaultURLAvailability.GetAvailableURLs()
 	require.NotEmpty(t, available)
-	require.Equal(t, base2, available[0])
+	require.Equal(t, base1, available[0])
 }
 
 func TestAntigravityHandleUpstreamError_UsesScopeLimitWhenEnabled(t *testing.T) {
