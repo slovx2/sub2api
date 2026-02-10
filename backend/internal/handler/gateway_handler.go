@@ -204,6 +204,14 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		sessionKey = "gemini:" + sessionHash
 	}
 
+	// 查询粘性会话绑定的账号 ID
+	var sessionBoundAccountID int64
+	if sessionKey != "" {
+		sessionBoundAccountID, _ = h.gatewayService.GetCachedSessionAccountID(c.Request.Context(), apiKey.GroupID, sessionKey)
+	}
+	// 判断是否真的绑定了粘性会话：有 sessionKey 且已经绑定到某个账号
+	hasBoundSession := sessionKey != "" && sessionBoundAccountID > 0
+
 	if platform == service.PlatformGemini {
 		maxAccountSwitches := h.maxAccountSwitchesGemini
 		maxEmptyStreamSwitches := h.maxAntigravityEmptyStreamSwitches
@@ -211,6 +219,14 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		emptyStreamSwitchCount := 0
 		failedAccountIDs := make(map[int64]struct{})
 		var lastFailoverErr *service.UpstreamFailoverError
+		var forceCacheBilling bool // 粘性会话切换时的缓存计费标记
+
+		// 单账号分组提前设置 SingleAccountRetry 标记，让 Service 层首次 503 就不设限流标记。
+		// 避免单账号分组收到 503 (MODEL_CAPACITY_EXHAUSTED) 时设限流，导致后续请求连续快速失败。
+		if h.gatewayService.IsSingleAntigravityAccountGroup(c.Request.Context(), apiKey.GroupID) {
+			ctx := context.WithValue(c.Request.Context(), ctxkey.SingleAccountRetry, true)
+			c.Request = c.Request.WithContext(ctx)
+		}
 
 		for {
 			selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), apiKey.GroupID, sessionKey, reqModel, failedAccountIDs, "") // Gemini 不使用会话限制
@@ -218,6 +234,17 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				if len(failedAccountIDs) == 0 {
 					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts: "+err.Error(), streamStarted)
 					return
+				}
+				// Antigravity 单账号退避重试：分组内没有其他可用账号时，
+				// 对 503 错误不直接返回，而是清除排除列表、等待退避后重试同一个账号。
+				if lastFailoverErr != nil && lastFailoverErr.StatusCode == http.StatusServiceUnavailable && switchCount <= maxAccountSwitches {
+					if sleepAntigravitySingleAccountBackoff(c.Request.Context(), switchCount) {
+						log.Printf("Antigravity single-account 503 retry: clearing failed accounts, retry %d/%d", switchCount, maxAccountSwitches)
+						failedAccountIDs = make(map[int64]struct{})
+						ctx := context.WithValue(c.Request.Context(), ctxkey.SingleAccountRetry, true)
+						c.Request = c.Request.WithContext(ctx)
+						continue
+					}
 				}
 				if lastFailoverErr != nil {
 					h.handleFailoverExhausted(c, lastFailoverErr, service.PlatformGemini, streamStarted)
@@ -325,12 +352,20 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				if errors.As(err, &failoverErr) {
 					failedAccountIDs[account.ID] = struct{}{}
 					lastFailoverErr = failoverErr
+					if needForceCacheBilling(hasBoundSession, failoverErr) {
+						forceCacheBilling = true
+					}
 					if switchCount >= maxAccountSwitches {
 						h.handleFailoverExhausted(c, failoverErr, service.PlatformGemini, streamStarted)
 						return
 					}
 					switchCount++
 					log.Printf("Account %d: upstream error %d, switching account %d/%d", account.ID, failoverErr.StatusCode, switchCount, maxAccountSwitches)
+					if account.Platform == service.PlatformAntigravity {
+						if !sleepFailoverDelay(c.Request.Context(), switchCount) {
+							return
+						}
+					}
 					continue
 				}
 				// 错误响应已在Forward中处理，这里只记录日志
@@ -343,22 +378,23 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			clientIP := ip.GetClientIP(c)
 
 			// 异步记录使用量（subscription已在函数开头获取）
-			go func(result *service.ForwardResult, usedAccount *service.Account, ua, clientIP string) {
+			go func(result *service.ForwardResult, usedAccount *service.Account, ua, clientIP string, fcb bool) {
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
 				if err := h.gatewayService.RecordUsage(ctx, &service.RecordUsageInput{
-					Result:        result,
-					APIKey:        apiKey,
-					User:          apiKey.User,
-					Account:       usedAccount,
-					Subscription:  subscription,
-					UserAgent:     ua,
-					IPAddress:     clientIP,
-					APIKeyService: h.apiKeyService,
+					Result:            result,
+					APIKey:            apiKey,
+					User:              apiKey.User,
+					Account:           usedAccount,
+					Subscription:      subscription,
+					UserAgent:         ua,
+					IPAddress:         clientIP,
+					ForceCacheBilling: fcb,
+					APIKeyService:     h.apiKeyService,
 				}); err != nil {
 					log.Printf("Record usage failed: %v", err)
 				}
-			}(result, account, userAgent, clientIP)
+			}(result, account, userAgent, clientIP, forceCacheBilling)
 			return
 		}
 	}
@@ -371,6 +407,13 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	}
 	fallbackUsed := false
 
+	// 单账号分组提前设置 SingleAccountRetry 标记，让 Service 层首次 503 就不设限流标记。
+	// 避免单账号分组收到 503 (MODEL_CAPACITY_EXHAUSTED) 时设限流，导致后续请求连续快速失败。
+	if h.gatewayService.IsSingleAntigravityAccountGroup(c.Request.Context(), currentAPIKey.GroupID) {
+		ctx := context.WithValue(c.Request.Context(), ctxkey.SingleAccountRetry, true)
+		c.Request = c.Request.WithContext(ctx)
+	}
+
 	for {
 		maxAccountSwitches := h.maxAccountSwitches
 		maxEmptyStreamSwitches := h.maxAntigravityEmptyStreamSwitches
@@ -379,6 +422,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		failedAccountIDs := make(map[int64]struct{})
 		var lastFailoverErr *service.UpstreamFailoverError
 		retryWithFallback := false
+		var forceCacheBilling bool // 粘性会话切换时的缓存计费标记
 
 		for {
 			// 选择支持该模型的账号
@@ -387,6 +431,17 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				if len(failedAccountIDs) == 0 {
 					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts: "+err.Error(), streamStarted)
 					return
+				}
+				// Antigravity 单账号退避重试：分组内没有其他可用账号时，
+				// 对 503 错误不直接返回，而是清除排除列表、等待退避后重试同一个账号。
+				if lastFailoverErr != nil && lastFailoverErr.StatusCode == http.StatusServiceUnavailable && switchCount <= maxAccountSwitches {
+					if sleepAntigravitySingleAccountBackoff(c.Request.Context(), switchCount) {
+						log.Printf("Antigravity single-account 503 retry: clearing failed accounts, retry %d/%d", switchCount, maxAccountSwitches)
+						failedAccountIDs = make(map[int64]struct{})
+						ctx := context.WithValue(c.Request.Context(), ctxkey.SingleAccountRetry, true)
+						c.Request = c.Request.WithContext(ctx)
+						continue
+					}
 				}
 				if lastFailoverErr != nil {
 					h.handleFailoverExhausted(c, lastFailoverErr, platform, streamStarted)
@@ -527,12 +582,20 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				if errors.As(err, &failoverErr) {
 					failedAccountIDs[account.ID] = struct{}{}
 					lastFailoverErr = failoverErr
+					if needForceCacheBilling(hasBoundSession, failoverErr) {
+						forceCacheBilling = true
+					}
 					if switchCount >= maxAccountSwitches {
 						h.handleFailoverExhausted(c, failoverErr, account.Platform, streamStarted)
 						return
 					}
 					switchCount++
 					log.Printf("Account %d: upstream error %d, switching account %d/%d", account.ID, failoverErr.StatusCode, switchCount, maxAccountSwitches)
+					if account.Platform == service.PlatformAntigravity {
+						if !sleepFailoverDelay(c.Request.Context(), switchCount) {
+							return
+						}
+					}
 					continue
 				}
 				// 错误响应已在Forward中处理，这里只记录日志
@@ -545,22 +608,23 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			clientIP := ip.GetClientIP(c)
 
 			// 异步记录使用量（subscription已在函数开头获取）
-			go func(result *service.ForwardResult, usedAccount *service.Account, ua, clientIP string) {
+			go func(result *service.ForwardResult, usedAccount *service.Account, ua, clientIP string, fcb bool) {
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
 				if err := h.gatewayService.RecordUsage(ctx, &service.RecordUsageInput{
-					Result:        result,
-					APIKey:        currentAPIKey,
-					User:          currentAPIKey.User,
-					Account:       usedAccount,
-					Subscription:  currentSubscription,
-					UserAgent:     ua,
-					IPAddress:     clientIP,
-					APIKeyService: h.apiKeyService,
+					Result:            result,
+					APIKey:            currentAPIKey,
+					User:              currentAPIKey.User,
+					Account:           usedAccount,
+					Subscription:      currentSubscription,
+					UserAgent:         ua,
+					IPAddress:         clientIP,
+					ForceCacheBilling: fcb,
+					APIKeyService:     h.apiKeyService,
 				}); err != nil {
 					log.Printf("Record usage failed: %v", err)
 				}
-			}(result, account, userAgent, clientIP)
+			}(result, account, userAgent, clientIP, forceCacheBilling)
 			return
 		}
 		if !retryWithFallback {
@@ -792,6 +856,43 @@ func (h *GatewayHandler) calculateSubscriptionRemaining(group *service.Group, su
 func (h *GatewayHandler) handleConcurrencyError(c *gin.Context, err error, slotType string, streamStarted bool) {
 	h.handleStreamingAwareError(c, http.StatusTooManyRequests, "rate_limit_error",
 		fmt.Sprintf("Concurrency limit exceeded for %s, please retry later", slotType), streamStarted)
+}
+
+// needForceCacheBilling 判断 failover 时是否需要强制缓存计费
+// 粘性会话切换账号、或上游明确标记时，将 input_tokens 转为 cache_read 计费
+func needForceCacheBilling(hasBoundSession bool, failoverErr *service.UpstreamFailoverError) bool {
+	return hasBoundSession || (failoverErr != nil && failoverErr.ForceCacheBilling)
+}
+
+// sleepFailoverDelay 账号切换线性递增延时：第1次0s、第2次1s、第3次2s…
+// 返回 false 表示 context 已取消。
+func sleepFailoverDelay(ctx context.Context, switchCount int) bool {
+	delay := time.Duration(switchCount-1) * time.Second
+	if delay <= 0 {
+		return true
+	}
+	select {
+	case <-ctx.Done():
+		return false
+	case <-time.After(delay):
+		return true
+	}
+}
+
+// sleepAntigravitySingleAccountBackoff Antigravity 平台单账号分组的 503 退避重试延时。
+// 当分组内只有一个可用账号且上游返回 503（MODEL_CAPACITY_EXHAUSTED）时使用。
+// 返回 false 表示 context 已取消。
+func sleepAntigravitySingleAccountBackoff(ctx context.Context, retryCount int) bool {
+	const delay = 2 * time.Second
+
+	log.Printf("Antigravity single-account 503 backoff: waiting %v before retry (attempt %d)", delay, retryCount)
+
+	select {
+	case <-ctx.Done():
+		return false
+	case <-time.After(delay):
+		return true
+	}
 }
 
 func (h *GatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError, platform string, streamStarted bool) {

@@ -247,6 +247,8 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	if sessionKey != "" {
 		sessionBoundAccountID, _ = h.gatewayService.GetCachedSessionAccountID(c.Request.Context(), apiKey.GroupID, sessionKey)
 	}
+	// 判断是否真的绑定了粘性会话：有 sessionKey 且已经绑定到某个账号
+	hasBoundSession := sessionKey != "" && sessionBoundAccountID > 0
 	isCLI := isGeminiCLIRequest(c, body)
 	cleanedForUnknownBinding := false
 
@@ -256,6 +258,14 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	emptyStreamSwitchCount := 0
 	failedAccountIDs := make(map[int64]struct{})
 	var lastFailoverErr *service.UpstreamFailoverError
+	var forceCacheBilling bool // 粘性会话切换时的缓存计费标记
+
+	// 单账号分组提前设置 SingleAccountRetry 标记，让 Service 层首次 503 就不设限流标记。
+	// 避免单账号分组收到 503 (MODEL_CAPACITY_EXHAUSTED) 时设限流，导致后续请求连续快速失败。
+	if h.gatewayService.IsSingleAntigravityAccountGroup(c.Request.Context(), apiKey.GroupID) {
+		ctx := context.WithValue(c.Request.Context(), ctxkey.SingleAccountRetry, true)
+		c.Request = c.Request.WithContext(ctx)
+	}
 
 	for {
 		selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), apiKey.GroupID, sessionKey, modelName, failedAccountIDs, "") // Gemini 不使用会话限制
@@ -263,6 +273,17 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 			if len(failedAccountIDs) == 0 {
 				googleError(c, http.StatusServiceUnavailable, "No available Gemini accounts: "+err.Error())
 				return
+			}
+			// Antigravity 单账号退避重试：分组内没有其他可用账号时，
+			// 对 503 错误不直接返回，而是清除排除列表、等待退避后重试同一个账号。
+			if lastFailoverErr != nil && lastFailoverErr.StatusCode == http.StatusServiceUnavailable && switchCount <= maxAccountSwitches {
+				if sleepAntigravitySingleAccountBackoff(c.Request.Context(), switchCount) {
+					log.Printf("Antigravity single-account 503 retry: clearing failed accounts, retry %d/%d", switchCount, maxAccountSwitches)
+					failedAccountIDs = make(map[int64]struct{})
+					ctx := context.WithValue(c.Request.Context(), ctxkey.SingleAccountRetry, true)
+					c.Request = c.Request.WithContext(ctx)
+					continue
+				}
 			}
 			h.handleGeminiFailoverExhausted(c, lastFailoverErr)
 			return
@@ -365,6 +386,9 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
 				failedAccountIDs[account.ID] = struct{}{}
+				if needForceCacheBilling(hasBoundSession, failoverErr) {
+					forceCacheBilling = true
+				}
 				if switchCount >= maxAccountSwitches {
 					lastFailoverErr = failoverErr
 					h.handleGeminiFailoverExhausted(c, lastFailoverErr)
@@ -373,6 +397,11 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 				lastFailoverErr = failoverErr
 				switchCount++
 				log.Printf("Gemini account %d: upstream error %d, switching account %d/%d", account.ID, failoverErr.StatusCode, switchCount, maxAccountSwitches)
+				if account.Platform == service.PlatformAntigravity {
+					if !sleepFailoverDelay(c.Request.Context(), switchCount) {
+						return
+					}
+				}
 				continue
 			}
 			// ForwardNative already wrote the response
@@ -385,7 +414,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		clientIP := ip.GetClientIP(c)
 
 		// 6) record usage async (Gemini 使用长上下文双倍计费)
-		go func(result *service.ForwardResult, usedAccount *service.Account, ua, ip string) {
+		go func(result *service.ForwardResult, usedAccount *service.Account, ua, ip string, fcb bool) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 
@@ -399,11 +428,12 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 				IPAddress:             ip,
 				LongContextThreshold:  200000, // Gemini 200K 阈值
 				LongContextMultiplier: 2.0,    // 超出部分双倍计费
+				ForceCacheBilling:     fcb,
 				APIKeyService:         h.apiKeyService,
 			}); err != nil {
 				log.Printf("Record usage failed: %v", err)
 			}
-		}(result, account, userAgent, clientIP)
+		}(result, account, userAgent, clientIP, forceCacheBilling)
 		return
 	}
 }

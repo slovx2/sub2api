@@ -49,6 +49,23 @@ const (
 	claudeMimicDebugInfoKey = "claude_mimic_debug_info"
 )
 
+// ForceCacheBillingContextKey 强制缓存计费上下文键
+// 用于粘性会话切换时，将 input_tokens 转为 cache_read_input_tokens 计费
+type forceCacheBillingKeyType struct{}
+
+var ForceCacheBillingContextKey = forceCacheBillingKeyType{}
+
+// IsForceCacheBilling 检查是否启用强制缓存计费
+func IsForceCacheBilling(ctx context.Context) bool {
+	v, _ := ctx.Value(ForceCacheBillingContextKey).(bool)
+	return v
+}
+
+// WithForceCacheBilling 返回带有强制缓存计费标记的上下文
+func WithForceCacheBilling(ctx context.Context) context.Context {
+	return context.WithValue(ctx, ForceCacheBillingContextKey, true)
+}
+
 func (s *GatewayService) debugModelRoutingEnabled() bool {
 	v := strings.ToLower(strings.TrimSpace(os.Getenv("SUB2API_DEBUG_MODEL_ROUTING")))
 	return v == "1" || v == "true" || v == "yes" || v == "on"
@@ -251,6 +268,12 @@ var (
 		"You are a file search specialist for Claude Code",                     // Explore Agent 版
 		"You are a helpful AI assistant tasked with summarizing conversations", // Compact 版
 	}
+
+	// systemBlockFilterPrefixes 需要从 system 中过滤的文本前缀列表
+	// OAuth/SetupToken 账号转发时，匹配这些前缀的 system 元素会被移除
+	systemBlockFilterPrefixes = []string{
+		"x-anthropic-billing-header",
+	}
 )
 
 // ErrClaudeCodeOnly 表示分组仅允许 Claude Code 客户端访问
@@ -370,8 +393,9 @@ type ForwardResult struct {
 
 // UpstreamFailoverError indicates an upstream error that should trigger account failover.
 type UpstreamFailoverError struct {
-	StatusCode   int
-	ResponseBody []byte // 上游响应体，用于错误透传规则匹配
+	StatusCode        int
+	ResponseBody      []byte // 上游响应体，用于错误透传规则匹配
+	ForceCacheBilling bool   // Antigravity 粘性会话切换时设为 true
 }
 
 func (e *UpstreamFailoverError) Error() string {
@@ -2043,6 +2067,17 @@ func sortAccountsByPriorityAndLastUsed(accounts []*Account, preferOAuth bool) {
 	})
 }
 
+// IsSingleAntigravityAccountGroup 检查指定分组是否只有一个 antigravity 平台的可调度账号。
+// 用于 Handler 层在首次请求时提前设置 SingleAccountRetry context，
+// 避免单账号分组收到 503 时错误地设置模型限流标记导致后续请求连续快速失败。
+func (s *GatewayService) IsSingleAntigravityAccountGroup(ctx context.Context, groupID *int64) bool {
+	accounts, _, err := s.listSchedulableAccounts(ctx, groupID, PlatformAntigravity, true)
+	if err != nil {
+		return false
+	}
+	return len(accounts) == 1
+}
+
 // sortCandidatesForFallback 根据配置选择排序策略
 // mode: "last_used"(按最后使用时间) 或 "random"(随机)
 func (s *GatewayService) sortCandidatesForFallback(accounts []*Account, preferOAuth bool, mode string) {
@@ -2707,6 +2742,60 @@ func hasClaudeCodePrefix(text string) bool {
 	return false
 }
 
+// matchesFilterPrefix 检查文本是否匹配任一过滤前缀
+func matchesFilterPrefix(text string) bool {
+	for _, prefix := range systemBlockFilterPrefixes {
+		if strings.HasPrefix(text, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// filterSystemBlocksByPrefix 从 body 的 system 中移除文本匹配 systemBlockFilterPrefixes 前缀的元素
+// 直接从 body 解析 system，不依赖外部传入的 parsed.System（因为前置步骤可能已修改 body 中的 system）
+func filterSystemBlocksByPrefix(body []byte) []byte {
+	sys := gjson.GetBytes(body, "system")
+	if !sys.Exists() {
+		return body
+	}
+
+	switch {
+	case sys.Type == gjson.String:
+		if matchesFilterPrefix(sys.Str) {
+			result, err := sjson.DeleteBytes(body, "system")
+			if err != nil {
+				return body
+			}
+			return result
+		}
+	case sys.IsArray():
+		var parsed []any
+		if err := json.Unmarshal([]byte(sys.Raw), &parsed); err != nil {
+			return body
+		}
+		filtered := make([]any, 0, len(parsed))
+		changed := false
+		for _, item := range parsed {
+			if m, ok := item.(map[string]any); ok {
+				if text, ok := m["text"].(string); ok && matchesFilterPrefix(text) {
+					changed = true
+					continue
+				}
+			}
+			filtered = append(filtered, item)
+		}
+		if changed {
+			result, err := sjson.SetBytes(body, "system", filtered)
+			if err != nil {
+				return body
+			}
+			return result
+		}
+	}
+	return body
+}
+
 // injectClaudeCodePrompt 在 system 开头注入 Claude Code 提示词
 // 处理 null、字符串、数组三种格式
 func injectClaudeCodePrompt(body []byte, system any) []byte {
@@ -2985,6 +3074,12 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		}
 
 		body, reqModel, toolNameMap = normalizeClaudeOAuthRequestBody(body, reqModel, normalizeOpts)
+	}
+
+	// OAuth/SetupToken 账号：移除黑名单前缀匹配的 system 元素（如客户端注入的计费元数据）
+	// 放在 inject/normalize 之后，确保不会被覆盖
+	if account.IsOAuth() {
+		body = filterSystemBlocksByPrefix(body)
 	}
 
 	// 强制执行 cache_control 块数量限制（最多 4 个）
@@ -4619,14 +4714,15 @@ func (s *GatewayService) replaceToolNamesInResponseBody(body []byte, toolNameMap
 
 // RecordUsageInput 记录使用量的输入参数
 type RecordUsageInput struct {
-	Result        *ForwardResult
-	APIKey        *APIKey
-	User          *User
-	Account       *Account
-	Subscription  *UserSubscription  // 可选：订阅信息
-	UserAgent     string             // 请求的 User-Agent
-	IPAddress     string             // 请求的客户端 IP 地址
-	APIKeyService APIKeyQuotaUpdater // 可选：用于更新API Key配额
+	Result            *ForwardResult
+	APIKey            *APIKey
+	User              *User
+	Account           *Account
+	Subscription      *UserSubscription  // 可选：订阅信息
+	UserAgent         string             // 请求的 User-Agent
+	IPAddress         string             // 请求的客户端 IP 地址
+	ForceCacheBilling bool               // 强制缓存计费：将 input_tokens 转为 cache_read 计费（用于粘性会话切换）
+	APIKeyService     APIKeyQuotaUpdater // 可选：用于更新API Key配额
 }
 
 // APIKeyQuotaUpdater defines the interface for updating API Key quota
@@ -4641,6 +4737,15 @@ func (s *GatewayService) RecordUsage(ctx context.Context, input *RecordUsageInpu
 	user := input.User
 	account := input.Account
 	subscription := input.Subscription
+
+	// 强制缓存计费：将 input_tokens 转为 cache_read_input_tokens
+	// 用于粘性会话切换时的特殊计费处理
+	if input.ForceCacheBilling && result.Usage.InputTokens > 0 {
+		log.Printf("force_cache_billing: %d input_tokens → cache_read_input_tokens (account=%d)",
+			result.Usage.InputTokens, account.ID)
+		result.Usage.CacheReadInputTokens += result.Usage.InputTokens
+		result.Usage.InputTokens = 0
+	}
 
 	// 获取费率倍数（优先级：用户专属 > 分组默认 > 系统默认）
 	multiplier := s.cfg.Default.RateMultiplier
@@ -4802,6 +4907,7 @@ type RecordUsageLongContextInput struct {
 	IPAddress             string            // 请求的客户端 IP 地址
 	LongContextThreshold  int               // 长上下文阈值（如 200000）
 	LongContextMultiplier float64           // 超出阈值部分的倍率（如 2.0）
+	ForceCacheBilling     bool              // 强制缓存计费：将 input_tokens 转为 cache_read 计费（用于粘性会话切换）
 	APIKeyService         *APIKeyService    // API Key 配额服务（可选）
 }
 
@@ -4812,6 +4918,15 @@ func (s *GatewayService) RecordUsageWithLongContext(ctx context.Context, input *
 	user := input.User
 	account := input.Account
 	subscription := input.Subscription
+
+	// 强制缓存计费：将 input_tokens 转为 cache_read_input_tokens
+	// 用于粘性会话切换时的特殊计费处理
+	if input.ForceCacheBilling && result.Usage.InputTokens > 0 {
+		log.Printf("force_cache_billing: %d input_tokens → cache_read_input_tokens (account=%d)",
+			result.Usage.InputTokens, account.ID)
+		result.Usage.CacheReadInputTokens += result.Usage.InputTokens
+		result.Usage.InputTokens = 0
+	}
 
 	// 获取费率倍数（优先级：用户专属 > 分组默认 > 系统默认）
 	multiplier := s.cfg.Default.RateMultiplier
