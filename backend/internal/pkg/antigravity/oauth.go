@@ -55,31 +55,12 @@ var BaseURLs = []string{
 // BaseURL 默认 URL（保持向后兼容）
 var BaseURL = BaseURLs[0]
 
-// ForwardBaseURLs 返回 API 转发用的 URL 顺序（daily 优先）
+// ForwardBaseURLs 返回 API 转发用的 URL 顺序（prod 优先，daily 候补）
 func ForwardBaseURLs() []string {
 	if len(BaseURLs) == 0 {
 		return nil
 	}
-	urls := append([]string(nil), BaseURLs...)
-	dailyIndex := -1
-	for i, url := range urls {
-		if url == antigravityDailyBaseURL {
-			dailyIndex = i
-			break
-		}
-	}
-	if dailyIndex <= 0 {
-		return urls
-	}
-	reordered := make([]string, 0, len(urls))
-	reordered = append(reordered, urls[dailyIndex])
-	for i, url := range urls {
-		if i == dailyIndex {
-			continue
-		}
-		reordered = append(reordered, url)
-	}
-	return reordered
+	return append([]string(nil), BaseURLs...)
 }
 
 // URLAvailability 管理 URL 可用性状态（带 TTL 自动恢复和动态优先级）

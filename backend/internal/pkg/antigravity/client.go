@@ -293,7 +293,7 @@ func (c *Client) GetUserInfo(ctx context.Context, accessToken string) (*UserInfo
 }
 
 // LoadCodeAssist 获取账户信息，返回解析后的结构体和原始 JSON
-// 支持 URL fallback：sandbox → daily → prod
+// 支持 URL fallback：prod → daily
 func (c *Client) LoadCodeAssist(ctx context.Context, accessToken string) (*LoadCodeAssistResponse, map[string]any, error) {
 	reqBody := LoadCodeAssistRequest{}
 	reqBody.Metadata.IDEType = "ANTIGRAVITY"
@@ -383,7 +383,7 @@ type FetchAvailableModelsResponse struct {
 }
 
 // FetchAvailableModels 获取可用模型和配额信息，返回解析后的结构体和原始 JSON
-// 支持 URL fallback：sandbox → daily → prod
+// 支持 URL fallback：prod → daily
 func (c *Client) FetchAvailableModels(ctx context.Context, accessToken, projectID string) (*FetchAvailableModelsResponse, map[string]any, error) {
 	reqBody := FetchAvailableModelsRequest{Project: projectID}
 	bodyBytes, err := json.Marshal(reqBody)
