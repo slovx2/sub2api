@@ -88,6 +88,8 @@ const (
 	antigravityBillingModelEnv    = "GATEWAY_ANTIGRAVITY_BILL_WITH_MAPPED_MODEL"
 	antigravityForwardBaseURLEnv  = "GATEWAY_ANTIGRAVITY_FORWARD_BASE_URL"
 	antigravityFallbackSecondsEnv = "GATEWAY_ANTIGRAVITY_FALLBACK_COOLDOWN_SECONDS"
+	antigravityOpusToSonnetEnv    = "GATEWAY_ANTIGRAVITY_OPUS_TO_SONNET"
+	antigravityOpus45ToOpus46Env  = "GATEWAY_ANTIGRAVITY_OPUS45_TO_OPUS46"
 )
 
 // AntigravityAccountSwitchError 账号切换信号
@@ -916,6 +918,25 @@ func mapAntigravityModel(account *Account, requestedModel string) string {
 	normalizedRequestedModel := normalizeAntigravityRequestedModel(requestedModel)
 	if normalizedRequestedModel == "" {
 		return ""
+	}
+
+	// 运维开关：临时将 Opus 请求映射到 Sonnet
+	if antigravityOpusToSonnetEnabled() {
+		if strings.HasPrefix(normalizedRequestedModel, "claude-opus-") {
+			if strings.Contains(normalizedRequestedModel, "thinking") {
+				return "claude-sonnet-4-5-thinking"
+			}
+			return "claude-sonnet-4-5"
+		}
+	}
+
+	// 运维开关：将 Opus 4.5 统一映射到 Opus 4.6（默认开启）
+	// 若关闭，则保留到 4.5-thinking，避免被默认映射表迁移到 4.6。
+	if strings.HasPrefix(normalizedRequestedModel, "claude-opus-4-5") {
+		if antigravityOpus45ToOpus46Enabled() {
+			return "claude-opus-4-6-thinking"
+		}
+		return "claude-opus-4-5-thinking"
 	}
 
 	// 获取映射表（未配置时自动使用 DefaultAntigravityModelMapping）
@@ -2334,6 +2355,19 @@ func setModelRateLimitByModelName(ctx context.Context, repo AccountRepository, a
 		log.Printf("%s status=%d model_rate_limited model=%s account=%d reset_in=%v", prefix, statusCode, modelName, accountID, time.Until(resetAt).Truncate(time.Second))
 	}
 	return true
+}
+
+func antigravityOpusToSonnetEnabled() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv(antigravityOpusToSonnetEnv)))
+	return v == "1" || v == "true" || v == "yes" || v == "on"
+}
+
+func antigravityOpus45ToOpus46Enabled() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv(antigravityOpus45ToOpus46Env)))
+	if v == "" {
+		return true
+	}
+	return v != "0" && v != "false" && v != "no" && v != "off"
 }
 
 func antigravityFallbackCooldownSeconds() (time.Duration, bool) {
