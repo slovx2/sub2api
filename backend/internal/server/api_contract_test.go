@@ -938,6 +938,10 @@ func (stubGroupRepo) GetAccountIDsByGroupIDs(ctx context.Context, groupIDs []int
 	return nil, errors.New("not implemented")
 }
 
+func (stubGroupRepo) UpdateSortOrders(ctx context.Context, updates []service.GroupSortOrderUpdate) error {
+	return nil
+}
+
 type stubAccountRepo struct {
 	bulkUpdateIDs  []int64
 	lookupAccounts []service.Account
@@ -1077,10 +1081,6 @@ func (s *stubAccountRepo) SetRateLimited(ctx context.Context, id int64, resetAt 
 	return errors.New("not implemented")
 }
 
-func (s *stubAccountRepo) SetAntigravityQuotaScopeLimit(ctx context.Context, id int64, scope service.AntigravityQuotaScope, resetAt time.Time) error {
-	return errors.New("not implemented")
-}
-
 func (s *stubAccountRepo) SetModelRateLimit(ctx context.Context, id int64, scope string, resetAt time.Time) error {
 	return errors.New("not implemented")
 }
@@ -1122,6 +1122,10 @@ func (s *stubAccountRepo) BulkUpdate(ctx context.Context, ids []int64, updates s
 	return int64(len(ids)), nil
 }
 
+func (s *stubAccountRepo) ListCRSAccountIDs(ctx context.Context) (map[string]int64, error) {
+	return nil, errors.New("not implemented")
+}
+
 type stubProxyRepo struct{}
 
 func (stubProxyRepo) Create(ctx context.Context, proxy *service.Proxy) error {
@@ -1130,6 +1134,10 @@ func (stubProxyRepo) Create(ctx context.Context, proxy *service.Proxy) error {
 
 func (stubProxyRepo) GetByID(ctx context.Context, id int64) (*service.Proxy, error) {
 	return nil, service.ErrProxyNotFound
+}
+
+func (stubProxyRepo) ListByIDs(ctx context.Context, ids []int64) ([]service.Proxy, error) {
+	return nil, errors.New("not implemented")
 }
 
 func (stubProxyRepo) Update(ctx context.Context, proxy *service.Proxy) error {

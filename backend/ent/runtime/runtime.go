@@ -326,6 +326,10 @@ func init() {
 	errorpassthroughruleDescPassthroughBody := errorpassthroughruleFields[9].Descriptor()
 	// errorpassthroughrule.DefaultPassthroughBody holds the default value on creation for the passthrough_body field.
 	errorpassthroughrule.DefaultPassthroughBody = errorpassthroughruleDescPassthroughBody.Default.(bool)
+	// errorpassthroughruleDescSkipMonitoring is the schema descriptor for skip_monitoring field.
+	errorpassthroughruleDescSkipMonitoring := errorpassthroughruleFields[11].Descriptor()
+	// errorpassthroughrule.DefaultSkipMonitoring holds the default value on creation for the skip_monitoring field.
+	errorpassthroughrule.DefaultSkipMonitoring = errorpassthroughruleDescSkipMonitoring.Default.(bool)
 	groupMixin := schema.Group{}.Mixin()
 	groupMixinHooks1 := groupMixin[1].Hooks()
 	group.Hooks[0] = groupMixinHooks1[0]
@@ -409,6 +413,10 @@ func init() {
 	groupDescSupportedModelScopes := groupFields[20].Descriptor()
 	// group.DefaultSupportedModelScopes holds the default value on creation for the supported_model_scopes field.
 	group.DefaultSupportedModelScopes = groupDescSupportedModelScopes.Default.([]string)
+	// groupDescSortOrder is the schema descriptor for sort_order field.
+	groupDescSortOrder := groupFields[21].Descriptor()
+	// group.DefaultSortOrder holds the default value on creation for the sort_order field.
+	group.DefaultSortOrder = groupDescSortOrder.Default.(int)
 	promocodeFields := schema.PromoCode{}.Fields()
 	_ = promocodeFields
 	// promocodeDescCode is the schema descriptor for code field.
