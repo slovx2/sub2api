@@ -56,6 +56,8 @@ func TestIsAntigravityModelSupported(t *testing.T) {
 }
 
 func TestAntigravityGatewayService_GetMappedModel(t *testing.T) {
+	t.Setenv(antigravityOpusToSonnetEnv, "")
+	t.Setenv(antigravityOpus45ToOpus46Env, "")
 	svc := &AntigravityGatewayService{}
 
 	tests := []struct {
@@ -101,7 +103,7 @@ func TestAntigravityGatewayService_GetMappedModel(t *testing.T) {
 			name:           "系统映射 - claude-opus-4-5-20251101",
 			requestedModel: "claude-opus-4-5-20251101",
 			accountMapping: nil,
-			expected:       "claude-opus-4-5-thinking",
+			expected:       "claude-opus-4-6-thinking",
 		},
 		{
 			name:           "系统映射 - claude-haiku-4 → claude-sonnet-4-5",
@@ -165,7 +167,7 @@ func TestAntigravityGatewayService_GetMappedModel(t *testing.T) {
 			name:           "直接支持 - claude-opus-4-5-thinking",
 			requestedModel: "claude-opus-4-5-thinking",
 			accountMapping: nil,
-			expected:       "claude-opus-4-5-thinking",
+			expected:       "claude-opus-4-6-thinking",
 		},
 		{
 			name:           "直接支持 - claude-sonnet-4-5-thinking",
@@ -266,4 +268,27 @@ func TestAntigravityGatewayService_IsModelSupported(t *testing.T) {
 			require.Equal(t, tt.expected, got)
 		})
 	}
+}
+
+func TestAntigravityGatewayService_GetMappedModel_Opus45To46Switch(t *testing.T) {
+	svc := &AntigravityGatewayService{}
+	account := &Account{Platform: PlatformAntigravity}
+
+	t.Run("默认开启", func(t *testing.T) {
+		t.Setenv(antigravityOpusToSonnetEnv, "")
+		t.Setenv(antigravityOpus45ToOpus46Env, "")
+		require.Equal(t, "claude-opus-4-6-thinking", svc.getMappedModel(account, "claude-opus-4-5-thinking"))
+	})
+
+	t.Run("显式关闭", func(t *testing.T) {
+		t.Setenv(antigravityOpusToSonnetEnv, "")
+		t.Setenv(antigravityOpus45ToOpus46Env, "false")
+		require.Equal(t, "claude-opus-4-5-thinking", svc.getMappedModel(account, "claude-opus-4-5-thinking"))
+	})
+
+	t.Run("与OpusToSonnet并存时后者优先", func(t *testing.T) {
+		t.Setenv(antigravityOpus45ToOpus46Env, "")
+		t.Setenv(antigravityOpusToSonnetEnv, "true")
+		require.Equal(t, "claude-sonnet-4-5-thinking", svc.getMappedModel(account, "claude-opus-4-5-thinking"))
+	})
 }

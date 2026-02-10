@@ -42,6 +42,7 @@ const (
 	antigravityFallbackSecondsEnv       = "GATEWAY_ANTIGRAVITY_FALLBACK_COOLDOWN_SECONDS"
 	antigravityBadRequestLogEnv         = "GATEWAY_ANTIGRAVITY_LOG_BAD_REQUESTS"
 	antigravityOpusToSonnetEnv          = "GATEWAY_ANTIGRAVITY_OPUS_TO_SONNET"
+	antigravityOpus45ToOpus46Env        = "GATEWAY_ANTIGRAVITY_OPUS45_TO_OPUS46"
 )
 
 // antigravityRetryLoopParams 重试循环的参数
@@ -375,6 +376,15 @@ func (s *AntigravityGatewayService) getMappedModel(account *Account, requestedMo
 				return "claude-sonnet-4-5-thinking"
 			}
 			return "claude-sonnet-4-5"
+		}
+	}
+
+	// 0.1 运维开关：将 Opus 4.5 统一映射到 Opus 4.6（默认开启）
+	if antigravityOpus45ToOpus46Enabled() {
+		trimmed := strings.TrimSpace(requestedModel)
+		lower := strings.ToLower(trimmed)
+		if strings.HasPrefix(lower, "claude-opus-4-5") || strings.HasPrefix(lower, "claude-opus-4.5") {
+			return "claude-opus-4-6-thinking"
 		}
 	}
 
@@ -2122,6 +2132,14 @@ func antigravityUseMappedModelForBilling() bool {
 func antigravityOpusToSonnetEnabled() bool {
 	v := strings.ToLower(strings.TrimSpace(os.Getenv(antigravityOpusToSonnetEnv)))
 	return v == "1" || v == "true" || v == "yes" || v == "on"
+}
+
+func antigravityOpus45ToOpus46Enabled() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv(antigravityOpus45ToOpus46Env)))
+	if v == "" {
+		return true
+	}
+	return v != "0" && v != "false" && v != "no" && v != "off"
 }
 
 func antigravityFallbackCooldownSeconds() (time.Duration, bool) {
