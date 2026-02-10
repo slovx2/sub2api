@@ -41,6 +41,7 @@ const (
 	antigravityBillingModelEnv          = "GATEWAY_ANTIGRAVITY_BILL_WITH_MAPPED_MODEL"
 	antigravityFallbackSecondsEnv       = "GATEWAY_ANTIGRAVITY_FALLBACK_COOLDOWN_SECONDS"
 	antigravityBadRequestLogEnv         = "GATEWAY_ANTIGRAVITY_LOG_BAD_REQUESTS"
+	antigravityOpusToSonnetEnv          = "GATEWAY_ANTIGRAVITY_OPUS_TO_SONNET"
 )
 
 // antigravityRetryLoopParams 重试循环的参数
@@ -408,6 +409,18 @@ func (s *AntigravityGatewayService) GetTokenProvider() *AntigravityTokenProvider
 // getMappedModel 获取映射后的模型名
 // 逻辑：账户映射 → 直接支持透传 → 前缀映射 → gemini透传 → 默认值
 func (s *AntigravityGatewayService) getMappedModel(account *Account, requestedModel string) string {
+	// 0. 运维开关：临时将 Opus 请求映射到 Sonnet
+	if antigravityOpusToSonnetEnabled() {
+		trimmed := strings.TrimSpace(requestedModel)
+		lower := strings.ToLower(trimmed)
+		if strings.HasPrefix(lower, "claude-opus-") {
+			if strings.Contains(lower, "thinking") {
+				return "claude-sonnet-4-5-thinking"
+			}
+			return "claude-sonnet-4-5"
+		}
+	}
+
 	// 1. 账户级映射（用户自定义优先）
 	if mapped := account.GetMappedModel(requestedModel); mapped != requestedModel {
 		return mapped
@@ -2166,6 +2179,11 @@ func antigravityMaxRetriesForModel(model string, afterSwitch bool) int {
 
 func antigravityUseMappedModelForBilling() bool {
 	v := strings.ToLower(strings.TrimSpace(os.Getenv(antigravityBillingModelEnv)))
+	return v == "1" || v == "true" || v == "yes" || v == "on"
+}
+
+func antigravityOpusToSonnetEnabled() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv(antigravityOpusToSonnetEnv)))
 	return v == "1" || v == "true" || v == "yes" || v == "on"
 }
 
