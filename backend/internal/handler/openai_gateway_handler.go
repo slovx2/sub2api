@@ -149,6 +149,11 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	// Track if we've started streaming (for error handling)
 	streamStarted := false
 
+	// 绑定错误透传服务，允许 service 层在非 failover 错误场景复用规则。
+	if h.errorPassthroughService != nil {
+		service.BindErrorPassthroughService(c, h.errorPassthroughService)
+	}
+
 	// Get subscription info (may be nil)
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 
@@ -347,6 +352,10 @@ func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverE
 			msg := service.ExtractUpstreamErrorMessage(responseBody)
 			if !rule.PassthroughBody && rule.CustomMessage != nil {
 				msg = *rule.CustomMessage
+			}
+
+			if rule.SkipMonitoring {
+				c.Set(service.OpsSkipPassthroughKey, true)
 			}
 
 			h.handleStreamingAwareError(c, respCode, "upstream_error", msg, streamStarted)

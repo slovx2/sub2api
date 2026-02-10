@@ -77,6 +77,9 @@ func (m *mockAccountRepoForPlatform) Create(ctx context.Context, account *Accoun
 func (m *mockAccountRepoForPlatform) GetByCRSAccountID(ctx context.Context, crsAccountID string) (*Account, error) {
 	return nil, nil
 }
+func (m *mockAccountRepoForPlatform) ListCRSAccountIDs(ctx context.Context) (map[string]int64, error) {
+	return nil, nil
+}
 func (m *mockAccountRepoForPlatform) Update(ctx context.Context, account *Account) error {
 	return nil
 }
@@ -143,9 +146,6 @@ func (m *mockAccountRepoForPlatform) ListSchedulableByGroupIDAndPlatforms(ctx co
 	return m.ListSchedulableByPlatforms(ctx, platforms)
 }
 func (m *mockAccountRepoForPlatform) SetRateLimited(ctx context.Context, id int64, resetAt time.Time) error {
-	return nil
-}
-func (m *mockAccountRepoForPlatform) SetAntigravityQuotaScopeLimit(ctx context.Context, id int64, scope AntigravityQuotaScope, resetAt time.Time) error {
 	return nil
 }
 func (m *mockAccountRepoForPlatform) SetModelRateLimit(ctx context.Context, id int64, scope string, resetAt time.Time) error {
@@ -277,6 +277,10 @@ func (m *mockGroupRepoForGateway) GetAccountIDsByGroupIDs(ctx context.Context, g
 	return nil, nil
 }
 
+func (m *mockGroupRepoForGateway) UpdateSortOrders(ctx context.Context, updates []GroupSortOrderUpdate) error {
+	return nil
+}
+
 func ptr[T any](v T) *T {
 	return &v
 }
@@ -335,7 +339,7 @@ func TestGatewayService_SelectAccountForModelWithPlatform_Antigravity(t *testing
 		cfg:         testConfig(),
 	}
 
-	acc, err := svc.selectAccountForModelWithPlatform(ctx, nil, "", "claude-3-5-sonnet-20241022", nil, PlatformAntigravity)
+	acc, err := svc.selectAccountForModelWithPlatform(ctx, nil, "", "claude-sonnet-4-5", nil, PlatformAntigravity)
 	require.NoError(t, err)
 	require.NotNil(t, acc)
 	require.Equal(t, int64(2), acc.ID)
@@ -673,7 +677,7 @@ func TestGatewayService_SelectAccountForModelWithExclusions_ForcePlatform(t *tes
 		cfg:         testConfig(),
 	}
 
-	acc, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "claude-3-5-sonnet-20241022", nil)
+	acc, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "claude-sonnet-4-5", nil)
 	require.NoError(t, err)
 	require.NotNil(t, acc)
 	require.Equal(t, int64(2), acc.ID)
@@ -1017,10 +1021,16 @@ func TestGatewayService_isModelSupportedByAccount(t *testing.T) {
 		expected bool
 	}{
 		{
-			name:     "Antigravity平台-支持claude模型",
+			name:     "Antigravity平台-支持默认映射中的claude模型",
+			account:  &Account{Platform: PlatformAntigravity},
+			model:    "claude-sonnet-4-5",
+			expected: true,
+		},
+		{
+			name:     "Antigravity平台-不支持非默认映射中的claude模型",
 			account:  &Account{Platform: PlatformAntigravity},
 			model:    "claude-3-5-sonnet-20241022",
-			expected: true,
+			expected: false,
 		},
 		{
 			name:     "Antigravity平台-支持gemini模型",
@@ -1118,7 +1128,7 @@ func TestGatewayService_selectAccountWithMixedScheduling(t *testing.T) {
 			cfg:         testConfig(),
 		}
 
-		acc, err := svc.selectAccountWithMixedScheduling(ctx, nil, "", "claude-3-5-sonnet-20241022", nil, PlatformAnthropic)
+		acc, err := svc.selectAccountWithMixedScheduling(ctx, nil, "", "claude-sonnet-4-5", nil, PlatformAnthropic)
 		require.NoError(t, err)
 		require.NotNil(t, acc)
 		require.Equal(t, int64(2), acc.ID, "应选择优先级最高的账户（包含启用混合调度的antigravity）")
@@ -1126,7 +1136,7 @@ func TestGatewayService_selectAccountWithMixedScheduling(t *testing.T) {
 
 	t.Run("混合调度-路由优先选择路由账号", func(t *testing.T) {
 		groupID := int64(30)
-		requestedModel := "claude-3-5-sonnet-20241022"
+		requestedModel := "claude-sonnet-4-5"
 		repo := &mockAccountRepoForPlatform{
 			accounts: []Account{
 				{ID: 1, Platform: PlatformAnthropic, Priority: 1, Status: StatusActive, Schedulable: true},
@@ -1171,7 +1181,7 @@ func TestGatewayService_selectAccountWithMixedScheduling(t *testing.T) {
 
 	t.Run("混合调度-路由粘性命中", func(t *testing.T) {
 		groupID := int64(31)
-		requestedModel := "claude-3-5-sonnet-20241022"
+		requestedModel := "claude-sonnet-4-5"
 		repo := &mockAccountRepoForPlatform{
 			accounts: []Account{
 				{ID: 1, Platform: PlatformAnthropic, Priority: 1, Status: StatusActive, Schedulable: true},
@@ -1323,7 +1333,7 @@ func TestGatewayService_selectAccountWithMixedScheduling(t *testing.T) {
 					Schedulable: true,
 					Extra: map[string]any{
 						"model_rate_limits": map[string]any{
-							"claude_sonnet": map[string]any{
+							"claude-3-5-sonnet-20241022": map[string]any{
 								"rate_limit_reset_at": resetAt.Format(time.RFC3339),
 							},
 						},
@@ -1468,7 +1478,7 @@ func TestGatewayService_selectAccountWithMixedScheduling(t *testing.T) {
 			cfg:         testConfig(),
 		}
 
-		acc, err := svc.selectAccountWithMixedScheduling(ctx, nil, "session-123", "claude-3-5-sonnet-20241022", nil, PlatformAnthropic)
+		acc, err := svc.selectAccountWithMixedScheduling(ctx, nil, "session-123", "claude-sonnet-4-5", nil, PlatformAnthropic)
 		require.NoError(t, err)
 		require.NotNil(t, acc)
 		require.Equal(t, int64(2), acc.ID, "应返回粘性会话绑定的启用mixed_scheduling的antigravity账户")
@@ -1600,7 +1610,7 @@ func TestGatewayService_selectAccountWithMixedScheduling(t *testing.T) {
 			cfg:         testConfig(),
 		}
 
-		acc, err := svc.selectAccountWithMixedScheduling(ctx, nil, "", "claude-3-5-sonnet-20241022", nil, PlatformAnthropic)
+		acc, err := svc.selectAccountWithMixedScheduling(ctx, nil, "", "claude-sonnet-4-5", nil, PlatformAnthropic)
 		require.NoError(t, err)
 		require.NotNil(t, acc)
 		require.Equal(t, int64(1), acc.ID)
@@ -1871,6 +1881,19 @@ func (m *mockConcurrencyCache) GetAccountsLoadBatch(ctx context.Context, account
 
 func (m *mockConcurrencyCache) CleanupExpiredAccountSlots(ctx context.Context, accountID int64) error {
 	return nil
+}
+
+func (m *mockConcurrencyCache) GetUsersLoadBatch(ctx context.Context, users []UserWithConcurrency) (map[int64]*UserLoadInfo, error) {
+	result := make(map[int64]*UserLoadInfo, len(users))
+	for _, user := range users {
+		result[user.ID] = &UserLoadInfo{
+			UserID:             user.ID,
+			CurrentConcurrency: 0,
+			WaitingCount:       0,
+			LoadRate:           0,
+		}
+	}
+	return result, nil
 }
 
 // TestGatewayService_SelectAccountWithLoadAwareness tests load-aware account selection
@@ -2750,7 +2773,7 @@ func TestGatewayService_SelectAccountWithLoadAwareness(t *testing.T) {
 					Concurrency: 5,
 					Extra: map[string]any{
 						"model_rate_limits": map[string]any{
-							"claude_sonnet": map[string]any{
+							"claude-3-5-sonnet-20241022": map[string]any{
 								"rate_limit_reset_at": now.Format(time.RFC3339),
 							},
 						},
