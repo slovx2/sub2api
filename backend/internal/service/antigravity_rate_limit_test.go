@@ -70,6 +70,8 @@ func (s *stubAntigravityAccountRepo) SetRateLimited(ctx context.Context, id int6
 }
 
 func TestAntigravityRetryLoop_DailyOnly_NoURLFallback(t *testing.T) {
+	t.Setenv(antigravityForwardBaseURLEnv, "")
+
 	oldBaseURLs := append([]string(nil), antigravity.BaseURLs...)
 	oldAvailability := antigravity.DefaultURLAvailability
 	defer func() {
