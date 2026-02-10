@@ -488,3 +488,11 @@ func (s *adminServiceStub) BatchDeleteRedeemCodes(ctx context.Context, ids []int
 func (s *adminServiceStub) ExpireRedeemCode(ctx context.Context, id int64) (*baseservice.RedeemCode, error) {
 	return nil, nil
 }
+
+func (s *adminServiceStub) UpdateGroupSortOrders(ctx context.Context, updates []baseservice.GroupSortOrderUpdate) error {
+	return nil
+}
+
+func (s *adminServiceStub) GetProxiesByIDs(ctx context.Context, ids []int64) ([]baseservice.Proxy, error) {
+	return nil, nil
+}
