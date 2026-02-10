@@ -895,15 +895,6 @@ func normalizeAntigravityRequestedModel(model string) string {
 	normalized := strings.ToLower(strings.TrimSpace(model))
 	normalized = strings.TrimPrefix(normalized, "models/")
 
-	// 兼容 4.6 点号别名：支持前缀匹配
-	// 例如:
-	// - claude-opus-4.6 -> claude-opus-4-6
-	// - claude-opus-4.6-thinking -> claude-opus-4-6-thinking
-	// - claude-opus-4.6-20260201 -> claude-opus-4-6-20260201
-	if strings.HasPrefix(normalized, "claude-opus-4.6") {
-		return "claude-opus-4-6" + strings.TrimPrefix(normalized, "claude-opus-4.6")
-	}
-
 	return normalized
 }
 
@@ -960,13 +951,6 @@ func mapAntigravityModel(account *Account, requestedModel string) string {
 	// 3. 映射表中没有 model-a 的配置 → 返回空（不支持）
 	if account.IsModelSupported(normalizedRequestedModel) {
 		return normalizedRequestedModel
-	}
-
-	// 4.6 点号别名前缀兜底：未命中显式规则时，回退到 4-6-thinking
-	if strings.HasPrefix(normalizedRequestedModel, "claude-opus-4-6") {
-		if fallback, ok := mapping["claude-opus-4-6-thinking"]; ok && strings.TrimSpace(fallback) != "" {
-			return fallback
-		}
 	}
 
 	// 未在映射表中配置的模型，返回空字符串（不支持）
