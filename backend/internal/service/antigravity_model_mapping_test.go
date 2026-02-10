@@ -45,6 +45,24 @@ func TestAntigravityGatewayService_GetMappedModel(t *testing.T) {
 			expected:       "claude-opus-4-6-thinking",
 		},
 		{
+			name:           "默认映射 - claude-opus-4.6-thinking(点号别名) → claude-opus-4-6-thinking",
+			requestedModel: "claude-opus-4.6-thinking",
+			accountMapping: nil,
+			expected:       "claude-opus-4-6-thinking",
+		},
+		{
+			name:           "默认映射 - claude-opus-4.6(点号别名) → claude-opus-4-6-thinking",
+			requestedModel: "claude-opus-4.6",
+			accountMapping: nil,
+			expected:       "claude-opus-4-6-thinking",
+		},
+		{
+			name:           "默认映射 - claude-opus-4.6-20260201(点号别名前缀) → claude-opus-4-6-thinking",
+			requestedModel: "claude-opus-4.6-20260201",
+			accountMapping: nil,
+			expected:       "claude-opus-4-6-thinking",
+		},
+		{
 			name:           "默认映射 - claude-opus-4-5-20251101 → claude-opus-4-6-thinking",
 			requestedModel: "claude-opus-4-5-20251101",
 			accountMapping: nil,
@@ -117,6 +135,12 @@ func TestAntigravityGatewayService_GetMappedModel(t *testing.T) {
 		{
 			name:           "未知模型 - claude-unknown 返回空",
 			requestedModel: "claude-unknown",
+			accountMapping: nil,
+			expected:       "",
+		},
+		{
+			name:           "未知模型 - claude-opus-4.5-thinking(点号别名不支持) 返回空",
+			requestedModel: "claude-opus-4.5-thinking",
 			accountMapping: nil,
 			expected:       "",
 		},

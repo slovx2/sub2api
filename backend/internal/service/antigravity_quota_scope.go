@@ -7,7 +7,7 @@ import (
 )
 
 func normalizeAntigravityModelName(model string) string {
-	normalized := strings.ToLower(strings.TrimSpace(model))
+	normalized := normalizeAntigravityRequestedModel(model)
 	normalized = strings.TrimPrefix(normalized, "models/")
 	return normalized
 }

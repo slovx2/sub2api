@@ -889,11 +889,32 @@ func (s *AntigravityGatewayService) applyErrorPolicy(p antigravityRetryLoopParam
 	return false, statusCode, nil
 }
 
+func normalizeAntigravityRequestedModel(model string) string {
+	normalized := strings.ToLower(strings.TrimSpace(model))
+	normalized = strings.TrimPrefix(normalized, "models/")
+
+	// 兼容 4.6 点号别名：支持前缀匹配
+	// 例如:
+	// - claude-opus-4.6 -> claude-opus-4-6
+	// - claude-opus-4.6-thinking -> claude-opus-4-6-thinking
+	// - claude-opus-4.6-20260201 -> claude-opus-4-6-20260201
+	if strings.HasPrefix(normalized, "claude-opus-4.6") {
+		return "claude-opus-4-6" + strings.TrimPrefix(normalized, "claude-opus-4.6")
+	}
+
+	return normalized
+}
+
 // mapAntigravityModel 获取映射后的模型名
 // 完全依赖映射配置：账户映射（通配符）→ 默认映射兜底（DefaultAntigravityModelMapping）
 // 注意：返回空字符串表示模型不被支持，调度时会过滤掉该账号
 func mapAntigravityModel(account *Account, requestedModel string) string {
 	if account == nil {
+		return ""
+	}
+
+	normalizedRequestedModel := normalizeAntigravityRequestedModel(requestedModel)
+	if normalizedRequestedModel == "" {
 		return ""
 	}
 
@@ -904,20 +925,27 @@ func mapAntigravityModel(account *Account, requestedModel string) string {
 	}
 
 	// 通过映射表查询（支持精确匹配 + 通配符）
-	mapped := account.GetMappedModel(requestedModel)
+	mapped := account.GetMappedModel(normalizedRequestedModel)
 
-	// 判断是否映射成功（mapped != requestedModel 说明找到了映射规则）
-	if mapped != requestedModel {
+	// 判断是否映射成功（mapped != normalizedRequestedModel 说明找到了映射规则）
+	if mapped != normalizedRequestedModel {
 		return mapped
 	}
 
-	// 如果 mapped == requestedModel，检查是否在映射表中配置（精确或通配符）
+	// 如果 mapped == normalizedRequestedModel，检查是否在映射表中配置（精确或通配符）
 	// 这区分两种情况：
 	// 1. 映射表中有 "model-a": "model-a"（显式透传）→ 返回 model-a
 	// 2. 通配符匹配 "claude-*": "claude-sonnet-4-5" 恰好目标等于请求名 → 返回 model-a
 	// 3. 映射表中没有 model-a 的配置 → 返回空（不支持）
-	if account.IsModelSupported(requestedModel) {
-		return requestedModel
+	if account.IsModelSupported(normalizedRequestedModel) {
+		return normalizedRequestedModel
+	}
+
+	// 4.6 点号别名前缀兜底：未命中显式规则时，回退到 4-6-thinking
+	if strings.HasPrefix(normalizedRequestedModel, "claude-opus-4-6") {
+		if fallback, ok := mapping["claude-opus-4-6-thinking"]; ok && strings.TrimSpace(fallback) != "" {
+			return fallback
+		}
 	}
 
 	// 未在映射表中配置的模型，返回空字符串（不支持）
