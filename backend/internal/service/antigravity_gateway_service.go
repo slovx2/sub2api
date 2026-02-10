@@ -104,6 +104,9 @@ func (e *AntigravityEmptyStreamError) Unwrap() error {
 // antigravityRetryLoop 执行带 URL fallback 的重试循环
 func antigravityRetryLoop(p antigravityRetryLoopParams) (*antigravityRetryLoopResult, error) {
 	baseURLs := antigravity.ForwardBaseURLs()
+	if len(baseURLs) > 1 {
+		baseURLs = baseURLs[:1] // 正式转发只使用 daily，不回退到 prod
+	}
 	availableURLs := antigravity.DefaultURLAvailability.GetAvailableURLsWithBase(baseURLs)
 	if len(availableURLs) == 0 {
 		availableURLs = baseURLs
@@ -504,6 +507,9 @@ func (s *AntigravityGatewayService) TestConnection(ctx context.Context, account 
 
 	// URL fallback 循环（与 Forward 主链路保持一致）
 	baseURLs := antigravity.ForwardBaseURLs()
+	if len(baseURLs) > 1 {
+		baseURLs = baseURLs[:1] // 测试 API 只使用 daily，不回退到 prod
+	}
 	availableURLs := antigravity.DefaultURLAvailability.GetAvailableURLsWithBase(baseURLs)
 	if len(availableURLs) == 0 {
 		availableURLs = baseURLs // 所有 URL 都不可用时，重试所有
