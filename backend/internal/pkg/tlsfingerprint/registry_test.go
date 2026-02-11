@@ -47,11 +47,13 @@ func TestRegisterProfile(t *testing.T) {
 	if retrieved == nil {
 		t.Fatal("expected custom profile to exist")
 	}
-	if retrieved.Name != "Custom Profile" {
-		t.Errorf("expected profile name 'Custom Profile', got '%s'", retrieved.Name)
-	}
-	if !retrieved.EnableGREASE {
-		t.Error("expected EnableGREASE to be true")
+	if retrieved != nil {
+		if retrieved.Name != "Custom Profile" {
+			t.Errorf("expected profile name 'Custom Profile', got '%s'", retrieved.Name)
+		}
+		if !retrieved.EnableGREASE {
+			t.Error("expected EnableGREASE to be true")
+		}
 	}
 }
 

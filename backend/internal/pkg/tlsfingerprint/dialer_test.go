@@ -73,11 +73,13 @@ func TestHTTPProxyDialerBasic(t *testing.T) {
 	if dialer == nil {
 		t.Fatal("expected dialer to be created")
 	}
-	if dialer.profile != profile {
-		t.Error("expected profile to be set")
-	}
-	if dialer.proxyURL != proxyURL {
-		t.Error("expected proxyURL to be set")
+	if dialer != nil {
+		if dialer.profile != profile {
+			t.Error("expected profile to be set")
+		}
+		if dialer.proxyURL != proxyURL {
+			t.Error("expected proxyURL to be set")
+		}
 	}
 }
 
@@ -96,11 +98,13 @@ func TestSOCKS5ProxyDialerBasic(t *testing.T) {
 	if dialer == nil {
 		t.Fatal("expected dialer to be created")
 	}
-	if dialer.profile != profile {
-		t.Error("expected profile to be set")
-	}
-	if dialer.proxyURL != proxyURL {
-		t.Error("expected proxyURL to be set")
+	if dialer != nil {
+		if dialer.profile != profile {
+			t.Error("expected profile to be set")
+		}
+		if dialer.proxyURL != proxyURL {
+			t.Error("expected proxyURL to be set")
+		}
 	}
 }
 
