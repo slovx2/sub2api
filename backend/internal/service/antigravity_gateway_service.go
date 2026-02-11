@@ -85,7 +85,6 @@ var (
 )
 
 const (
-	antigravityBillingModelEnv    = "GATEWAY_ANTIGRAVITY_BILL_WITH_MAPPED_MODEL"
 	antigravityForwardBaseURLEnv  = "GATEWAY_ANTIGRAVITY_FORWARD_BASE_URL"
 	antigravityFallbackSecondsEnv = "GATEWAY_ANTIGRAVITY_FALLBACK_COOLDOWN_SECONDS"
 	antigravityOpusToSonnetEnv    = "GATEWAY_ANTIGRAVITY_OPUS_TO_SONNET"
@@ -1344,6 +1343,7 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 	// 应用 thinking 模式自动后缀：如果 thinking 开启且目标是 claude-sonnet-4-5，自动改为 thinking 版本
 	thinkingEnabled := claudeReq.Thinking != nil && claudeReq.Thinking.Type == "enabled"
 	mappedModel = applyThinkingModelSuffix(mappedModel, thinkingEnabled)
+	billingModel := mappedModel
 
 	// 获取 access_token
 	if s.tokenProvider == nil {
@@ -1653,7 +1653,7 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 	return &ForwardResult{
 		RequestID:        requestID,
 		Usage:            *usage,
-		Model:            originalModel, // 使用原始模型用于计费和日志
+		Model:            billingModel,
 		Stream:           claudeReq.Stream,
 		Duration:         time.Since(startTime),
 		FirstTokenMs:     firstTokenMs,
@@ -2007,6 +2007,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 	if mappedModel == "" {
 		return nil, s.writeGoogleError(c, http.StatusForbidden, fmt.Sprintf("model %s not in whitelist", originalModel))
 	}
+	billingModel := mappedModel
 
 	// 获取 access_token
 	if s.tokenProvider == nil {
@@ -2232,7 +2233,7 @@ handleSuccess:
 	return &ForwardResult{
 		RequestID:        requestID,
 		Usage:            *usage,
-		Model:            originalModel,
+		Model:            billingModel,
 		Stream:           stream,
 		Duration:         time.Since(startTime),
 		FirstTokenMs:     firstTokenMs,
