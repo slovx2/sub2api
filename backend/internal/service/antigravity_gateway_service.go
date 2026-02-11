@@ -210,12 +210,11 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 			p.prefix, resp.StatusCode, modelName, p.account.ID, rateLimitDuration, truncateForLog(respBody, 200))
 
 		resetAt := time.Now().Add(rateLimitDuration)
-		limitKey := resolveAntigravityModelKey(modelName)
 		if !setModelRateLimitByModelName(p.ctx, p.accountRepo, p.account.ID, modelName, p.prefix, resp.StatusCode, resetAt, false) {
 			p.handleError(p.ctx, p.prefix, p.account, resp.StatusCode, resp.Header, respBody, p.requestedModel, p.groupID, p.sessionHash, p.isStickySession)
 			log.Printf("%s status=%d rate_limited account=%d (no model mapping)", p.prefix, resp.StatusCode, p.account.ID)
-		} else if limitKey != "" {
-			s.updateAccountModelRateLimitInCache(p.ctx, p.account, limitKey, resetAt)
+		} else {
+			s.updateAccountModelRateLimitInCache(p.ctx, p.account, modelName, resetAt)
 		}
 
 		// 返回账号切换信号，让上层切换账号重试
@@ -376,15 +375,12 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 
 		resetAt := time.Now().Add(rateLimitDuration)
 		if p.accountRepo != nil && modelName != "" {
-			limitKey := resolveAntigravityModelKey(modelName)
-			if limitKey != "" {
-				if err := p.accountRepo.SetModelRateLimit(p.ctx, p.account.ID, limitKey, resetAt); err != nil {
-					log.Printf("%s status=%d model_rate_limit_failed model=%s key=%s error=%v", p.prefix, resp.StatusCode, modelName, limitKey, err)
-				} else {
-					log.Printf("%s status=%d model_rate_limited_after_smart_retry model=%s key=%s account=%d reset_in=%v",
-						p.prefix, resp.StatusCode, modelName, limitKey, p.account.ID, rateLimitDuration)
-					s.updateAccountModelRateLimitInCache(p.ctx, p.account, limitKey, resetAt)
-				}
+			if err := p.accountRepo.SetModelRateLimit(p.ctx, p.account.ID, modelName, resetAt); err != nil {
+				log.Printf("%s status=%d model_rate_limit_failed model=%s error=%v", p.prefix, resp.StatusCode, modelName, err)
+			} else {
+				log.Printf("%s status=%d model_rate_limited_after_smart_retry model=%s account=%d reset_in=%v",
+					p.prefix, resp.StatusCode, modelName, p.account.ID, rateLimitDuration)
+				s.updateAccountModelRateLimitInCache(p.ctx, p.account, modelName, resetAt)
 			}
 		}
 
@@ -2325,25 +2321,22 @@ func isSingleAccountRetry(ctx context.Context) bool {
 	return v
 }
 
-// setModelRateLimitByModelName 根据模型名解析限流 key 并设置限流。
-// 优先写入 scope key（claude/gemini_text/gemini_image）；无法归类时兜底写模型 key。
-// 返回是否已成功设置（若模型名为空、解析失败或 repo 为 nil 将返回 false）。
+// setModelRateLimitByModelName 使用官方模型 ID 设置模型级限流
+// 直接使用上游返回的模型 ID（如 claude-sonnet-4-5）作为限流 key
+// 返回是否已成功设置（若模型名为空或 repo 为 nil 将返回 false）
 func setModelRateLimitByModelName(ctx context.Context, repo AccountRepository, accountID int64, modelName, prefix string, statusCode int, resetAt time.Time, afterSmartRetry bool) bool {
 	if repo == nil || modelName == "" {
 		return false
 	}
-	limitKey := resolveAntigravityModelKey(modelName)
-	if limitKey == "" {
-		return false
-	}
-	if err := repo.SetModelRateLimit(ctx, accountID, limitKey, resetAt); err != nil {
-		log.Printf("%s status=%d model_rate_limit_failed model=%s key=%s error=%v", prefix, statusCode, modelName, limitKey, err)
+	// 直接使用官方模型 ID 作为 key，不再转换为 scope
+	if err := repo.SetModelRateLimit(ctx, accountID, modelName, resetAt); err != nil {
+		log.Printf("%s status=%d model_rate_limit_failed model=%s error=%v", prefix, statusCode, modelName, err)
 		return false
 	}
 	if afterSmartRetry {
-		log.Printf("%s status=%d model_rate_limited_after_smart_retry model=%s key=%s account=%d reset_in=%v", prefix, statusCode, modelName, limitKey, accountID, time.Until(resetAt).Truncate(time.Second))
+		log.Printf("%s status=%d model_rate_limited_after_smart_retry model=%s account=%d reset_in=%v", prefix, statusCode, modelName, accountID, time.Until(resetAt).Truncate(time.Second))
 	} else {
-		log.Printf("%s status=%d model_rate_limited model=%s key=%s account=%d reset_in=%v", prefix, statusCode, modelName, limitKey, accountID, time.Until(resetAt).Truncate(time.Second))
+		log.Printf("%s status=%d model_rate_limited model=%s account=%d reset_in=%v", prefix, statusCode, modelName, accountID, time.Until(resetAt).Truncate(time.Second))
 	}
 	return true
 }
@@ -2610,21 +2603,16 @@ func (s *AntigravityGatewayService) handleModelRateLimit(p *handleModelRateLimit
 // setModelRateLimitAndClearSession 设置模型限流并清除粘性会话
 func (s *AntigravityGatewayService) setModelRateLimitAndClearSession(p *handleModelRateLimitParams, info *antigravitySmartRetryInfo) {
 	resetAt := time.Now().Add(info.RetryDelay)
-	limitKey := resolveAntigravityModelKey(info.ModelName)
 	log.Printf("%s status=%d model_rate_limited model=%s account=%d reset_in=%v",
 		p.prefix, p.statusCode, info.ModelName, p.account.ID, info.RetryDelay)
 
 	// 设置模型限流状态（数据库）
-	if limitKey != "" {
-		if err := s.accountRepo.SetModelRateLimit(p.ctx, p.account.ID, limitKey, resetAt); err != nil {
-			log.Printf("%s model_rate_limit_failed model=%s key=%s error=%v", p.prefix, info.ModelName, limitKey, err)
-		}
+	if err := s.accountRepo.SetModelRateLimit(p.ctx, p.account.ID, info.ModelName, resetAt); err != nil {
+		log.Printf("%s model_rate_limit_failed model=%s error=%v", p.prefix, info.ModelName, err)
 	}
 
 	// 立即更新 Redis 快照中账号的限流状态，避免并发请求重复选中
-	if limitKey != "" {
-		s.updateAccountModelRateLimitInCache(p.ctx, p.account, limitKey, resetAt)
-	}
+	s.updateAccountModelRateLimitInCache(p.ctx, p.account, info.ModelName, resetAt)
 
 	// 清除粘性会话绑定
 	if p.cache != nil && p.sessionHash != "" {

@@ -148,7 +148,7 @@ func TestHandleSmartRetry_LongDelay_ReturnsSwitchError(t *testing.T) {
 
 	// 验证模型限流已设置
 	require.Len(t, repo.modelRateLimitCalls, 1)
-	require.Equal(t, antigravityRateLimitScopeClaude, repo.modelRateLimitCalls[0].modelKey)
+	require.Equal(t, "claude-sonnet-4-5", repo.modelRateLimitCalls[0].modelKey)
 }
 
 // TestHandleSmartRetry_ShortDelay_SmartRetrySuccess 测试智能重试成功
@@ -290,7 +290,7 @@ func TestHandleSmartRetry_ShortDelay_SmartRetryFailed_ReturnsSwitchError(t *test
 
 	// 验证模型限流已设置
 	require.Len(t, repo.modelRateLimitCalls, 1)
-	require.Equal(t, antigravityRateLimitScopeGeminiText, repo.modelRateLimitCalls[0].modelKey)
+	require.Equal(t, "gemini-3-flash", repo.modelRateLimitCalls[0].modelKey)
 	require.Len(t, upstream.calls, 1, "should have made one retry call (max attempts)")
 }
 
@@ -685,7 +685,7 @@ func TestHandleSmartRetry_NetworkError_ExhaustsRetry(t *testing.T) {
 
 	// 验证模型限流已设置
 	require.Len(t, repo.modelRateLimitCalls, 1)
-	require.Equal(t, antigravityRateLimitScopeClaude, repo.modelRateLimitCalls[0].modelKey)
+	require.Equal(t, "claude-sonnet-4-5", repo.modelRateLimitCalls[0].modelKey)
 }
 
 // TestHandleSmartRetry_NoRetryDelay_UsesDefaultRateLimit 测试无 retryDelay 时使用默认 1 分钟限流
@@ -742,7 +742,7 @@ func TestHandleSmartRetry_NoRetryDelay_UsesDefaultRateLimit(t *testing.T) {
 
 	// 验证模型限流已设置
 	require.Len(t, repo.modelRateLimitCalls, 1)
-	require.Equal(t, antigravityRateLimitScopeClaude, repo.modelRateLimitCalls[0].modelKey)
+	require.Equal(t, "claude-sonnet-4-5", repo.modelRateLimitCalls[0].modelKey)
 }
 
 // ---------------------------------------------------------------------------
@@ -842,7 +842,7 @@ func TestHandleSmartRetry_ShortDelay_StickySession_FailedRetry_ClearsSession(t *
 
 	// 验证模型限流已设置
 	require.Len(t, repo.modelRateLimitCalls, 1)
-	require.Equal(t, antigravityRateLimitScopeClaude, repo.modelRateLimitCalls[0].modelKey)
+	require.Equal(t, "claude-sonnet-4-5", repo.modelRateLimitCalls[0].modelKey)
 }
 
 // TestHandleSmartRetry_ShortDelay_NonStickySession_FailedRetry_NoDeleteSession
@@ -1270,7 +1270,7 @@ func TestHandleSmartRetry_ShortDelay_503_StickySession_FailedRetry_ClearsSession
 
 	// 验证模型限流已设置
 	require.Len(t, repo.modelRateLimitCalls, 1)
-	require.Equal(t, antigravityRateLimitScopeGeminiText, repo.modelRateLimitCalls[0].modelKey)
+	require.Equal(t, "gemini-3-pro", repo.modelRateLimitCalls[0].modelKey)
 }
 
 // TestAntigravityRetryLoop_SmartRetryFailed_StickySession_SwitchErrorPropagates
