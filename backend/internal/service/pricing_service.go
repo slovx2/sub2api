@@ -22,6 +22,16 @@ import (
 var (
 	openAIModelDatePattern = regexp.MustCompile(`-\d{8}$`)
 	openAIModelBasePattern = regexp.MustCompile(`^(gpt-\d+(?:\.\d+)?)(?:-|$)`)
+	// 固定计费映射：只覆盖 Antigravity 当前使用的 Claude 模型别名。
+	// 这些模型优先映射到稳定的计费 key，避免落入后续模糊匹配。
+	explicitBillingModelMapping = map[string]string{
+		"claude-opus-4-6-thinking":   "claude-opus-4-5",
+		"claude-opus-4-6":            "claude-opus-4-5",
+		"claude-opus-4-5-thinking":   "claude-opus-4-5",
+		"claude-opus-4-5":            "claude-opus-4-5",
+		"claude-sonnet-4-5-thinking": "claude-sonnet-4-5",
+		"claude-sonnet-4-5":          "claude-sonnet-4-5",
+	}
 )
 
 // LiteLLMModelPricing LiteLLM价格数据结构
@@ -454,6 +464,18 @@ func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing 
 	// 标准化模型名称（同时兼容 "models/xxx"、VertexAI 资源名等前缀）
 	modelLower := strings.ToLower(strings.TrimSpace(modelName))
 	lookupCandidates := s.buildModelLookupCandidates(modelLower)
+
+	// 0. 指定模型优先走固定映射（最小化规则，避免误命中模糊匹配）
+	for _, candidate := range lookupCandidates {
+		mappedModel, ok := explicitBillingModelMapping[candidate]
+		if !ok {
+			continue
+		}
+		if pricing, exists := s.pricingData[mappedModel]; exists {
+			log.Printf("[Pricing] Explicit matched %s -> %s", candidate, mappedModel)
+			return pricing
+		}
+	}
 
 	// 1. 精确匹配
 	for _, candidate := range lookupCandidates {
