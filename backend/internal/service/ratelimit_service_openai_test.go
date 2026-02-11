@@ -25,6 +25,7 @@ func TestCalculateOpenAI429ResetTime_7dExhausted(t *testing.T) {
 
 	if resetAt == nil {
 		t.Fatal("expected non-nil resetAt")
+		return
 	}
 
 	// Should be approximately 384607 seconds from now
@@ -55,6 +56,7 @@ func TestCalculateOpenAI429ResetTime_5hExhausted(t *testing.T) {
 
 	if resetAt == nil {
 		t.Fatal("expected non-nil resetAt")
+		return
 	}
 
 	// Should be approximately 3600 seconds from now
@@ -85,6 +87,7 @@ func TestCalculateOpenAI429ResetTime_NeitherExhausted_UsesMax(t *testing.T) {
 
 	if resetAt == nil {
 		t.Fatal("expected non-nil resetAt")
+		return
 	}
 
 	// Should use the max (100000 seconds from 7d window)
@@ -129,6 +132,7 @@ func TestCalculateOpenAI429ResetTime_ReversedWindowOrder(t *testing.T) {
 
 	if resetAt == nil {
 		t.Fatal("expected non-nil resetAt")
+		return
 	}
 
 	// Should correctly identify that primary is 5h (smaller window) and use its reset time
@@ -162,6 +166,7 @@ func TestNormalizedCodexLimits(t *testing.T) {
 	normalized := snapshot.Normalize()
 	if normalized == nil {
 		t.Fatal("expected non-nil normalized")
+		return
 	}
 
 	// Primary has larger window (10080 > 300), so primary should be 7d
@@ -193,6 +198,7 @@ func TestNormalizedCodexLimits_OnlyPrimaryData(t *testing.T) {
 	normalized := snapshot.Normalize()
 	if normalized == nil {
 		t.Fatal("expected non-nil normalized")
+		return
 	}
 
 	// Legacy assumption: primary=7d, secondary=5h
@@ -225,6 +231,7 @@ func TestNormalizedCodexLimits_OnlySecondaryData(t *testing.T) {
 	normalized := snapshot.Normalize()
 	if normalized == nil {
 		t.Fatal("expected non-nil normalized")
+		return
 	}
 
 	// Legacy assumption: primary=7d, secondary=5h
@@ -259,6 +266,7 @@ func TestNormalizedCodexLimits_BothDataNoWindowMinutes(t *testing.T) {
 	normalized := snapshot.Normalize()
 	if normalized == nil {
 		t.Fatal("expected non-nil normalized")
+		return
 	}
 
 	// Legacy assumption: primary=7d, secondary=5h
@@ -322,6 +330,7 @@ func TestCalculateOpenAI429ResetTime_UserProvidedScenario(t *testing.T) {
 
 	if resetAt == nil {
 		t.Fatal("expected non-nil resetAt for user scenario")
+		return
 	}
 
 	// Should use the 7d reset time (384607 seconds) since 7d limit is exhausted (100%)
