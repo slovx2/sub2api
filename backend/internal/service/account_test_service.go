@@ -160,6 +160,11 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	}
 
 	if account.Platform == PlatformAntigravity {
+		// Antigravity 的 apikey/upstream 账号走上游透传链路，
+		// 不应进入 OAuth token 刷新逻辑。
+		if account.Type == AccountTypeAPIKey || account.Type == AccountTypeUpstream {
+			return s.testClaudeAccountConnection(c, account, modelID)
+		}
 		return s.testAntigravityAccountConnection(c, account, modelID)
 	}
 
@@ -177,7 +182,7 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	}
 
 	// For API Key accounts with model mapping, map the model
-	if account.Type == "apikey" {
+	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeUpstream {
 		mapping := account.GetModelMapping()
 		if len(mapping) > 0 {
 			if mappedModel, exists := mapping[testModelID]; exists {
@@ -199,7 +204,7 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 		if authToken == "" {
 			return s.sendErrorAndEnd(c, "No access token available")
 		}
-	} else if account.Type == "apikey" {
+	} else if account.Type == AccountTypeAPIKey || account.Type == AccountTypeUpstream {
 		// API Key - use x-api-key header
 		useBearer = false
 		authToken = account.GetCredential("api_key")
