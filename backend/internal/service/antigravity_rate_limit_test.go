@@ -66,7 +66,7 @@ type rateLimitCall struct {
 
 type modelRateLimitCall struct {
 	accountID int64
-	modelKey  string // 存储的 key（应该是官方模型 ID，如 "claude-sonnet-4-5"）
+	modelKey  string // 存储的 key（优先 scope，如 claude/gemini_text/gemini_image）
 	resetAt   time.Time
 }
 
@@ -170,7 +170,7 @@ func TestHandleUpstreamError_429_ModelRateLimit(t *testing.T) {
 	require.NotNil(t, result.SwitchError)
 	require.Equal(t, "claude-sonnet-4-5", result.SwitchError.RateLimitedModel)
 	require.Len(t, repo.modelRateLimitCalls, 1)
-	require.Equal(t, "claude-sonnet-4-5", repo.modelRateLimitCalls[0].modelKey)
+	require.Equal(t, antigravityRateLimitScopeClaude, repo.modelRateLimitCalls[0].modelKey)
 }
 
 // TestHandleUpstreamError_429_NonModelRateLimit 测试 429 非模型限流场景（走模型级限流兜底）
@@ -188,7 +188,7 @@ func TestHandleUpstreamError_429_NonModelRateLimit(t *testing.T) {
 	// 但 429 兜底逻辑会使用 requestedModel 设置模型级限流
 	require.Nil(t, result)
 	require.Len(t, repo.modelRateLimitCalls, 1)
-	require.Equal(t, "claude-sonnet-4-5", repo.modelRateLimitCalls[0].modelKey)
+	require.Equal(t, antigravityRateLimitScopeClaude, repo.modelRateLimitCalls[0].modelKey)
 }
 
 // TestHandleUpstreamError_503_ModelCapacityExhausted 测试 503 模型容量不足场景
@@ -695,8 +695,8 @@ func TestShouldTriggerAntigravitySmartRetry(t *testing.T) {
 	}
 }
 
-// TestSetModelRateLimitByModelName_UsesOfficialModelID 验证写入端使用官方模型 ID
-func TestSetModelRateLimitByModelName_UsesOfficialModelID(t *testing.T) {
+// TestSetModelRateLimitByModelName_UsesScopeKey 验证写入端优先使用 scope key
+func TestSetModelRateLimitByModelName_UsesScopeKey(t *testing.T) {
 	tests := []struct {
 		name             string
 		modelName        string
@@ -704,21 +704,21 @@ func TestSetModelRateLimitByModelName_UsesOfficialModelID(t *testing.T) {
 		expectedSuccess  bool
 	}{
 		{
-			name:             "claude-sonnet-4-5 should be stored as-is",
+			name:             "claude-sonnet-4-5 should map to claude scope",
 			modelName:        "claude-sonnet-4-5",
-			expectedModelKey: "claude-sonnet-4-5",
+			expectedModelKey: antigravityRateLimitScopeClaude,
 			expectedSuccess:  true,
 		},
 		{
-			name:             "gemini-3-pro-high should be stored as-is",
+			name:             "gemini-3-pro-high should map to gemini_text scope",
 			modelName:        "gemini-3-pro-high",
-			expectedModelKey: "gemini-3-pro-high",
+			expectedModelKey: antigravityRateLimitScopeGeminiText,
 			expectedSuccess:  true,
 		},
 		{
-			name:             "gemini-3-flash should be stored as-is",
+			name:             "gemini-3-flash should map to gemini_text scope",
 			modelName:        "gemini-3-flash",
-			expectedModelKey: "gemini-3-flash",
+			expectedModelKey: antigravityRateLimitScopeGeminiText,
 			expectedSuccess:  true,
 		},
 		{
@@ -751,8 +751,7 @@ func TestSetModelRateLimitByModelName_UsesOfficialModelID(t *testing.T) {
 				require.Len(t, repo.modelRateLimitCalls, 1)
 				call := repo.modelRateLimitCalls[0]
 				require.Equal(t, int64(123), call.accountID)
-				// 关键断言：存储的 key 应该是官方模型 ID，而不是 scope
-				require.Equal(t, tt.expectedModelKey, call.modelKey, "should store official model ID, not scope")
+				require.Equal(t, tt.expectedModelKey, call.modelKey, "should store scope key first")
 				require.WithinDuration(t, resetAt, call.resetAt, time.Second)
 			} else {
 				require.Empty(t, repo.modelRateLimitCalls)
@@ -761,8 +760,8 @@ func TestSetModelRateLimitByModelName_UsesOfficialModelID(t *testing.T) {
 	}
 }
 
-// TestSetModelRateLimitByModelName_NotConvertToScope 验证不会将模型名转换为 scope
-func TestSetModelRateLimitByModelName_NotConvertToScope(t *testing.T) {
+// TestSetModelRateLimitByModelName_ConvertsToScope 验证模型名会被转换为 scope key
+func TestSetModelRateLimitByModelName_ConvertsToScope(t *testing.T) {
 	repo := &stubAntigravityAccountRepo{}
 	resetAt := time.Now().Add(30 * time.Second)
 
@@ -782,9 +781,8 @@ func TestSetModelRateLimitByModelName_NotConvertToScope(t *testing.T) {
 	require.Len(t, repo.modelRateLimitCalls, 1)
 
 	call := repo.modelRateLimitCalls[0]
-	// 关键断言：存储的应该是 "claude-sonnet-4-5"，而不是 "claude_sonnet"
-	require.Equal(t, "claude-sonnet-4-5", call.modelKey, "should NOT convert to scope like claude_sonnet")
-	require.NotEqual(t, "claude_sonnet", call.modelKey, "should NOT be scope")
+	require.Equal(t, antigravityRateLimitScopeClaude, call.modelKey, "should convert model key to scope")
+	require.NotEqual(t, "claude-sonnet-4-5", call.modelKey, "should not persist raw model key")
 }
 
 func TestAntigravityRetryLoop_PreCheck_SwitchesWhenRateLimited(t *testing.T) {
