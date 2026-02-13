@@ -566,7 +566,7 @@ export interface Account {
   platform: AccountPlatform
   type: AccountType
   credentials?: Record<string, unknown>
-  // Extra fields including Codex usage and model-level rate limits (Antigravity smart retry)
+  // Extra fields including Codex usage and scope-level rate limits (Antigravity smart retry)
   extra?: (CodexUsageSnapshot & {
     model_rate_limits?: Record<string, { rate_limited_at: string; rate_limit_reset_at: string }>
   } & Record<string, unknown>)

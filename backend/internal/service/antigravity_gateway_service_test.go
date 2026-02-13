@@ -190,8 +190,8 @@ func TestAntigravityGatewayService_Forward_PromptTooLong(t *testing.T) {
 
 	svc := &AntigravityGatewayService{
 		settingService: NewSettingService(&antigravitySettingRepoStub{}, &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}),
-		tokenProvider: &AntigravityTokenProvider{},
-		httpUpstream:  &httpUpstreamStub{resp: resp},
+		tokenProvider:  &AntigravityTokenProvider{},
+		httpUpstream:   &httpUpstreamStub{resp: resp},
 	}
 
 	account := &Account{
@@ -264,7 +264,7 @@ func TestAntigravityGatewayService_Forward_ModelRateLimitTriggersFailover(t *tes
 		},
 		Extra: map[string]any{
 			modelRateLimitsKey: map[string]any{
-				"claude-opus-4-6-thinking": map[string]any{
+				antigravityRateLimitScopeClaude: map[string]any{
 					"rate_limit_reset_at": futureResetAt,
 				},
 			},
@@ -320,7 +320,7 @@ func TestAntigravityGatewayService_ForwardGemini_ModelRateLimitTriggersFailover(
 		},
 		Extra: map[string]any{
 			modelRateLimitsKey: map[string]any{
-				"gemini-2.5-flash": map[string]any{
+				antigravityRateLimitScopeGeminiText: map[string]any{
 					"rate_limit_reset_at": futureResetAt,
 				},
 			},
@@ -374,7 +374,7 @@ func TestAntigravityGatewayService_Forward_StickySessionForceCacheBilling(t *tes
 		},
 		Extra: map[string]any{
 			modelRateLimitsKey: map[string]any{
-				"claude-opus-4-6-thinking": map[string]any{
+				antigravityRateLimitScopeClaude: map[string]any{
 					"rate_limit_reset_at": futureResetAt,
 				},
 			},
@@ -429,7 +429,7 @@ func TestAntigravityGatewayService_ForwardGemini_StickySessionForceCacheBilling(
 		},
 		Extra: map[string]any{
 			modelRateLimitsKey: map[string]any{
-				"gemini-2.5-flash": map[string]any{
+				antigravityRateLimitScopeGeminiText: map[string]any{
 					"rate_limit_reset_at": futureResetAt,
 				},
 			},
@@ -477,8 +477,8 @@ func TestAntigravityGatewayService_Forward_BillsWithMappedModel(t *testing.T) {
 
 	svc := &AntigravityGatewayService{
 		settingService: NewSettingService(&antigravitySettingRepoStub{}, &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}),
-		tokenProvider: &AntigravityTokenProvider{},
-		httpUpstream:  &httpUpstreamStub{resp: resp},
+		tokenProvider:  &AntigravityTokenProvider{},
+		httpUpstream:   &httpUpstreamStub{resp: resp},
 	}
 
 	const mappedModel = "gemini-3-pro-high"
@@ -529,8 +529,8 @@ func TestAntigravityGatewayService_ForwardGemini_BillsWithMappedModel(t *testing
 
 	svc := &AntigravityGatewayService{
 		settingService: NewSettingService(&antigravitySettingRepoStub{}, &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}),
-		tokenProvider: &AntigravityTokenProvider{},
-		httpUpstream:  &httpUpstreamStub{resp: resp},
+		tokenProvider:  &AntigravityTokenProvider{},
+		httpUpstream:   &httpUpstreamStub{resp: resp},
 	}
 
 	const mappedModel = "gemini-3-pro-high"

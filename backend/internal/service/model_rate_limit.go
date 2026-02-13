@@ -34,15 +34,12 @@ func (a *Account) isModelRateLimitedWithContext(ctx context.Context, requestedMo
 		return false
 	}
 
-	modelKey := a.GetMappedModel(requestedModel)
-	if a.Platform == PlatformAntigravity {
-		modelKey = resolveFinalAntigravityModelKey(ctx, a, requestedModel)
+	for _, key := range a.resolveRateLimitKeysWithContext(ctx, requestedModel) {
+		if a.isRateLimitActiveForKey(key) {
+			return true
+		}
 	}
-	modelKey = strings.TrimSpace(modelKey)
-	if modelKey == "" {
-		return false
-	}
-	return a.isRateLimitActiveForKey(modelKey)
+	return false
 }
 
 // GetModelRateLimitRemainingTime 获取模型限流剩余时间
@@ -56,15 +53,44 @@ func (a *Account) GetModelRateLimitRemainingTimeWithContext(ctx context.Context,
 		return 0
 	}
 
+	maxRemaining := time.Duration(0)
+	for _, key := range a.resolveRateLimitKeysWithContext(ctx, requestedModel) {
+		if remaining := a.getRateLimitRemainingForKey(key); remaining > maxRemaining {
+			maxRemaining = remaining
+		}
+	}
+	return maxRemaining
+}
+
+func (a *Account) resolveRateLimitKeysWithContext(ctx context.Context, requestedModel string) []string {
+	if a == nil {
+		return nil
+	}
+
+	keys := make([]string, 0, 2)
+	appendKey := func(key string) {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			return
+		}
+		for _, existing := range keys {
+			if existing == key {
+				return
+			}
+		}
+		keys = append(keys, key)
+	}
+
 	modelKey := a.GetMappedModel(requestedModel)
 	if a.Platform == PlatformAntigravity {
 		modelKey = resolveFinalAntigravityModelKey(ctx, a, requestedModel)
+		appendKey(resolveAntigravityScopeKey(modelKey))
+		appendKey(resolveAntigravityScopeKey(requestedModel))
+		return keys
 	}
-	modelKey = strings.TrimSpace(modelKey)
-	if modelKey == "" {
-		return 0
-	}
-	return a.getRateLimitRemainingForKey(modelKey)
+	appendKey(modelKey)
+
+	return keys
 }
 
 func resolveFinalAntigravityModelKey(ctx context.Context, account *Account, requestedModel string) string {
