@@ -534,9 +534,12 @@ const antigravity3FlashUsageFromAPI = computed(() => getAntigravityUsageFromAPI(
 // Gemini 3 Image from API
 const antigravity3ImageUsageFromAPI = computed(() => getAntigravityUsageFromAPI(['gemini-3-pro-image']))
 
-// Claude 4.5 from API
+// Claude from API (all Claude model variants)
 const antigravityClaude45UsageFromAPI = computed(() =>
-  getAntigravityUsageFromAPI(['claude-sonnet-4-5', 'claude-opus-4-5-thinking'])
+  getAntigravityUsageFromAPI([
+    'claude-sonnet-4-5', 'claude-opus-4-5-thinking',
+    'claude-sonnet-4-6', 'claude-opus-4-6', 'claude-opus-4-6-thinking',
+  ])
 )
 
 // Antigravity 账户类型（从 load_code_assist 响应中提取）
