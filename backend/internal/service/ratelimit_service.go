@@ -178,6 +178,20 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		s.handleAuthError(ctx, account, msg)
 		shouldDisable = true
 	case 403:
+		if account.Platform == PlatformOpenAI && strings.Contains(strings.ToLower(upstreamMsg), "your request was blocked") {
+			logger.LegacyPrintf(
+				"service.ratelimit",
+				"[HandleUpstreamErrorRetryable] account_id=%d platform=%s type=%s status=403 request_id=%s cf_ray=%s upstream_msg=%s",
+				account.ID,
+				account.Platform,
+				account.Type,
+				strings.TrimSpace(headers.Get("x-request-id")),
+				strings.TrimSpace(headers.Get("cf-ray")),
+				upstreamMsg,
+			)
+			return false
+		}
+
 		// 禁止访问：停止调度，记录错误
 		msg := "Access forbidden (403): account may be suspended or lack permissions"
 		if upstreamMsg != "" {

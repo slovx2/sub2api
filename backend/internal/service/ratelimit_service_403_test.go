@@ -12,6 +12,28 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestRateLimitService_HandleUpstreamError_403RetriesBlockedOpenAIMessage(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	account := &Account{
+		ID:       200,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+	}
+
+	shouldDisable := service.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusForbidden,
+		http.Header{},
+		[]byte(`{"error":{"message":"Your request was blocked."}}`),
+	)
+
+	require.False(t, shouldDisable)
+	require.Zero(t, repo.setErrorCalls)
+	require.Empty(t, repo.lastErrorMsg)
+}
+
 func TestRateLimitService_HandleUpstreamError_403RecordsExtractedMessage(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
@@ -32,6 +54,28 @@ func TestRateLimitService_HandleUpstreamError_403RecordsExtractedMessage(t *test
 	require.True(t, shouldDisable)
 	require.Equal(t, 1, repo.setErrorCalls)
 	require.Equal(t, "Access forbidden (403): Forbidden by org policy", repo.lastErrorMsg)
+}
+
+func TestRateLimitService_HandleUpstreamError_403StillSetsErrorForNonOpenAIBlockedMessage(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	account := &Account{
+		ID:       205,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeOAuth,
+	}
+
+	shouldDisable := service.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusForbidden,
+		http.Header{},
+		[]byte(`{"error":{"message":"Your request was blocked."}}`),
+	)
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 1, repo.setErrorCalls)
+	require.Equal(t, "Access forbidden (403): Your request was blocked.", repo.lastErrorMsg)
 }
 
 func TestRateLimitService_HandleUpstreamError_403RecordsRawBodyWhenMessageEmpty(t *testing.T) {
