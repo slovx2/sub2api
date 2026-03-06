@@ -193,6 +193,33 @@ func (s *stubAdminService) GetAccountsByIDs(ctx context.Context, ids []int64) ([
 	return out, nil
 }
 
+func (s *stubAdminService) LookupAccountsByCredentialEmail(ctx context.Context, platform string, emails []string) ([]service.Account, error) {
+	if len(emails) == 0 {
+		return []service.Account{}, nil
+	}
+
+	normalized := make(map[string]struct{}, len(emails))
+	for _, email := range emails {
+		cleaned := strings.ToLower(strings.TrimSpace(email))
+		if cleaned == "" {
+			continue
+		}
+		normalized[cleaned] = struct{}{}
+	}
+
+	matched := make([]service.Account, 0)
+	for _, account := range s.accounts {
+		if platform != "" && account.Platform != platform {
+			continue
+		}
+		email := strings.ToLower(strings.TrimSpace(account.GetCredential("email")))
+		if _, ok := normalized[email]; ok {
+			matched = append(matched, account)
+		}
+	}
+	return matched, nil
+}
+
 func (s *stubAdminService) CreateAccount(ctx context.Context, input *service.CreateAccountInput) (*service.Account, error) {
 	s.mu.Lock()
 	s.createdAccounts = append(s.createdAccounts, input)

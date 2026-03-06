@@ -337,6 +337,10 @@ func (s *adminServiceStub) GetUserUsageStats(ctx context.Context, userID int64, 
 	return nil, nil
 }
 
+func (s *adminServiceStub) GetUserBalanceHistory(ctx context.Context, userID int64, page, pageSize int, codeType string) ([]baseservice.RedeemCode, int64, float64, error) {
+	return nil, 0, 0, nil
+}
+
 func (s *adminServiceStub) ListGroups(ctx context.Context, page, pageSize int, platform, status, search string, isExclusive *bool) ([]baseservice.Group, int64, error) {
 	return nil, 0, nil
 }
@@ -369,7 +373,7 @@ func (s *adminServiceStub) GetGroupAPIKeys(ctx context.Context, groupID int64, p
 	return nil, 0, nil
 }
 
-func (s *adminServiceStub) ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string) ([]baseservice.Account, int64, error) {
+func (s *adminServiceStub) ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64) ([]baseservice.Account, int64, error) {
 	return nil, 0, nil
 }
 
@@ -493,6 +497,22 @@ func (s *adminServiceStub) UpdateGroupSortOrders(ctx context.Context, updates []
 	return nil
 }
 
+func (s *adminServiceStub) AdminUpdateAPIKeyGroupID(ctx context.Context, keyID int64, groupID *int64) (*baseservice.AdminUpdateAPIKeyGroupIDResult, error) {
+	return nil, nil
+}
+
+func (s *adminServiceStub) CheckMixedChannelRisk(ctx context.Context, currentAccountID int64, currentAccountPlatform string, groupIDs []int64) error {
+	return nil
+}
+
 func (s *adminServiceStub) GetProxiesByIDs(ctx context.Context, ids []int64) ([]baseservice.Proxy, error) {
 	return nil, nil
+}
+
+func (s *adminServiceStub) CheckProxyQuality(ctx context.Context, id int64) (*baseservice.ProxyQualityCheckResult, error) {
+	return nil, nil
+}
+
+func (s *adminServiceStub) ResetAccountQuota(ctx context.Context, id int64) error {
+	return nil
 }
