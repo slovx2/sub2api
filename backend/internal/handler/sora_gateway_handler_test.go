@@ -140,6 +140,9 @@ func (r *stubAccountRepo) ListActive(ctx context.Context) ([]service.Account, er
 func (r *stubAccountRepo) ListByPlatform(ctx context.Context, platform string) ([]service.Account, error) {
 	return r.listSchedulableByPlatform(platform), nil
 }
+func (r *stubAccountRepo) ListByPlatformAndCredentialEmails(ctx context.Context, platform string, emails []string) ([]service.Account, error) {
+	return nil, nil
+}
 func (r *stubAccountRepo) UpdateLastUsed(ctx context.Context, id int64) error { return nil }
 func (r *stubAccountRepo) BatchUpdateLastUsed(ctx context.Context, updates map[int64]time.Time) error {
 	return nil
