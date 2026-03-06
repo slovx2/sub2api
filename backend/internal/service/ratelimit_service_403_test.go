@@ -5,82 +5,99 @@ package service
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
 )
 
-func TestRateLimitService_HandleUpstreamError_OpenAI403Retryable(t *testing.T) {
-	tests := []struct {
-		name         string
-		accountType  string
-		responseBody []byte
-		wantDisable  bool
-		wantSetError int
-	}{
-		{
-			name:        "forbidden permission message",
-			accountType: AccountTypeAPIKey,
-			responseBody: []byte(`{
-				"error": {
-					"message": "Account may be suspended or lack permissions"
-				}
-			}`),
-			wantDisable:  false,
-			wantSetError: 0,
-		},
-		{
-			name:         "empty upstream body should still mark error",
-			accountType:  AccountTypeOAuth,
-			responseBody: nil,
-			wantDisable:  true,
-			wantSetError: 1,
-		},
-		{
-			name:        "other forbidden message should still mark error",
-			accountType: AccountTypeAPIKey,
-			responseBody: []byte(`{
-				"error": {
-					"message": "Forbidden by upstream policy"
-				}
-			}`),
-			wantDisable:  true,
-			wantSetError: 1,
-		},
+func TestRateLimitService_HandleUpstreamError_403RecordsExtractedMessage(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	account := &Account{
+		ID:       201,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			repo := &rateLimitAccountRepoStub{}
-			service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
-			account := &Account{
-				ID:       201,
-				Platform: PlatformOpenAI,
-				Type:     tt.accountType,
-			}
+	shouldDisable := service.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusForbidden,
+		http.Header{},
+		[]byte(`{"error":{"message":"Forbidden by org policy"}}`),
+	)
 
-			shouldDisable := service.HandleUpstreamError(context.Background(), account, http.StatusForbidden, http.Header{}, tt.responseBody)
-
-			require.Equal(t, tt.wantDisable, shouldDisable)
-			require.Equal(t, tt.wantSetError, repo.setErrorCalls)
-			require.Equal(t, 0, repo.tempCalls)
-		})
-	}
+	require.True(t, shouldDisable)
+	require.Equal(t, 1, repo.setErrorCalls)
+	require.Equal(t, "Access forbidden (403): Forbidden by org policy", repo.lastErrorMsg)
 }
 
-func TestRateLimitService_HandleUpstreamError_NonOpenAI403StillSetsError(t *testing.T) {
+func TestRateLimitService_HandleUpstreamError_403RecordsRawBodyWhenMessageEmpty(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
 	account := &Account{
 		ID:       202,
-		Platform: PlatformGemini,
+		Platform: PlatformOpenAI,
 		Type:     AccountTypeOAuth,
 	}
 
-	shouldDisable := service.HandleUpstreamError(context.Background(), account, http.StatusForbidden, http.Header{}, nil)
+	rawBody := `{"error":{"code":"forbidden","detail":"blocked by upstream"}}`
+	shouldDisable := service.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusForbidden,
+		http.Header{},
+		[]byte(rawBody),
+	)
 
 	require.True(t, shouldDisable)
 	require.Equal(t, 1, repo.setErrorCalls)
-	require.Contains(t, repo.lastErrorMsg, "Access forbidden (403)")
+	require.Equal(t, "Access forbidden (403): "+rawBody, repo.lastErrorMsg)
+}
+
+func TestRateLimitService_HandleUpstreamError_403RecordsTruncatedRawBodyWhenMessageEmpty(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	account := &Account{
+		ID:       203,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+	}
+
+	rawBody := strings.Repeat("a", 1200)
+	shouldDisable := service.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusForbidden,
+		http.Header{},
+		[]byte(rawBody),
+	)
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 1, repo.setErrorCalls)
+	require.Equal(t, "Access forbidden (403): "+strings.Repeat("a", 1024), repo.lastErrorMsg)
+}
+
+func TestRateLimitService_HandleUpstreamError_403FallsBackWhenBodyEmpty(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	account := &Account{
+		ID:       204,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+	}
+
+	shouldDisable := service.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusForbidden,
+		http.Header{},
+		nil,
+	)
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 1, repo.setErrorCalls)
+	require.Equal(t, "Access forbidden (403): account may be suspended or lack permissions", repo.lastErrorMsg)
 }

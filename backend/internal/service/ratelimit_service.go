@@ -178,25 +178,12 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		s.handleAuthError(ctx, account, msg)
 		shouldDisable = true
 	case 403:
-		if shouldRetryOpenAIForbidden(account, upstreamMsg) {
-			logger.LegacyPrintf(
-				"service.ratelimit",
-				"[HandleUpstreamErrorRetryable] account_id=%d platform=%s type=%s status=403 request_id=%s cf_ray=%s upstream_msg=%s raw_body=%s",
-				account.ID,
-				account.Platform,
-				account.Type,
-				strings.TrimSpace(headers.Get("x-request-id")),
-				strings.TrimSpace(headers.Get("cf-ray")),
-				upstreamMsg,
-				truncateForLog(responseBody, 1024),
-			)
-			return false
-		}
-
 		// 禁止访问：停止调度，记录错误
 		msg := "Access forbidden (403): account may be suspended or lack permissions"
 		if upstreamMsg != "" {
 			msg = "Access forbidden (403): " + upstreamMsg
+		} else if rawBody := strings.TrimSpace(truncateForLog(responseBody, 1024)); rawBody != "" {
+			msg = "Access forbidden (403): " + rawBody
 		}
 		logger.LegacyPrintf(
 			"service.ratelimit",
@@ -234,19 +221,6 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 	}
 
 	return shouldDisable
-}
-
-func shouldRetryOpenAIForbidden(account *Account, upstreamMsg string) bool {
-	if account == nil || account.Platform != PlatformOpenAI {
-		return false
-	}
-
-	msg := strings.ToLower(strings.TrimSpace(upstreamMsg))
-	if msg == "" {
-		return false
-	}
-
-	return strings.Contains(msg, "account may be suspended") || strings.Contains(msg, "lack permissions")
 }
 
 // PreCheckUsage proactively checks local quota before dispatching a request.
