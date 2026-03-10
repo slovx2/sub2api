@@ -34,6 +34,28 @@ func TestRateLimitService_HandleUpstreamError_403RetriesBlockedOpenAIMessage(t *
 	require.Empty(t, repo.lastErrorMsg)
 }
 
+func TestRateLimitService_HandleUpstreamError_403RetriesBlockedOpenAIRawBody(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	account := &Account{
+		ID:       206,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+	}
+
+	shouldDisable := service.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusForbidden,
+		http.Header{},
+		[]byte("Your request was blocked."),
+	)
+
+	require.False(t, shouldDisable)
+	require.Zero(t, repo.setErrorCalls)
+	require.Empty(t, repo.lastErrorMsg)
+}
+
 func TestRateLimitService_HandleUpstreamError_403RecordsExtractedMessage(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)

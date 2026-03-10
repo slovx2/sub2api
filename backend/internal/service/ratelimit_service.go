@@ -178,16 +178,22 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		s.handleAuthError(ctx, account, msg)
 		shouldDisable = true
 	case 403:
-		if account.Platform == PlatformOpenAI && strings.Contains(strings.ToLower(upstreamMsg), "your request was blocked") {
+		rawBody := strings.TrimSpace(truncateForLog(responseBody, 1024))
+		retryableMsg := upstreamMsg
+		if retryableMsg == "" {
+			retryableMsg = sanitizeUpstreamErrorMessage(rawBody)
+		}
+		if account.Platform == PlatformOpenAI && strings.Contains(strings.ToLower(retryableMsg), "your request was blocked") {
 			logger.LegacyPrintf(
 				"service.ratelimit",
-				"[HandleUpstreamErrorRetryable] account_id=%d platform=%s type=%s status=403 request_id=%s cf_ray=%s upstream_msg=%s",
+				"[HandleUpstreamErrorRetryable] account_id=%d platform=%s type=%s status=403 request_id=%s cf_ray=%s upstream_msg=%s raw_body=%s",
 				account.ID,
 				account.Platform,
 				account.Type,
 				strings.TrimSpace(headers.Get("x-request-id")),
 				strings.TrimSpace(headers.Get("cf-ray")),
 				upstreamMsg,
+				rawBody,
 			)
 			return false
 		}
@@ -196,7 +202,7 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		msg := "Access forbidden (403): account may be suspended or lack permissions"
 		if upstreamMsg != "" {
 			msg = "Access forbidden (403): " + upstreamMsg
-		} else if rawBody := strings.TrimSpace(truncateForLog(responseBody, 1024)); rawBody != "" {
+		} else if rawBody != "" {
 			msg = "Access forbidden (403): " + rawBody
 		}
 		logger.LegacyPrintf(
@@ -208,7 +214,7 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			strings.TrimSpace(headers.Get("x-request-id")),
 			strings.TrimSpace(headers.Get("cf-ray")),
 			upstreamMsg,
-			truncateForLog(responseBody, 1024),
+			rawBody,
 		)
 		s.handleAuthError(ctx, account, msg)
 		shouldDisable = true
