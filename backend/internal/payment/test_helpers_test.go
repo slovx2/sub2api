@@ -373,6 +373,18 @@ func (s *adminServiceStub) GetGroupAPIKeys(ctx context.Context, groupID int64, p
 	return nil, 0, nil
 }
 
+func (s *adminServiceStub) GetGroupRateMultipliers(ctx context.Context, groupID int64) ([]baseservice.UserGroupRateEntry, error) {
+	return nil, nil
+}
+
+func (s *adminServiceStub) ClearGroupRateMultipliers(ctx context.Context, groupID int64) error {
+	return nil
+}
+
+func (s *adminServiceStub) BatchSetGroupRateMultipliers(ctx context.Context, groupID int64, entries []baseservice.GroupRateMultiplierInput) error {
+	return nil
+}
+
 func (s *adminServiceStub) ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64) ([]baseservice.Account, int64, error) {
 	return nil, 0, nil
 }
@@ -411,6 +423,10 @@ func (s *adminServiceStub) ClearAccountError(ctx context.Context, id int64) (*ba
 
 func (s *adminServiceStub) SetAccountError(ctx context.Context, id int64, errorMsg string) error {
 	return nil
+}
+
+func (s *adminServiceStub) EnsureOpenAIPrivacy(ctx context.Context, account *baseservice.Account) string {
+	return ""
 }
 
 func (s *adminServiceStub) SetAccountSchedulable(ctx context.Context, id int64, schedulable bool) (*baseservice.Account, error) {

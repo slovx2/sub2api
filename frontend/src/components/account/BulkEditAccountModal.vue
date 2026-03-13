@@ -951,6 +951,7 @@ const allModels = [
   { value: 'claude-3-haiku-20240307', label: 'Claude 3 Haiku' },
   { value: 'gpt-5.3-codex', label: 'GPT-5.3 Codex' },
   { value: 'gpt-5.3-codex-spark', label: 'GPT-5.3 Codex Spark' },
+  { value: 'gpt-5.4', label: 'GPT-5.4' },
   { value: 'gpt-5.2-2025-12-11', label: 'GPT-5.2' },
   { value: 'gpt-5.2-codex', label: 'GPT-5.2 Codex' },
   { value: 'gpt-5.1-codex-max', label: 'GPT-5.1 Codex Max' },
@@ -958,10 +959,11 @@ const allModels = [
   { value: 'gpt-5.1-2025-11-13', label: 'GPT-5.1' },
   { value: 'gpt-5.1-codex-mini', label: 'GPT-5.1 Codex Mini' },
   { value: 'gpt-5-2025-08-07', label: 'GPT-5' },
+  { value: 'gemini-3.1-flash-image', label: 'Gemini 3.1 Flash Image' },
+  { value: 'gemini-2.5-flash-image', label: 'Gemini 2.5 Flash Image' },
   { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
   { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
   { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
-  { value: 'gemini-3.1-flash-image', label: 'Gemini 3.1 Flash Image' },
   { value: 'gemini-3-pro-image', label: 'Gemini 3 Pro Image (Legacy)' },
   { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview' },
   { value: 'gemini-3-pro-preview', label: 'Gemini 3 Pro Preview' }
@@ -1042,6 +1044,12 @@ const presetMappings = [
     color: 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400'
   },
   {
+    label: 'Gemini 2.5 Image',
+    from: 'gemini-2.5-flash-image',
+    to: 'gemini-2.5-flash-image',
+    color: 'bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-900/30 dark:text-sky-400'
+  },
+  {
     label: 'Gemini 3.1 Image',
     from: 'gemini-3.1-flash-image',
     to: 'gemini-3.1-flash-image',
@@ -1064,6 +1072,12 @@ const presetMappings = [
     from: 'gpt-5.3-codex-spark',
     to: 'gpt-5.3-codex-spark',
     color: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400'
+  },
+  {
+    label: 'GPT-5.4',
+    from: 'gpt-5.4',
+    to: 'gpt-5.4',
+    color: 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400'
   },
   {
     label: '5.2→5.3',
