@@ -23,6 +23,9 @@ import errorPassthroughAPI from './errorPassthrough'
 import dataManagementAPI from './dataManagement'
 import apiKeysAPI from './apiKeys'
 import scheduledTestsAPI from './scheduledTests'
+import backupAPI from './backup'
+import tlsFingerprintProfileAPI from './tlsFingerprintProfile'
+import channelsAPI from './channels'
 
 /**
  * Unified admin API object for convenient access
@@ -47,7 +50,10 @@ export const adminAPI = {
   errorPassthrough: errorPassthroughAPI,
   dataManagement: dataManagementAPI,
   apiKeys: apiKeysAPI,
-  scheduledTests: scheduledTestsAPI
+  scheduledTests: scheduledTestsAPI,
+  backup: backupAPI,
+  tlsFingerprintProfiles: tlsFingerprintProfileAPI,
+  channels: channelsAPI
 }
 
 export {
@@ -70,7 +76,10 @@ export {
   errorPassthroughAPI,
   dataManagementAPI,
   apiKeysAPI,
-  scheduledTestsAPI
+  scheduledTestsAPI,
+  backupAPI,
+  tlsFingerprintProfileAPI,
+  channelsAPI
 }
 
 export default adminAPI
@@ -79,3 +88,4 @@ export default adminAPI
 export type { BalanceHistoryItem } from './users'
 export type { ErrorPassthroughRule, CreateRuleRequest, UpdateRuleRequest } from './errorPassthrough'
 export type { BackupAgentHealth, DataManagementConfig } from './dataManagement'
+export type { TLSFingerprintProfile, CreateProfileRequest, UpdateProfileRequest } from './tlsFingerprintProfile'

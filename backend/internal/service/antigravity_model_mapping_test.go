@@ -57,16 +57,16 @@ func TestAntigravityGatewayService_GetMappedModel(t *testing.T) {
 			expected:       "claude-opus-4-6-thinking",
 		},
 		{
-			name:           "默认映射 - claude-haiku-4-5 → claude-sonnet-4-5",
+			name:           "默认映射 - claude-haiku-4-5 → claude-sonnet-4-6",
 			requestedModel: "claude-haiku-4-5",
 			accountMapping: nil,
-			expected:       "claude-sonnet-4-5",
+			expected:       "claude-sonnet-4-6",
 		},
 		{
-			name:           "默认映射 - claude-haiku-4-5-20251001 → claude-sonnet-4-5",
+			name:           "默认映射 - claude-haiku-4-5-20251001 → claude-sonnet-4-6",
 			requestedModel: "claude-haiku-4-5-20251001",
 			accountMapping: nil,
-			expected:       "claude-sonnet-4-5",
+			expected:       "claude-sonnet-4-6",
 		},
 		{
 			name:           "默认映射 - claude-sonnet-4-5-20250929 → claude-sonnet-4-5",
@@ -267,6 +267,12 @@ func TestMapAntigravityModel_WildcardTargetEqualsRequest(t *testing.T) {
 			modelMapping:   map[string]any{"claude-*": "claude-sonnet-4-5", "gemini-*": "gemini-2.5-flash"},
 			requestedModel: "gemini-2.5-flash",
 			expected:       "gemini-2.5-flash",
+		},
+		{
+			name:           "customtools alias falls back to normalized preview mapping",
+			modelMapping:   map[string]any{"gemini-3.1-pro-preview": "gemini-3.1-pro-high"},
+			requestedModel: "gemini-3.1-pro-preview-customtools",
+			expected:       "gemini-3.1-pro-high",
 		},
 	}
 

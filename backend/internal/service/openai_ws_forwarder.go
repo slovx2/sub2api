@@ -1124,11 +1124,22 @@ func (s *OpenAIGatewayService) buildOpenAIWSHeaders(
 			headers.Set("accept-language", v)
 		}
 	}
-	if sessionResolution.SessionID != "" {
-		headers.Set("session_id", sessionResolution.SessionID)
-	}
-	if sessionResolution.ConversationID != "" {
-		headers.Set("conversation_id", sessionResolution.ConversationID)
+	// OAuth 账号：将 apiKeyID 混入 session 标识符，防止跨用户会话碰撞。
+	if account != nil && account.Type == AccountTypeOAuth {
+		apiKeyID := getAPIKeyIDFromContext(c)
+		if sessionResolution.SessionID != "" {
+			headers.Set("session_id", isolateOpenAISessionID(apiKeyID, sessionResolution.SessionID))
+		}
+		if sessionResolution.ConversationID != "" {
+			headers.Set("conversation_id", isolateOpenAISessionID(apiKeyID, sessionResolution.ConversationID))
+		}
+	} else {
+		if sessionResolution.SessionID != "" {
+			headers.Set("session_id", sessionResolution.SessionID)
+		}
+		if sessionResolution.ConversationID != "" {
+			headers.Set("conversation_id", sessionResolution.ConversationID)
+		}
 	}
 	if state := strings.TrimSpace(turnState); state != "" {
 		headers.Set(openAIWSTurnStateHeader, state)
@@ -1859,7 +1870,16 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		}
 		return nil, wrapOpenAIWSFallback(classifyOpenAIWSAcquireError(err), err)
 	}
-	defer lease.Release()
+	// cleanExit 标记正常终端事件退出，此时上游不会再发送帧，连接可安全归还复用。
+	// 所有异常路径（读写错误、error 事件等）已在各自分支中提前调用 MarkBroken，
+	// 因此 defer 中只需处理正常退出时不 MarkBroken 即可。
+	cleanExit := false
+	defer func() {
+		if !cleanExit {
+			lease.MarkBroken()
+		}
+		lease.Release()
+	}()
 	connID := strings.TrimSpace(lease.ConnID())
 	logOpenAIWSModeDebug(
 		"connected account_id=%d account_type=%s transport=%s conn_id=%s conn_reused=%v conn_pick_ms=%d queue_wait_ms=%d has_previous_response_id=%v",
@@ -2237,6 +2257,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		}
 
 		if isTerminalEvent {
+			cleanExit = true
 			break
 		}
 	}
@@ -2307,6 +2328,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		RequestID:       responseID,
 		Usage:           *usage,
 		Model:           originalModel,
+		UpstreamModel:   mappedModel,
 		ServiceTier:     extractOpenAIServiceTier(reqBody),
 		ReasoningEffort: extractOpenAIReasoningEffort(reqBody, originalModel),
 		Stream:          reqStream,
@@ -2493,12 +2515,9 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			}
 			normalized = next
 		}
-		mappedModel := account.GetMappedModel(originalModel)
-		if normalizedModel := normalizeCodexModel(mappedModel); normalizedModel != "" {
-			mappedModel = normalizedModel
-		}
-		if mappedModel != originalModel {
-			next, setErr := applyPayloadMutation(normalized, "model", mappedModel)
+		upstreamModel := normalizeOpenAIModelForUpstream(account, account.GetMappedModel(originalModel))
+		if upstreamModel != originalModel {
+			next, setErr := applyPayloadMutation(normalized, "model", upstreamModel)
 			if setErr != nil {
 				return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket request payload", setErr)
 			}
@@ -2754,10 +2773,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		mappedModel := ""
 		var mappedModelBytes []byte
 		if originalModel != "" {
-			mappedModel = account.GetMappedModel(originalModel)
-			if normalizedModel := normalizeCodexModel(mappedModel); normalizedModel != "" {
-				mappedModel = normalizedModel
-			}
+			mappedModel = normalizeOpenAIModelForUpstream(account, account.GetMappedModel(originalModel))
 			needModelReplace = mappedModel != "" && mappedModel != originalModel
 			if needModelReplace {
 				mappedModelBytes = []byte(mappedModel)
@@ -2924,6 +2940,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 					RequestID:       responseID,
 					Usage:           usage,
 					Model:           originalModel,
+					UpstreamModel:   mappedModel,
 					ServiceTier:     extractOpenAIServiceTierFromBody(payload),
 					ReasoningEffort: extractOpenAIReasoningEffortFromBody(payload, originalModel),
 					Stream:          reqStream,
@@ -2972,12 +2989,15 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			pinnedSessionConnID = connID
 		}
 	}
+	// lastTurnClean 标记最后一轮 sendAndRelay 是否正常完成（收到终端事件且客户端未断连）。
+	// 所有异常路径（读写错误、error 事件、客户端断连）已在各自分支或上层（L3403）中 MarkBroken，
+	// 因此 releaseSessionLease 中只需在非正常结束时 MarkBroken。
+	lastTurnClean := false
 	releaseSessionLease := func() {
 		if sessionLease == nil {
 			return
 		}
-		if dedicatedMode {
-			// dedicated 会话结束后主动标记损坏，确保连接不会跨会话复用。
+		if !lastTurnClean {
 			sessionLease.MarkBroken()
 		}
 		unpinSessionConn(sessionConnID)
@@ -3372,6 +3392,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 
 		result, relayErr := sendAndRelay(turn, sessionLease, currentPayload, currentPayloadBytes, currentOriginalModel)
 		if relayErr != nil {
+			lastTurnClean = false
 			if recoverIngressPrevResponseNotFound(relayErr, turn, connID) {
 				continue
 			}
@@ -3391,6 +3412,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		turnRetry = 0
 		turnPrevRecoveryTried = false
 		lastTurnFinishedAt = time.Now()
+		lastTurnClean = true
 		if hooks != nil && hooks.AfterTurn != nil {
 			hooks.AfterTurn(turn, result, nil)
 		}
@@ -3818,6 +3840,11 @@ func (s *OpenAIGatewayService) SelectAccountByPreviousResponseID(
 	if requestedModel != "" && !account.IsModelSupported(requestedModel) {
 		return nil, nil
 	}
+	account = s.recheckSelectedOpenAIAccountFromDB(ctx, account, requestedModel)
+	if account == nil {
+		_ = store.DeleteResponseAccount(ctx, derefGroupID(groupID), responseID)
+		return nil, nil
+	}
 
 	result, acquireErr := s.tryAcquireAccountSlot(ctx, accountID, account.Concurrency)
 	if acquireErr == nil && result.Acquired {
@@ -3922,6 +3949,8 @@ func classifyOpenAIWSErrorEventFromRaw(codeRaw, errTypeRaw, msgRaw string) (stri
 		return "ws_unsupported", true
 	case "websocket_connection_limit_reached":
 		return "ws_connection_limit_reached", true
+	case "invalid_encrypted_content":
+		return "invalid_encrypted_content", true
 	case "previous_response_not_found":
 		return "previous_response_not_found", true
 	}
@@ -3939,6 +3968,10 @@ func classifyOpenAIWSErrorEventFromRaw(codeRaw, errTypeRaw, msgRaw string) (stri
 	}
 	if strings.Contains(msg, "connection limit") && strings.Contains(msg, "websocket") {
 		return "ws_connection_limit_reached", true
+	}
+	if strings.Contains(msg, "invalid_encrypted_content") ||
+		(strings.Contains(msg, "encrypted content") && strings.Contains(msg, "could not be verified")) {
+		return "invalid_encrypted_content", true
 	}
 	if strings.Contains(msg, "previous_response_not_found") ||
 		(strings.Contains(msg, "previous response") && strings.Contains(msg, "not found")) {
@@ -3964,6 +3997,7 @@ func openAIWSErrorHTTPStatusFromRaw(codeRaw, errTypeRaw string) int {
 	case strings.Contains(errType, "invalid_request"),
 		strings.Contains(code, "invalid_request"),
 		strings.Contains(code, "bad_request"),
+		code == "invalid_encrypted_content",
 		code == "previous_response_not_found":
 		return http.StatusBadRequest
 	case strings.Contains(errType, "authentication"),

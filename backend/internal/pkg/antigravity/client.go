@@ -19,6 +19,16 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/proxyutil"
 )
 
+// ForbiddenError 表示上游返回 403 Forbidden
+type ForbiddenError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *ForbiddenError) Error() string {
+	return fmt.Sprintf("fetchAvailableModels 失败 (HTTP %d): %s", e.StatusCode, e.Body)
+}
+
 // NewAPIRequestWithURL 使用指定的 base URL 创建 Antigravity API 请求（v1internal 端点）
 func NewAPIRequestWithURL(ctx context.Context, baseURL, action, accessToken string, body []byte) (*http.Request, error) {
 	// 构建 URL，流式请求添加 ?alt=sse 参数
@@ -68,7 +78,9 @@ type UserInfo struct {
 // LoadCodeAssistRequest loadCodeAssist 请求
 type LoadCodeAssistRequest struct {
 	Metadata struct {
-		IDEType string `json:"ideType"`
+		IDEType    string `json:"ideType"`
+		IDEVersion string `json:"ideVersion"`
+		IDEName    string `json:"ideName"`
 	} `json:"metadata"`
 }
 
@@ -114,8 +126,66 @@ type IneligibleTier struct {
 type LoadCodeAssistResponse struct {
 	CloudAICompanionProject string            `json:"cloudaicompanionProject"`
 	CurrentTier             *TierInfo         `json:"currentTier,omitempty"`
-	PaidTier                *TierInfo         `json:"paidTier,omitempty"`
+	PaidTier                *PaidTierInfo     `json:"paidTier,omitempty"`
 	IneligibleTiers         []*IneligibleTier `json:"ineligibleTiers,omitempty"`
+}
+
+// PaidTierInfo 付费等级信息，包含 AI Credits 余额。
+type PaidTierInfo struct {
+	ID               string            `json:"id"`
+	Name             string            `json:"name"`
+	Description      string            `json:"description"`
+	AvailableCredits []AvailableCredit `json:"availableCredits,omitempty"`
+}
+
+// UnmarshalJSON 兼容 paidTier 既可能是字符串也可能是对象的情况。
+func (p *PaidTierInfo) UnmarshalJSON(data []byte) error {
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 || string(data) == "null" {
+		return nil
+	}
+	if data[0] == '"' {
+		var id string
+		if err := json.Unmarshal(data, &id); err != nil {
+			return err
+		}
+		p.ID = id
+		return nil
+	}
+	type alias PaidTierInfo
+	var raw alias
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*p = PaidTierInfo(raw)
+	return nil
+}
+
+// AvailableCredit 表示一条 AI Credits 余额记录。
+type AvailableCredit struct {
+	CreditType                  string `json:"creditType,omitempty"`
+	CreditAmount                string `json:"creditAmount,omitempty"`
+	MinimumCreditAmountForUsage string `json:"minimumCreditAmountForUsage,omitempty"`
+}
+
+// GetAmount 将 creditAmount 解析为浮点数。
+func (c *AvailableCredit) GetAmount() float64 {
+	if c.CreditAmount == "" {
+		return 0
+	}
+	var value float64
+	_, _ = fmt.Sscanf(c.CreditAmount, "%f", &value)
+	return value
+}
+
+// GetMinimumAmount 将 minimumCreditAmountForUsage 解析为浮点数。
+func (c *AvailableCredit) GetMinimumAmount() float64 {
+	if c.MinimumCreditAmountForUsage == "" {
+		return 0
+	}
+	var value float64
+	_, _ = fmt.Sscanf(c.MinimumCreditAmountForUsage, "%f", &value)
+	return value
 }
 
 // OnboardUserRequest onboardUser 请求
@@ -147,14 +217,48 @@ func (r *LoadCodeAssistResponse) GetTier() string {
 	return ""
 }
 
+// GetAvailableCredits 返回 paid tier 中的 AI Credits 余额列表。
+func (r *LoadCodeAssistResponse) GetAvailableCredits() []AvailableCredit {
+	if r.PaidTier == nil {
+		return nil
+	}
+	return r.PaidTier.AvailableCredits
+}
+
+// TierIDToPlanType 将 tier ID 映射为用户可见的套餐名。
+func TierIDToPlanType(tierID string) string {
+	switch strings.ToLower(strings.TrimSpace(tierID)) {
+	case "free-tier":
+		return "Free"
+	case "g1-pro-tier":
+		return "Pro"
+	case "g1-ultra-tier":
+		return "Ultra"
+	default:
+		if tierID == "" {
+			return "Free"
+		}
+		return tierID
+	}
+}
+
 // Client Antigravity API 客户端
 type Client struct {
 	httpClient *http.Client
 }
 
+const (
+	// proxyDialTimeout 代理 TCP 连接超时（含代理握手），代理不通时快速失败
+	proxyDialTimeout = 5 * time.Second
+	// proxyTLSHandshakeTimeout 代理 TLS 握手超时
+	proxyTLSHandshakeTimeout = 5 * time.Second
+	// clientTimeout 整体请求超时（含连接、发送、等待响应、读取 body）
+	clientTimeout = 10 * time.Second
+)
+
 func NewClient(proxyURL string) (*Client, error) {
 	client := &http.Client{
-		Timeout: 30 * time.Second,
+		Timeout: clientTimeout,
 	}
 
 	_, parsed, err := proxyurl.Parse(proxyURL)
@@ -162,7 +266,12 @@ func NewClient(proxyURL string) (*Client, error) {
 		return nil, err
 	}
 	if parsed != nil {
-		transport := &http.Transport{}
+		transport := &http.Transport{
+			DialContext: (&net.Dialer{
+				Timeout: proxyDialTimeout,
+			}).DialContext,
+			TLSHandshakeTimeout: proxyTLSHandshakeTimeout,
+		}
 		if err := proxyutil.ConfigureTransportProxy(transport, parsed); err != nil {
 			return nil, fmt.Errorf("configure proxy: %w", err)
 		}
@@ -174,8 +283,8 @@ func NewClient(proxyURL string) (*Client, error) {
 	}, nil
 }
 
-// isConnectionError 判断是否为连接错误（网络超时、DNS 失败、连接拒绝）
-func isConnectionError(err error) bool {
+// IsConnectionError 判断是否为连接错误（网络超时、DNS 失败、连接拒绝）
+func IsConnectionError(err error) bool {
 	if err == nil {
 		return false
 	}
@@ -200,7 +309,7 @@ func isConnectionError(err error) bool {
 // shouldFallbackToNextURL 判断是否应切换到下一个 URL
 // 与 Antigravity-Manager 保持一致：连接错误、429、408、404、5xx 触发 URL 降级
 func shouldFallbackToNextURL(err error, statusCode int) bool {
-	if isConnectionError(err) {
+	if IsConnectionError(err) {
 		return true
 	}
 	return statusCode == http.StatusTooManyRequests ||
@@ -331,6 +440,8 @@ func (c *Client) GetUserInfo(ctx context.Context, accessToken string) (*UserInfo
 func (c *Client) LoadCodeAssist(ctx context.Context, accessToken string) (*LoadCodeAssistResponse, map[string]any, error) {
 	reqBody := LoadCodeAssistRequest{}
 	reqBody.Metadata.IDEType = "ANTIGRAVITY"
+	reqBody.Metadata.IDEVersion = "1.20.6"
+	reqBody.Metadata.IDEName = "antigravity"
 
 	bodyBytes, err := json.Marshal(reqBody)
 	if err != nil {
@@ -514,7 +625,20 @@ type ModelQuotaInfo struct {
 
 // ModelInfo 模型信息
 type ModelInfo struct {
-	QuotaInfo *ModelQuotaInfo `json:"quotaInfo,omitempty"`
+	QuotaInfo          *ModelQuotaInfo `json:"quotaInfo,omitempty"`
+	DisplayName        string          `json:"displayName,omitempty"`
+	SupportsImages     *bool           `json:"supportsImages,omitempty"`
+	SupportsThinking   *bool           `json:"supportsThinking,omitempty"`
+	ThinkingBudget     *int            `json:"thinkingBudget,omitempty"`
+	Recommended        *bool           `json:"recommended,omitempty"`
+	MaxTokens          *int            `json:"maxTokens,omitempty"`
+	MaxOutputTokens    *int            `json:"maxOutputTokens,omitempty"`
+	SupportedMimeTypes map[string]bool `json:"supportedMimeTypes,omitempty"`
+}
+
+// DeprecatedModelInfo 废弃模型转发信息
+type DeprecatedModelInfo struct {
+	NewModelID string `json:"newModelId"`
 }
 
 // FetchAvailableModelsRequest fetchAvailableModels 请求
@@ -524,7 +648,8 @@ type FetchAvailableModelsRequest struct {
 
 // FetchAvailableModelsResponse fetchAvailableModels 响应
 type FetchAvailableModelsResponse struct {
-	Models map[string]ModelInfo `json:"models"`
+	Models             map[string]ModelInfo           `json:"models"`
+	DeprecatedModelIDs map[string]DeprecatedModelInfo `json:"deprecatedModelIds,omitempty"`
 }
 
 // FetchAvailableModels 获取可用模型和配额信息，返回解析后的结构体和原始 JSON
@@ -573,6 +698,13 @@ func (c *Client) FetchAvailableModels(ctx context.Context, accessToken, projectI
 			continue
 		}
 
+		if resp.StatusCode == http.StatusForbidden {
+			return nil, nil, &ForbiddenError{
+				StatusCode: resp.StatusCode,
+				Body:       string(respBodyBytes),
+			}
+		}
+
 		if resp.StatusCode != http.StatusOK {
 			return nil, nil, fmt.Errorf("fetchAvailableModels 失败 (HTTP %d): %s", resp.StatusCode, string(respBodyBytes))
 		}
@@ -592,4 +724,140 @@ func (c *Client) FetchAvailableModels(ctx context.Context, accessToken, projectI
 	}
 
 	return nil, nil, lastErr
+}
+
+// ── Privacy API ──────────────────────────────────────────────────────
+
+// privacyBaseURL 隐私设置 API 仅使用 daily 端点（与 Antigravity 客户端行为一致）
+const privacyBaseURL = antigravityDailyBaseURL
+
+// SetUserSettingsRequest setUserSettings 请求体
+type SetUserSettingsRequest struct {
+	UserSettings map[string]any `json:"user_settings"`
+}
+
+// FetchUserInfoRequest fetchUserInfo 请求体
+type FetchUserInfoRequest struct {
+	Project string `json:"project"`
+}
+
+// FetchUserInfoResponse fetchUserInfo 响应体
+type FetchUserInfoResponse struct {
+	UserSettings map[string]any `json:"userSettings,omitempty"`
+	RegionCode   string         `json:"regionCode,omitempty"`
+}
+
+// IsPrivate 判断隐私是否已设置：userSettings 为空或不含 telemetryEnabled 表示已设置
+func (r *FetchUserInfoResponse) IsPrivate() bool {
+	if r == nil || r.UserSettings == nil {
+		return true
+	}
+	_, hasTelemetry := r.UserSettings["telemetryEnabled"]
+	return !hasTelemetry
+}
+
+// SetUserSettingsResponse setUserSettings 响应体
+type SetUserSettingsResponse struct {
+	UserSettings map[string]any `json:"userSettings,omitempty"`
+}
+
+// IsSuccess 判断 setUserSettings 是否成功：返回 {"userSettings":{}} 且无 telemetryEnabled
+func (r *SetUserSettingsResponse) IsSuccess() bool {
+	if r == nil {
+		return false
+	}
+	// userSettings 为 nil 或空 map 均视为成功
+	if len(r.UserSettings) == 0 {
+		return true
+	}
+	// 如果包含 telemetryEnabled 字段，说明未成功清除
+	_, hasTelemetry := r.UserSettings["telemetryEnabled"]
+	return !hasTelemetry
+}
+
+// SetUserSettings 调用 setUserSettings API 设置用户隐私，返回解析后的响应
+func (c *Client) SetUserSettings(ctx context.Context, accessToken string) (*SetUserSettingsResponse, error) {
+	// 发送空 user_settings 以清除隐私设置
+	payload := SetUserSettingsRequest{UserSettings: map[string]any{}}
+	bodyBytes, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("序列化请求失败: %w", err)
+	}
+
+	apiURL := privacyBaseURL + "/v1internal:setUserSettings"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("创建请求失败: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("User-Agent", GetUserAgent())
+	req.Header.Set("X-Goog-Api-Client", "gl-node/22.21.1")
+	req.Host = "daily-cloudcode-pa.googleapis.com"
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("setUserSettings 请求失败: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("读取响应失败: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("setUserSettings 失败 (HTTP %d): %s", resp.StatusCode, string(respBody))
+	}
+
+	var result SetUserSettingsResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("响应解析失败: %w", err)
+	}
+
+	return &result, nil
+}
+
+// FetchUserInfo 调用 fetchUserInfo API 获取用户隐私设置状态
+func (c *Client) FetchUserInfo(ctx context.Context, accessToken, projectID string) (*FetchUserInfoResponse, error) {
+	reqBody := FetchUserInfoRequest{Project: projectID}
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("序列化请求失败: %w", err)
+	}
+
+	apiURL := privacyBaseURL + "/v1internal:fetchUserInfo"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("创建请求失败: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("User-Agent", GetUserAgent())
+	req.Header.Set("X-Goog-Api-Client", "gl-node/22.21.1")
+	req.Host = "daily-cloudcode-pa.googleapis.com"
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fetchUserInfo 请求失败: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("读取响应失败: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("fetchUserInfo 失败 (HTTP %d): %s", resp.StatusCode, string(respBody))
+	}
+
+	var result FetchUserInfoResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("响应解析失败: %w", err)
+	}
+
+	return &result, nil
 }

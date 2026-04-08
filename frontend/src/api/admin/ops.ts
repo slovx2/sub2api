@@ -841,6 +841,9 @@ export interface OpsAdvancedSettings {
   ignore_context_canceled: boolean
   ignore_no_available_accounts: boolean
   ignore_invalid_api_key_errors: boolean
+  ignore_insufficient_balance_errors: boolean
+  display_openai_token_stats: boolean
+  display_alert_events: boolean
   auto_refresh_enabled: boolean
   auto_refresh_interval_seconds: number
 }
@@ -966,6 +969,13 @@ export interface OpsErrorLog {
   client_ip?: string | null
   request_path?: string
   stream?: boolean
+
+  // Error observability context (endpoint + model mapping)
+  inbound_endpoint?: string
+  upstream_endpoint?: string
+  requested_model?: string
+  upstream_model?: string
+  request_type?: number | null
 }
 
 export interface OpsErrorDetail extends OpsErrorLog {

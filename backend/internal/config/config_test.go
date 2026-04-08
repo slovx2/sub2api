@@ -441,6 +441,9 @@ func TestLoadDefaultDashboardAggregationConfig(t *testing.T) {
 	if cfg.DashboardAgg.Retention.UsageLogsDays != 90 {
 		t.Fatalf("DashboardAgg.Retention.UsageLogsDays = %d, want 90", cfg.DashboardAgg.Retention.UsageLogsDays)
 	}
+	if cfg.DashboardAgg.Retention.UsageBillingDedupDays != 365 {
+		t.Fatalf("DashboardAgg.Retention.UsageBillingDedupDays = %d, want 365", cfg.DashboardAgg.Retention.UsageBillingDedupDays)
+	}
 	if cfg.DashboardAgg.Retention.HourlyDays != 180 {
 		t.Fatalf("DashboardAgg.Retention.HourlyDays = %d, want 180", cfg.DashboardAgg.Retention.HourlyDays)
 	}
@@ -1017,6 +1020,23 @@ func TestValidateConfigErrors(t *testing.T) {
 			wantErr: "dashboard_aggregation.retention.usage_logs_days",
 		},
 		{
+			name: "dashboard aggregation dedup retention",
+			mutate: func(c *Config) {
+				c.DashboardAgg.Enabled = true
+				c.DashboardAgg.Retention.UsageBillingDedupDays = 0
+			},
+			wantErr: "dashboard_aggregation.retention.usage_billing_dedup_days",
+		},
+		{
+			name: "dashboard aggregation dedup retention smaller than usage logs",
+			mutate: func(c *Config) {
+				c.DashboardAgg.Enabled = true
+				c.DashboardAgg.Retention.UsageLogsDays = 30
+				c.DashboardAgg.Retention.UsageBillingDedupDays = 29
+			},
+			wantErr: "dashboard_aggregation.retention.usage_billing_dedup_days",
+		},
+		{
 			name:    "dashboard aggregation disabled interval",
 			mutate:  func(c *Config) { c.DashboardAgg.Enabled = false; c.DashboardAgg.IntervalSeconds = -1 },
 			wantErr: "dashboard_aggregation.interval_seconds",
@@ -1531,94 +1551,6 @@ func TestValidateConfig_LogRequiredAndRotationBounds(t *testing.T) {
 				t.Fatalf("Validate() error = %v, want %q", err, tt.wantErr)
 			}
 		})
-	}
-}
-
-func TestSoraCurlCFFISidecarDefaults(t *testing.T) {
-	resetViperWithJWTSecret(t)
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error: %v", err)
-	}
-
-	if !cfg.Sora.Client.CurlCFFISidecar.Enabled {
-		t.Fatalf("Sora curl_cffi sidecar should be enabled by default")
-	}
-	if cfg.Sora.Client.CloudflareChallengeCooldownSeconds <= 0 {
-		t.Fatalf("Sora cloudflare challenge cooldown should be positive by default")
-	}
-	if cfg.Sora.Client.CurlCFFISidecar.BaseURL == "" {
-		t.Fatalf("Sora curl_cffi sidecar base_url should not be empty by default")
-	}
-	if cfg.Sora.Client.CurlCFFISidecar.Impersonate == "" {
-		t.Fatalf("Sora curl_cffi sidecar impersonate should not be empty by default")
-	}
-	if !cfg.Sora.Client.CurlCFFISidecar.SessionReuseEnabled {
-		t.Fatalf("Sora curl_cffi sidecar session reuse should be enabled by default")
-	}
-	if cfg.Sora.Client.CurlCFFISidecar.SessionTTLSeconds <= 0 {
-		t.Fatalf("Sora curl_cffi sidecar session ttl should be positive by default")
-	}
-}
-
-func TestValidateSoraCurlCFFISidecarRequired(t *testing.T) {
-	resetViperWithJWTSecret(t)
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error: %v", err)
-	}
-
-	cfg.Sora.Client.CurlCFFISidecar.Enabled = false
-	err = cfg.Validate()
-	if err == nil || !strings.Contains(err.Error(), "sora.client.curl_cffi_sidecar.enabled must be true") {
-		t.Fatalf("Validate() error = %v, want sidecar enabled error", err)
-	}
-}
-
-func TestValidateSoraCurlCFFISidecarBaseURLRequired(t *testing.T) {
-	resetViperWithJWTSecret(t)
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error: %v", err)
-	}
-
-	cfg.Sora.Client.CurlCFFISidecar.BaseURL = "   "
-	err = cfg.Validate()
-	if err == nil || !strings.Contains(err.Error(), "sora.client.curl_cffi_sidecar.base_url is required") {
-		t.Fatalf("Validate() error = %v, want sidecar base_url required error", err)
-	}
-}
-
-func TestValidateSoraCurlCFFISidecarSessionTTLNonNegative(t *testing.T) {
-	resetViperWithJWTSecret(t)
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error: %v", err)
-	}
-
-	cfg.Sora.Client.CurlCFFISidecar.SessionTTLSeconds = -1
-	err = cfg.Validate()
-	if err == nil || !strings.Contains(err.Error(), "sora.client.curl_cffi_sidecar.session_ttl_seconds must be non-negative") {
-		t.Fatalf("Validate() error = %v, want sidecar session ttl error", err)
-	}
-}
-
-func TestValidateSoraCloudflareChallengeCooldownNonNegative(t *testing.T) {
-	resetViperWithJWTSecret(t)
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error: %v", err)
-	}
-
-	cfg.Sora.Client.CloudflareChallengeCooldownSeconds = -1
-	err = cfg.Validate()
-	if err == nil || !strings.Contains(err.Error(), "sora.client.cloudflare_challenge_cooldown_seconds must be non-negative") {
-		t.Fatalf("Validate() error = %v, want cloudflare cooldown error", err)
 	}
 }
 

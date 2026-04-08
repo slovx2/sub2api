@@ -27,6 +27,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/redeemcode"
 	"github.com/Wei-Shaw/sub2api/ent/securitysecret"
 	"github.com/Wei-Shaw/sub2api/ent/setting"
+	"github.com/Wei-Shaw/sub2api/ent/tlsfingerprintprofile"
 	"github.com/Wei-Shaw/sub2api/ent/usagecleanuptask"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 	"github.com/Wei-Shaw/sub2api/ent/user"
@@ -60,6 +61,7 @@ const (
 	TypeRedeemCode              = "RedeemCode"
 	TypeSecuritySecret          = "SecuritySecret"
 	TypeSetting                 = "Setting"
+	TypeTLSFingerprintProfile   = "TLSFingerprintProfile"
 	TypeUsageCleanupTask        = "UsageCleanupTask"
 	TypeUsageLog                = "UsageLog"
 	TypeUser                    = "User"
@@ -8228,16 +8230,6 @@ type GroupMutation struct {
 	addimage_price_2k                       *float64
 	image_price_4k                          *float64
 	addimage_price_4k                       *float64
-	sora_image_price_360                    *float64
-	addsora_image_price_360                 *float64
-	sora_image_price_540                    *float64
-	addsora_image_price_540                 *float64
-	sora_video_price_per_request            *float64
-	addsora_video_price_per_request         *float64
-	sora_video_price_per_request_hd         *float64
-	addsora_video_price_per_request_hd      *float64
-	sora_storage_quota_bytes                *int64
-	addsora_storage_quota_bytes             *int64
 	claude_code_only                        *bool
 	fallback_group_id                       *int64
 	addfallback_group_id                    *int64
@@ -8251,6 +8243,8 @@ type GroupMutation struct {
 	sort_order                              *int
 	addsort_order                           *int
 	allow_messages_dispatch                 *bool
+	require_oauth_only                      *bool
+	require_privacy_set                     *bool
 	default_mapped_model                    *string
 	clearedFields                           map[string]struct{}
 	api_keys                                map[int64]struct{}
@@ -9256,342 +9250,6 @@ func (m *GroupMutation) ResetImagePrice4k() {
 	delete(m.clearedFields, group.FieldImagePrice4k)
 }
 
-// SetSoraImagePrice360 sets the "sora_image_price_360" field.
-func (m *GroupMutation) SetSoraImagePrice360(f float64) {
-	m.sora_image_price_360 = &f
-	m.addsora_image_price_360 = nil
-}
-
-// SoraImagePrice360 returns the value of the "sora_image_price_360" field in the mutation.
-func (m *GroupMutation) SoraImagePrice360() (r float64, exists bool) {
-	v := m.sora_image_price_360
-	if v == nil {
-		return
-	}
-	return *v, true
-}
-
-// OldSoraImagePrice360 returns the old "sora_image_price_360" field's value of the Group entity.
-// If the Group object wasn't provided to the builder, the object is fetched from the database.
-// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *GroupMutation) OldSoraImagePrice360(ctx context.Context) (v *float64, err error) {
-	if !m.op.Is(OpUpdateOne) {
-		return v, errors.New("OldSoraImagePrice360 is only allowed on UpdateOne operations")
-	}
-	if m.id == nil || m.oldValue == nil {
-		return v, errors.New("OldSoraImagePrice360 requires an ID field in the mutation")
-	}
-	oldValue, err := m.oldValue(ctx)
-	if err != nil {
-		return v, fmt.Errorf("querying old value for OldSoraImagePrice360: %w", err)
-	}
-	return oldValue.SoraImagePrice360, nil
-}
-
-// AddSoraImagePrice360 adds f to the "sora_image_price_360" field.
-func (m *GroupMutation) AddSoraImagePrice360(f float64) {
-	if m.addsora_image_price_360 != nil {
-		*m.addsora_image_price_360 += f
-	} else {
-		m.addsora_image_price_360 = &f
-	}
-}
-
-// AddedSoraImagePrice360 returns the value that was added to the "sora_image_price_360" field in this mutation.
-func (m *GroupMutation) AddedSoraImagePrice360() (r float64, exists bool) {
-	v := m.addsora_image_price_360
-	if v == nil {
-		return
-	}
-	return *v, true
-}
-
-// ClearSoraImagePrice360 clears the value of the "sora_image_price_360" field.
-func (m *GroupMutation) ClearSoraImagePrice360() {
-	m.sora_image_price_360 = nil
-	m.addsora_image_price_360 = nil
-	m.clearedFields[group.FieldSoraImagePrice360] = struct{}{}
-}
-
-// SoraImagePrice360Cleared returns if the "sora_image_price_360" field was cleared in this mutation.
-func (m *GroupMutation) SoraImagePrice360Cleared() bool {
-	_, ok := m.clearedFields[group.FieldSoraImagePrice360]
-	return ok
-}
-
-// ResetSoraImagePrice360 resets all changes to the "sora_image_price_360" field.
-func (m *GroupMutation) ResetSoraImagePrice360() {
-	m.sora_image_price_360 = nil
-	m.addsora_image_price_360 = nil
-	delete(m.clearedFields, group.FieldSoraImagePrice360)
-}
-
-// SetSoraImagePrice540 sets the "sora_image_price_540" field.
-func (m *GroupMutation) SetSoraImagePrice540(f float64) {
-	m.sora_image_price_540 = &f
-	m.addsora_image_price_540 = nil
-}
-
-// SoraImagePrice540 returns the value of the "sora_image_price_540" field in the mutation.
-func (m *GroupMutation) SoraImagePrice540() (r float64, exists bool) {
-	v := m.sora_image_price_540
-	if v == nil {
-		return
-	}
-	return *v, true
-}
-
-// OldSoraImagePrice540 returns the old "sora_image_price_540" field's value of the Group entity.
-// If the Group object wasn't provided to the builder, the object is fetched from the database.
-// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *GroupMutation) OldSoraImagePrice540(ctx context.Context) (v *float64, err error) {
-	if !m.op.Is(OpUpdateOne) {
-		return v, errors.New("OldSoraImagePrice540 is only allowed on UpdateOne operations")
-	}
-	if m.id == nil || m.oldValue == nil {
-		return v, errors.New("OldSoraImagePrice540 requires an ID field in the mutation")
-	}
-	oldValue, err := m.oldValue(ctx)
-	if err != nil {
-		return v, fmt.Errorf("querying old value for OldSoraImagePrice540: %w", err)
-	}
-	return oldValue.SoraImagePrice540, nil
-}
-
-// AddSoraImagePrice540 adds f to the "sora_image_price_540" field.
-func (m *GroupMutation) AddSoraImagePrice540(f float64) {
-	if m.addsora_image_price_540 != nil {
-		*m.addsora_image_price_540 += f
-	} else {
-		m.addsora_image_price_540 = &f
-	}
-}
-
-// AddedSoraImagePrice540 returns the value that was added to the "sora_image_price_540" field in this mutation.
-func (m *GroupMutation) AddedSoraImagePrice540() (r float64, exists bool) {
-	v := m.addsora_image_price_540
-	if v == nil {
-		return
-	}
-	return *v, true
-}
-
-// ClearSoraImagePrice540 clears the value of the "sora_image_price_540" field.
-func (m *GroupMutation) ClearSoraImagePrice540() {
-	m.sora_image_price_540 = nil
-	m.addsora_image_price_540 = nil
-	m.clearedFields[group.FieldSoraImagePrice540] = struct{}{}
-}
-
-// SoraImagePrice540Cleared returns if the "sora_image_price_540" field was cleared in this mutation.
-func (m *GroupMutation) SoraImagePrice540Cleared() bool {
-	_, ok := m.clearedFields[group.FieldSoraImagePrice540]
-	return ok
-}
-
-// ResetSoraImagePrice540 resets all changes to the "sora_image_price_540" field.
-func (m *GroupMutation) ResetSoraImagePrice540() {
-	m.sora_image_price_540 = nil
-	m.addsora_image_price_540 = nil
-	delete(m.clearedFields, group.FieldSoraImagePrice540)
-}
-
-// SetSoraVideoPricePerRequest sets the "sora_video_price_per_request" field.
-func (m *GroupMutation) SetSoraVideoPricePerRequest(f float64) {
-	m.sora_video_price_per_request = &f
-	m.addsora_video_price_per_request = nil
-}
-
-// SoraVideoPricePerRequest returns the value of the "sora_video_price_per_request" field in the mutation.
-func (m *GroupMutation) SoraVideoPricePerRequest() (r float64, exists bool) {
-	v := m.sora_video_price_per_request
-	if v == nil {
-		return
-	}
-	return *v, true
-}
-
-// OldSoraVideoPricePerRequest returns the old "sora_video_price_per_request" field's value of the Group entity.
-// If the Group object wasn't provided to the builder, the object is fetched from the database.
-// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *GroupMutation) OldSoraVideoPricePerRequest(ctx context.Context) (v *float64, err error) {
-	if !m.op.Is(OpUpdateOne) {
-		return v, errors.New("OldSoraVideoPricePerRequest is only allowed on UpdateOne operations")
-	}
-	if m.id == nil || m.oldValue == nil {
-		return v, errors.New("OldSoraVideoPricePerRequest requires an ID field in the mutation")
-	}
-	oldValue, err := m.oldValue(ctx)
-	if err != nil {
-		return v, fmt.Errorf("querying old value for OldSoraVideoPricePerRequest: %w", err)
-	}
-	return oldValue.SoraVideoPricePerRequest, nil
-}
-
-// AddSoraVideoPricePerRequest adds f to the "sora_video_price_per_request" field.
-func (m *GroupMutation) AddSoraVideoPricePerRequest(f float64) {
-	if m.addsora_video_price_per_request != nil {
-		*m.addsora_video_price_per_request += f
-	} else {
-		m.addsora_video_price_per_request = &f
-	}
-}
-
-// AddedSoraVideoPricePerRequest returns the value that was added to the "sora_video_price_per_request" field in this mutation.
-func (m *GroupMutation) AddedSoraVideoPricePerRequest() (r float64, exists bool) {
-	v := m.addsora_video_price_per_request
-	if v == nil {
-		return
-	}
-	return *v, true
-}
-
-// ClearSoraVideoPricePerRequest clears the value of the "sora_video_price_per_request" field.
-func (m *GroupMutation) ClearSoraVideoPricePerRequest() {
-	m.sora_video_price_per_request = nil
-	m.addsora_video_price_per_request = nil
-	m.clearedFields[group.FieldSoraVideoPricePerRequest] = struct{}{}
-}
-
-// SoraVideoPricePerRequestCleared returns if the "sora_video_price_per_request" field was cleared in this mutation.
-func (m *GroupMutation) SoraVideoPricePerRequestCleared() bool {
-	_, ok := m.clearedFields[group.FieldSoraVideoPricePerRequest]
-	return ok
-}
-
-// ResetSoraVideoPricePerRequest resets all changes to the "sora_video_price_per_request" field.
-func (m *GroupMutation) ResetSoraVideoPricePerRequest() {
-	m.sora_video_price_per_request = nil
-	m.addsora_video_price_per_request = nil
-	delete(m.clearedFields, group.FieldSoraVideoPricePerRequest)
-}
-
-// SetSoraVideoPricePerRequestHd sets the "sora_video_price_per_request_hd" field.
-func (m *GroupMutation) SetSoraVideoPricePerRequestHd(f float64) {
-	m.sora_video_price_per_request_hd = &f
-	m.addsora_video_price_per_request_hd = nil
-}
-
-// SoraVideoPricePerRequestHd returns the value of the "sora_video_price_per_request_hd" field in the mutation.
-func (m *GroupMutation) SoraVideoPricePerRequestHd() (r float64, exists bool) {
-	v := m.sora_video_price_per_request_hd
-	if v == nil {
-		return
-	}
-	return *v, true
-}
-
-// OldSoraVideoPricePerRequestHd returns the old "sora_video_price_per_request_hd" field's value of the Group entity.
-// If the Group object wasn't provided to the builder, the object is fetched from the database.
-// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *GroupMutation) OldSoraVideoPricePerRequestHd(ctx context.Context) (v *float64, err error) {
-	if !m.op.Is(OpUpdateOne) {
-		return v, errors.New("OldSoraVideoPricePerRequestHd is only allowed on UpdateOne operations")
-	}
-	if m.id == nil || m.oldValue == nil {
-		return v, errors.New("OldSoraVideoPricePerRequestHd requires an ID field in the mutation")
-	}
-	oldValue, err := m.oldValue(ctx)
-	if err != nil {
-		return v, fmt.Errorf("querying old value for OldSoraVideoPricePerRequestHd: %w", err)
-	}
-	return oldValue.SoraVideoPricePerRequestHd, nil
-}
-
-// AddSoraVideoPricePerRequestHd adds f to the "sora_video_price_per_request_hd" field.
-func (m *GroupMutation) AddSoraVideoPricePerRequestHd(f float64) {
-	if m.addsora_video_price_per_request_hd != nil {
-		*m.addsora_video_price_per_request_hd += f
-	} else {
-		m.addsora_video_price_per_request_hd = &f
-	}
-}
-
-// AddedSoraVideoPricePerRequestHd returns the value that was added to the "sora_video_price_per_request_hd" field in this mutation.
-func (m *GroupMutation) AddedSoraVideoPricePerRequestHd() (r float64, exists bool) {
-	v := m.addsora_video_price_per_request_hd
-	if v == nil {
-		return
-	}
-	return *v, true
-}
-
-// ClearSoraVideoPricePerRequestHd clears the value of the "sora_video_price_per_request_hd" field.
-func (m *GroupMutation) ClearSoraVideoPricePerRequestHd() {
-	m.sora_video_price_per_request_hd = nil
-	m.addsora_video_price_per_request_hd = nil
-	m.clearedFields[group.FieldSoraVideoPricePerRequestHd] = struct{}{}
-}
-
-// SoraVideoPricePerRequestHdCleared returns if the "sora_video_price_per_request_hd" field was cleared in this mutation.
-func (m *GroupMutation) SoraVideoPricePerRequestHdCleared() bool {
-	_, ok := m.clearedFields[group.FieldSoraVideoPricePerRequestHd]
-	return ok
-}
-
-// ResetSoraVideoPricePerRequestHd resets all changes to the "sora_video_price_per_request_hd" field.
-func (m *GroupMutation) ResetSoraVideoPricePerRequestHd() {
-	m.sora_video_price_per_request_hd = nil
-	m.addsora_video_price_per_request_hd = nil
-	delete(m.clearedFields, group.FieldSoraVideoPricePerRequestHd)
-}
-
-// SetSoraStorageQuotaBytes sets the "sora_storage_quota_bytes" field.
-func (m *GroupMutation) SetSoraStorageQuotaBytes(i int64) {
-	m.sora_storage_quota_bytes = &i
-	m.addsora_storage_quota_bytes = nil
-}
-
-// SoraStorageQuotaBytes returns the value of the "sora_storage_quota_bytes" field in the mutation.
-func (m *GroupMutation) SoraStorageQuotaBytes() (r int64, exists bool) {
-	v := m.sora_storage_quota_bytes
-	if v == nil {
-		return
-	}
-	return *v, true
-}
-
-// OldSoraStorageQuotaBytes returns the old "sora_storage_quota_bytes" field's value of the Group entity.
-// If the Group object wasn't provided to the builder, the object is fetched from the database.
-// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *GroupMutation) OldSoraStorageQuotaBytes(ctx context.Context) (v int64, err error) {
-	if !m.op.Is(OpUpdateOne) {
-		return v, errors.New("OldSoraStorageQuotaBytes is only allowed on UpdateOne operations")
-	}
-	if m.id == nil || m.oldValue == nil {
-		return v, errors.New("OldSoraStorageQuotaBytes requires an ID field in the mutation")
-	}
-	oldValue, err := m.oldValue(ctx)
-	if err != nil {
-		return v, fmt.Errorf("querying old value for OldSoraStorageQuotaBytes: %w", err)
-	}
-	return oldValue.SoraStorageQuotaBytes, nil
-}
-
-// AddSoraStorageQuotaBytes adds i to the "sora_storage_quota_bytes" field.
-func (m *GroupMutation) AddSoraStorageQuotaBytes(i int64) {
-	if m.addsora_storage_quota_bytes != nil {
-		*m.addsora_storage_quota_bytes += i
-	} else {
-		m.addsora_storage_quota_bytes = &i
-	}
-}
-
-// AddedSoraStorageQuotaBytes returns the value that was added to the "sora_storage_quota_bytes" field in this mutation.
-func (m *GroupMutation) AddedSoraStorageQuotaBytes() (r int64, exists bool) {
-	v := m.addsora_storage_quota_bytes
-	if v == nil {
-		return
-	}
-	return *v, true
-}
-
-// ResetSoraStorageQuotaBytes resets all changes to the "sora_storage_quota_bytes" field.
-func (m *GroupMutation) ResetSoraStorageQuotaBytes() {
-	m.sora_storage_quota_bytes = nil
-	m.addsora_storage_quota_bytes = nil
-}
-
 // SetClaudeCodeOnly sets the "claude_code_only" field.
 func (m *GroupMutation) SetClaudeCodeOnly(b bool) {
 	m.claude_code_only = &b
@@ -10032,6 +9690,78 @@ func (m *GroupMutation) ResetAllowMessagesDispatch() {
 	m.allow_messages_dispatch = nil
 }
 
+// SetRequireOauthOnly sets the "require_oauth_only" field.
+func (m *GroupMutation) SetRequireOauthOnly(b bool) {
+	m.require_oauth_only = &b
+}
+
+// RequireOauthOnly returns the value of the "require_oauth_only" field in the mutation.
+func (m *GroupMutation) RequireOauthOnly() (r bool, exists bool) {
+	v := m.require_oauth_only
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRequireOauthOnly returns the old "require_oauth_only" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldRequireOauthOnly(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRequireOauthOnly is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRequireOauthOnly requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRequireOauthOnly: %w", err)
+	}
+	return oldValue.RequireOauthOnly, nil
+}
+
+// ResetRequireOauthOnly resets all changes to the "require_oauth_only" field.
+func (m *GroupMutation) ResetRequireOauthOnly() {
+	m.require_oauth_only = nil
+}
+
+// SetRequirePrivacySet sets the "require_privacy_set" field.
+func (m *GroupMutation) SetRequirePrivacySet(b bool) {
+	m.require_privacy_set = &b
+}
+
+// RequirePrivacySet returns the value of the "require_privacy_set" field in the mutation.
+func (m *GroupMutation) RequirePrivacySet() (r bool, exists bool) {
+	v := m.require_privacy_set
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRequirePrivacySet returns the old "require_privacy_set" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldRequirePrivacySet(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRequirePrivacySet is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRequirePrivacySet requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRequirePrivacySet: %w", err)
+	}
+	return oldValue.RequirePrivacySet, nil
+}
+
+// ResetRequirePrivacySet resets all changes to the "require_privacy_set" field.
+func (m *GroupMutation) ResetRequirePrivacySet() {
+	m.require_privacy_set = nil
+}
+
 // SetDefaultMappedModel sets the "default_mapped_model" field.
 func (m *GroupMutation) SetDefaultMappedModel(s string) {
 	m.default_mapped_model = &s
@@ -10426,7 +10156,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 32)
+	fields := make([]string, 0, 29)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -10478,21 +10208,6 @@ func (m *GroupMutation) Fields() []string {
 	if m.image_price_4k != nil {
 		fields = append(fields, group.FieldImagePrice4k)
 	}
-	if m.sora_image_price_360 != nil {
-		fields = append(fields, group.FieldSoraImagePrice360)
-	}
-	if m.sora_image_price_540 != nil {
-		fields = append(fields, group.FieldSoraImagePrice540)
-	}
-	if m.sora_video_price_per_request != nil {
-		fields = append(fields, group.FieldSoraVideoPricePerRequest)
-	}
-	if m.sora_video_price_per_request_hd != nil {
-		fields = append(fields, group.FieldSoraVideoPricePerRequestHd)
-	}
-	if m.sora_storage_quota_bytes != nil {
-		fields = append(fields, group.FieldSoraStorageQuotaBytes)
-	}
 	if m.claude_code_only != nil {
 		fields = append(fields, group.FieldClaudeCodeOnly)
 	}
@@ -10519,6 +10234,12 @@ func (m *GroupMutation) Fields() []string {
 	}
 	if m.allow_messages_dispatch != nil {
 		fields = append(fields, group.FieldAllowMessagesDispatch)
+	}
+	if m.require_oauth_only != nil {
+		fields = append(fields, group.FieldRequireOauthOnly)
+	}
+	if m.require_privacy_set != nil {
+		fields = append(fields, group.FieldRequirePrivacySet)
 	}
 	if m.default_mapped_model != nil {
 		fields = append(fields, group.FieldDefaultMappedModel)
@@ -10565,16 +10286,6 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.ImagePrice2k()
 	case group.FieldImagePrice4k:
 		return m.ImagePrice4k()
-	case group.FieldSoraImagePrice360:
-		return m.SoraImagePrice360()
-	case group.FieldSoraImagePrice540:
-		return m.SoraImagePrice540()
-	case group.FieldSoraVideoPricePerRequest:
-		return m.SoraVideoPricePerRequest()
-	case group.FieldSoraVideoPricePerRequestHd:
-		return m.SoraVideoPricePerRequestHd()
-	case group.FieldSoraStorageQuotaBytes:
-		return m.SoraStorageQuotaBytes()
 	case group.FieldClaudeCodeOnly:
 		return m.ClaudeCodeOnly()
 	case group.FieldFallbackGroupID:
@@ -10593,6 +10304,10 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.SortOrder()
 	case group.FieldAllowMessagesDispatch:
 		return m.AllowMessagesDispatch()
+	case group.FieldRequireOauthOnly:
+		return m.RequireOauthOnly()
+	case group.FieldRequirePrivacySet:
+		return m.RequirePrivacySet()
 	case group.FieldDefaultMappedModel:
 		return m.DefaultMappedModel()
 	}
@@ -10638,16 +10353,6 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldImagePrice2k(ctx)
 	case group.FieldImagePrice4k:
 		return m.OldImagePrice4k(ctx)
-	case group.FieldSoraImagePrice360:
-		return m.OldSoraImagePrice360(ctx)
-	case group.FieldSoraImagePrice540:
-		return m.OldSoraImagePrice540(ctx)
-	case group.FieldSoraVideoPricePerRequest:
-		return m.OldSoraVideoPricePerRequest(ctx)
-	case group.FieldSoraVideoPricePerRequestHd:
-		return m.OldSoraVideoPricePerRequestHd(ctx)
-	case group.FieldSoraStorageQuotaBytes:
-		return m.OldSoraStorageQuotaBytes(ctx)
 	case group.FieldClaudeCodeOnly:
 		return m.OldClaudeCodeOnly(ctx)
 	case group.FieldFallbackGroupID:
@@ -10666,6 +10371,10 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldSortOrder(ctx)
 	case group.FieldAllowMessagesDispatch:
 		return m.OldAllowMessagesDispatch(ctx)
+	case group.FieldRequireOauthOnly:
+		return m.OldRequireOauthOnly(ctx)
+	case group.FieldRequirePrivacySet:
+		return m.OldRequirePrivacySet(ctx)
 	case group.FieldDefaultMappedModel:
 		return m.OldDefaultMappedModel(ctx)
 	}
@@ -10796,41 +10505,6 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetImagePrice4k(v)
 		return nil
-	case group.FieldSoraImagePrice360:
-		v, ok := value.(float64)
-		if !ok {
-			return fmt.Errorf("unexpected type %T for field %s", value, name)
-		}
-		m.SetSoraImagePrice360(v)
-		return nil
-	case group.FieldSoraImagePrice540:
-		v, ok := value.(float64)
-		if !ok {
-			return fmt.Errorf("unexpected type %T for field %s", value, name)
-		}
-		m.SetSoraImagePrice540(v)
-		return nil
-	case group.FieldSoraVideoPricePerRequest:
-		v, ok := value.(float64)
-		if !ok {
-			return fmt.Errorf("unexpected type %T for field %s", value, name)
-		}
-		m.SetSoraVideoPricePerRequest(v)
-		return nil
-	case group.FieldSoraVideoPricePerRequestHd:
-		v, ok := value.(float64)
-		if !ok {
-			return fmt.Errorf("unexpected type %T for field %s", value, name)
-		}
-		m.SetSoraVideoPricePerRequestHd(v)
-		return nil
-	case group.FieldSoraStorageQuotaBytes:
-		v, ok := value.(int64)
-		if !ok {
-			return fmt.Errorf("unexpected type %T for field %s", value, name)
-		}
-		m.SetSoraStorageQuotaBytes(v)
-		return nil
 	case group.FieldClaudeCodeOnly:
 		v, ok := value.(bool)
 		if !ok {
@@ -10894,6 +10568,20 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetAllowMessagesDispatch(v)
 		return nil
+	case group.FieldRequireOauthOnly:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRequireOauthOnly(v)
+		return nil
+	case group.FieldRequirePrivacySet:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRequirePrivacySet(v)
+		return nil
 	case group.FieldDefaultMappedModel:
 		v, ok := value.(string)
 		if !ok {
@@ -10933,21 +10621,6 @@ func (m *GroupMutation) AddedFields() []string {
 	if m.addimage_price_4k != nil {
 		fields = append(fields, group.FieldImagePrice4k)
 	}
-	if m.addsora_image_price_360 != nil {
-		fields = append(fields, group.FieldSoraImagePrice360)
-	}
-	if m.addsora_image_price_540 != nil {
-		fields = append(fields, group.FieldSoraImagePrice540)
-	}
-	if m.addsora_video_price_per_request != nil {
-		fields = append(fields, group.FieldSoraVideoPricePerRequest)
-	}
-	if m.addsora_video_price_per_request_hd != nil {
-		fields = append(fields, group.FieldSoraVideoPricePerRequestHd)
-	}
-	if m.addsora_storage_quota_bytes != nil {
-		fields = append(fields, group.FieldSoraStorageQuotaBytes)
-	}
 	if m.addfallback_group_id != nil {
 		fields = append(fields, group.FieldFallbackGroupID)
 	}
@@ -10981,16 +10654,6 @@ func (m *GroupMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedImagePrice2k()
 	case group.FieldImagePrice4k:
 		return m.AddedImagePrice4k()
-	case group.FieldSoraImagePrice360:
-		return m.AddedSoraImagePrice360()
-	case group.FieldSoraImagePrice540:
-		return m.AddedSoraImagePrice540()
-	case group.FieldSoraVideoPricePerRequest:
-		return m.AddedSoraVideoPricePerRequest()
-	case group.FieldSoraVideoPricePerRequestHd:
-		return m.AddedSoraVideoPricePerRequestHd()
-	case group.FieldSoraStorageQuotaBytes:
-		return m.AddedSoraStorageQuotaBytes()
 	case group.FieldFallbackGroupID:
 		return m.AddedFallbackGroupID()
 	case group.FieldFallbackGroupIDOnInvalidRequest:
@@ -11062,41 +10725,6 @@ func (m *GroupMutation) AddField(name string, value ent.Value) error {
 		}
 		m.AddImagePrice4k(v)
 		return nil
-	case group.FieldSoraImagePrice360:
-		v, ok := value.(float64)
-		if !ok {
-			return fmt.Errorf("unexpected type %T for field %s", value, name)
-		}
-		m.AddSoraImagePrice360(v)
-		return nil
-	case group.FieldSoraImagePrice540:
-		v, ok := value.(float64)
-		if !ok {
-			return fmt.Errorf("unexpected type %T for field %s", value, name)
-		}
-		m.AddSoraImagePrice540(v)
-		return nil
-	case group.FieldSoraVideoPricePerRequest:
-		v, ok := value.(float64)
-		if !ok {
-			return fmt.Errorf("unexpected type %T for field %s", value, name)
-		}
-		m.AddSoraVideoPricePerRequest(v)
-		return nil
-	case group.FieldSoraVideoPricePerRequestHd:
-		v, ok := value.(float64)
-		if !ok {
-			return fmt.Errorf("unexpected type %T for field %s", value, name)
-		}
-		m.AddSoraVideoPricePerRequestHd(v)
-		return nil
-	case group.FieldSoraStorageQuotaBytes:
-		v, ok := value.(int64)
-		if !ok {
-			return fmt.Errorf("unexpected type %T for field %s", value, name)
-		}
-		m.AddSoraStorageQuotaBytes(v)
-		return nil
 	case group.FieldFallbackGroupID:
 		v, ok := value.(int64)
 		if !ok {
@@ -11150,18 +10778,6 @@ func (m *GroupMutation) ClearedFields() []string {
 	if m.FieldCleared(group.FieldImagePrice4k) {
 		fields = append(fields, group.FieldImagePrice4k)
 	}
-	if m.FieldCleared(group.FieldSoraImagePrice360) {
-		fields = append(fields, group.FieldSoraImagePrice360)
-	}
-	if m.FieldCleared(group.FieldSoraImagePrice540) {
-		fields = append(fields, group.FieldSoraImagePrice540)
-	}
-	if m.FieldCleared(group.FieldSoraVideoPricePerRequest) {
-		fields = append(fields, group.FieldSoraVideoPricePerRequest)
-	}
-	if m.FieldCleared(group.FieldSoraVideoPricePerRequestHd) {
-		fields = append(fields, group.FieldSoraVideoPricePerRequestHd)
-	}
 	if m.FieldCleared(group.FieldFallbackGroupID) {
 		fields = append(fields, group.FieldFallbackGroupID)
 	}
@@ -11208,18 +10824,6 @@ func (m *GroupMutation) ClearField(name string) error {
 		return nil
 	case group.FieldImagePrice4k:
 		m.ClearImagePrice4k()
-		return nil
-	case group.FieldSoraImagePrice360:
-		m.ClearSoraImagePrice360()
-		return nil
-	case group.FieldSoraImagePrice540:
-		m.ClearSoraImagePrice540()
-		return nil
-	case group.FieldSoraVideoPricePerRequest:
-		m.ClearSoraVideoPricePerRequest()
-		return nil
-	case group.FieldSoraVideoPricePerRequestHd:
-		m.ClearSoraVideoPricePerRequestHd()
 		return nil
 	case group.FieldFallbackGroupID:
 		m.ClearFallbackGroupID()
@@ -11289,21 +10893,6 @@ func (m *GroupMutation) ResetField(name string) error {
 	case group.FieldImagePrice4k:
 		m.ResetImagePrice4k()
 		return nil
-	case group.FieldSoraImagePrice360:
-		m.ResetSoraImagePrice360()
-		return nil
-	case group.FieldSoraImagePrice540:
-		m.ResetSoraImagePrice540()
-		return nil
-	case group.FieldSoraVideoPricePerRequest:
-		m.ResetSoraVideoPricePerRequest()
-		return nil
-	case group.FieldSoraVideoPricePerRequestHd:
-		m.ResetSoraVideoPricePerRequestHd()
-		return nil
-	case group.FieldSoraStorageQuotaBytes:
-		m.ResetSoraStorageQuotaBytes()
-		return nil
 	case group.FieldClaudeCodeOnly:
 		m.ResetClaudeCodeOnly()
 		return nil
@@ -11330,6 +10919,12 @@ func (m *GroupMutation) ResetField(name string) error {
 		return nil
 	case group.FieldAllowMessagesDispatch:
 		m.ResetAllowMessagesDispatch()
+		return nil
+	case group.FieldRequireOauthOnly:
+		m.ResetRequireOauthOnly()
+		return nil
+	case group.FieldRequirePrivacySet:
+		m.ResetRequirePrivacySet()
 		return nil
 	case group.FieldDefaultMappedModel:
 		m.ResetDefaultMappedModel()
@@ -17148,6 +16743,1380 @@ func (m *SettingMutation) ResetEdge(name string) error {
 	return fmt.Errorf("unknown Setting edge %s", name)
 }
 
+// TLSFingerprintProfileMutation represents an operation that mutates the TLSFingerprintProfile nodes in the graph.
+type TLSFingerprintProfileMutation struct {
+	config
+	op                         Op
+	typ                        string
+	id                         *int64
+	created_at                 *time.Time
+	updated_at                 *time.Time
+	name                       *string
+	description                *string
+	enable_grease              *bool
+	cipher_suites              *[]uint16
+	appendcipher_suites        []uint16
+	curves                     *[]uint16
+	appendcurves               []uint16
+	point_formats              *[]uint16
+	appendpoint_formats        []uint16
+	signature_algorithms       *[]uint16
+	appendsignature_algorithms []uint16
+	alpn_protocols             *[]string
+	appendalpn_protocols       []string
+	supported_versions         *[]uint16
+	appendsupported_versions   []uint16
+	key_share_groups           *[]uint16
+	appendkey_share_groups     []uint16
+	psk_modes                  *[]uint16
+	appendpsk_modes            []uint16
+	extensions                 *[]uint16
+	appendextensions           []uint16
+	clearedFields              map[string]struct{}
+	done                       bool
+	oldValue                   func(context.Context) (*TLSFingerprintProfile, error)
+	predicates                 []predicate.TLSFingerprintProfile
+}
+
+var _ ent.Mutation = (*TLSFingerprintProfileMutation)(nil)
+
+// tlsfingerprintprofileOption allows management of the mutation configuration using functional options.
+type tlsfingerprintprofileOption func(*TLSFingerprintProfileMutation)
+
+// newTLSFingerprintProfileMutation creates new mutation for the TLSFingerprintProfile entity.
+func newTLSFingerprintProfileMutation(c config, op Op, opts ...tlsfingerprintprofileOption) *TLSFingerprintProfileMutation {
+	m := &TLSFingerprintProfileMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeTLSFingerprintProfile,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withTLSFingerprintProfileID sets the ID field of the mutation.
+func withTLSFingerprintProfileID(id int64) tlsfingerprintprofileOption {
+	return func(m *TLSFingerprintProfileMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *TLSFingerprintProfile
+		)
+		m.oldValue = func(ctx context.Context) (*TLSFingerprintProfile, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().TLSFingerprintProfile.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withTLSFingerprintProfile sets the old TLSFingerprintProfile of the mutation.
+func withTLSFingerprintProfile(node *TLSFingerprintProfile) tlsfingerprintprofileOption {
+	return func(m *TLSFingerprintProfileMutation) {
+		m.oldValue = func(context.Context) (*TLSFingerprintProfile, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m TLSFingerprintProfileMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m TLSFingerprintProfileMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *TLSFingerprintProfileMutation) ID() (id int64, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *TLSFingerprintProfileMutation) IDs(ctx context.Context) ([]int64, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int64{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().TLSFingerprintProfile.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *TLSFingerprintProfileMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *TLSFingerprintProfileMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the TLSFingerprintProfile entity.
+// If the TLSFingerprintProfile object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TLSFingerprintProfileMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *TLSFingerprintProfileMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *TLSFingerprintProfileMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *TLSFingerprintProfileMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the TLSFingerprintProfile entity.
+// If the TLSFingerprintProfile object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TLSFingerprintProfileMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *TLSFingerprintProfileMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// SetName sets the "name" field.
+func (m *TLSFingerprintProfileMutation) SetName(s string) {
+	m.name = &s
+}
+
+// Name returns the value of the "name" field in the mutation.
+func (m *TLSFingerprintProfileMutation) Name() (r string, exists bool) {
+	v := m.name
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldName returns the old "name" field's value of the TLSFingerprintProfile entity.
+// If the TLSFingerprintProfile object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TLSFingerprintProfileMutation) OldName(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldName is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldName requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldName: %w", err)
+	}
+	return oldValue.Name, nil
+}
+
+// ResetName resets all changes to the "name" field.
+func (m *TLSFingerprintProfileMutation) ResetName() {
+	m.name = nil
+}
+
+// SetDescription sets the "description" field.
+func (m *TLSFingerprintProfileMutation) SetDescription(s string) {
+	m.description = &s
+}
+
+// Description returns the value of the "description" field in the mutation.
+func (m *TLSFingerprintProfileMutation) Description() (r string, exists bool) {
+	v := m.description
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDescription returns the old "description" field's value of the TLSFingerprintProfile entity.
+// If the TLSFingerprintProfile object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TLSFingerprintProfileMutation) OldDescription(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDescription is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDescription requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDescription: %w", err)
+	}
+	return oldValue.Description, nil
+}
+
+// ClearDescription clears the value of the "description" field.
+func (m *TLSFingerprintProfileMutation) ClearDescription() {
+	m.description = nil
+	m.clearedFields[tlsfingerprintprofile.FieldDescription] = struct{}{}
+}
+
+// DescriptionCleared returns if the "description" field was cleared in this mutation.
+func (m *TLSFingerprintProfileMutation) DescriptionCleared() bool {
+	_, ok := m.clearedFields[tlsfingerprintprofile.FieldDescription]
+	return ok
+}
+
+// ResetDescription resets all changes to the "description" field.
+func (m *TLSFingerprintProfileMutation) ResetDescription() {
+	m.description = nil
+	delete(m.clearedFields, tlsfingerprintprofile.FieldDescription)
+}
+
+// SetEnableGrease sets the "enable_grease" field.
+func (m *TLSFingerprintProfileMutation) SetEnableGrease(b bool) {
+	m.enable_grease = &b
+}
+
+// EnableGrease returns the value of the "enable_grease" field in the mutation.
+func (m *TLSFingerprintProfileMutation) EnableGrease() (r bool, exists bool) {
+	v := m.enable_grease
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldEnableGrease returns the old "enable_grease" field's value of the TLSFingerprintProfile entity.
+// If the TLSFingerprintProfile object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TLSFingerprintProfileMutation) OldEnableGrease(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldEnableGrease is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldEnableGrease requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldEnableGrease: %w", err)
+	}
+	return oldValue.EnableGrease, nil
+}
+
+// ResetEnableGrease resets all changes to the "enable_grease" field.
+func (m *TLSFingerprintProfileMutation) ResetEnableGrease() {
+	m.enable_grease = nil
+}
+
+// SetCipherSuites sets the "cipher_suites" field.
+func (m *TLSFingerprintProfileMutation) SetCipherSuites(u []uint16) {
+	m.cipher_suites = &u
+	m.appendcipher_suites = nil
+}
+
+// CipherSuites returns the value of the "cipher_suites" field in the mutation.
+func (m *TLSFingerprintProfileMutation) CipherSuites() (r []uint16, exists bool) {
+	v := m.cipher_suites
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCipherSuites returns the old "cipher_suites" field's value of the TLSFingerprintProfile entity.
+// If the TLSFingerprintProfile object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TLSFingerprintProfileMutation) OldCipherSuites(ctx context.Context) (v []uint16, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCipherSuites is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCipherSuites requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCipherSuites: %w", err)
+	}
+	return oldValue.CipherSuites, nil
+}
+
+// AppendCipherSuites adds u to the "cipher_suites" field.
+func (m *TLSFingerprintProfileMutation) AppendCipherSuites(u []uint16) {
+	m.appendcipher_suites = append(m.appendcipher_suites, u...)
+}
+
+// AppendedCipherSuites returns the list of values that were appended to the "cipher_suites" field in this mutation.
+func (m *TLSFingerprintProfileMutation) AppendedCipherSuites() ([]uint16, bool) {
+	if len(m.appendcipher_suites) == 0 {
+		return nil, false
+	}
+	return m.appendcipher_suites, true
+}
+
+// ClearCipherSuites clears the value of the "cipher_suites" field.
+func (m *TLSFingerprintProfileMutation) ClearCipherSuites() {
+	m.cipher_suites = nil
+	m.appendcipher_suites = nil
+	m.clearedFields[tlsfingerprintprofile.FieldCipherSuites] = struct{}{}
+}
+
+// CipherSuitesCleared returns if the "cipher_suites" field was cleared in this mutation.
+func (m *TLSFingerprintProfileMutation) CipherSuitesCleared() bool {
+	_, ok := m.clearedFields[tlsfingerprintprofile.FieldCipherSuites]
+	return ok
+}
+
+// ResetCipherSuites resets all changes to the "cipher_suites" field.
+func (m *TLSFingerprintProfileMutation) ResetCipherSuites() {
+	m.cipher_suites = nil
+	m.appendcipher_suites = nil
+	delete(m.clearedFields, tlsfingerprintprofile.FieldCipherSuites)
+}
+
+// SetCurves sets the "curves" field.
+func (m *TLSFingerprintProfileMutation) SetCurves(u []uint16) {
+	m.curves = &u
+	m.appendcurves = nil
+}
+
+// Curves returns the value of the "curves" field in the mutation.
+func (m *TLSFingerprintProfileMutation) Curves() (r []uint16, exists bool) {
+	v := m.curves
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCurves returns the old "curves" field's value of the TLSFingerprintProfile entity.
+// If the TLSFingerprintProfile object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TLSFingerprintProfileMutation) OldCurves(ctx context.Context) (v []uint16, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCurves is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCurves requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCurves: %w", err)
+	}
+	return oldValue.Curves, nil
+}
+
+// AppendCurves adds u to the "curves" field.
+func (m *TLSFingerprintProfileMutation) AppendCurves(u []uint16) {
+	m.appendcurves = append(m.appendcurves, u...)
+}
+
+// AppendedCurves returns the list of values that were appended to the "curves" field in this mutation.
+func (m *TLSFingerprintProfileMutation) AppendedCurves() ([]uint16, bool) {
+	if len(m.appendcurves) == 0 {
+		return nil, false
+	}
+	return m.appendcurves, true
+}
+
+// ClearCurves clears the value of the "curves" field.
+func (m *TLSFingerprintProfileMutation) ClearCurves() {
+	m.curves = nil
+	m.appendcurves = nil
+	m.clearedFields[tlsfingerprintprofile.FieldCurves] = struct{}{}
+}
+
+// CurvesCleared returns if the "curves" field was cleared in this mutation.
+func (m *TLSFingerprintProfileMutation) CurvesCleared() bool {
+	_, ok := m.clearedFields[tlsfingerprintprofile.FieldCurves]
+	return ok
+}
+
+// ResetCurves resets all changes to the "curves" field.
+func (m *TLSFingerprintProfileMutation) ResetCurves() {
+	m.curves = nil
+	m.appendcurves = nil
+	delete(m.clearedFields, tlsfingerprintprofile.FieldCurves)
+}
+
+// SetPointFormats sets the "point_formats" field.
+func (m *TLSFingerprintProfileMutation) SetPointFormats(u []uint16) {
+	m.point_formats = &u
+	m.appendpoint_formats = nil
+}
+
+// PointFormats returns the value of the "point_formats" field in the mutation.
+func (m *TLSFingerprintProfileMutation) PointFormats() (r []uint16, exists bool) {
+	v := m.point_formats
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPointFormats returns the old "point_formats" field's value of the TLSFingerprintProfile entity.
+// If the TLSFingerprintProfile object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TLSFingerprintProfileMutation) OldPointFormats(ctx context.Context) (v []uint16, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPointFormats is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPointFormats requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPointFormats: %w", err)
+	}
+	return oldValue.PointFormats, nil
+}
+
+// AppendPointFormats adds u to the "point_formats" field.
+func (m *TLSFingerprintProfileMutation) AppendPointFormats(u []uint16) {
+	m.appendpoint_formats = append(m.appendpoint_formats, u...)
+}
+
+// AppendedPointFormats returns the list of values that were appended to the "point_formats" field in this mutation.
+func (m *TLSFingerprintProfileMutation) AppendedPointFormats() ([]uint16, bool) {
+	if len(m.appendpoint_formats) == 0 {
+		return nil, false
+	}
+	return m.appendpoint_formats, true
+}
+
+// ClearPointFormats clears the value of the "point_formats" field.
+func (m *TLSFingerprintProfileMutation) ClearPointFormats() {
+	m.point_formats = nil
+	m.appendpoint_formats = nil
+	m.clearedFields[tlsfingerprintprofile.FieldPointFormats] = struct{}{}
+}
+
+// PointFormatsCleared returns if the "point_formats" field was cleared in this mutation.
+func (m *TLSFingerprintProfileMutation) PointFormatsCleared() bool {
+	_, ok := m.clearedFields[tlsfingerprintprofile.FieldPointFormats]
+	return ok
+}
+
+// ResetPointFormats resets all changes to the "point_formats" field.
+func (m *TLSFingerprintProfileMutation) ResetPointFormats() {
+	m.point_formats = nil
+	m.appendpoint_formats = nil
+	delete(m.clearedFields, tlsfingerprintprofile.FieldPointFormats)
+}
+
+// SetSignatureAlgorithms sets the "signature_algorithms" field.
+func (m *TLSFingerprintProfileMutation) SetSignatureAlgorithms(u []uint16) {
+	m.signature_algorithms = &u
+	m.appendsignature_algorithms = nil
+}
+
+// SignatureAlgorithms returns the value of the "signature_algorithms" field in the mutation.
+func (m *TLSFingerprintProfileMutation) SignatureAlgorithms() (r []uint16, exists bool) {
+	v := m.signature_algorithms
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSignatureAlgorithms returns the old "signature_algorithms" field's value of the TLSFingerprintProfile entity.
+// If the TLSFingerprintProfile object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TLSFingerprintProfileMutation) OldSignatureAlgorithms(ctx context.Context) (v []uint16, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSignatureAlgorithms is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSignatureAlgorithms requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSignatureAlgorithms: %w", err)
+	}
+	return oldValue.SignatureAlgorithms, nil
+}
+
+// AppendSignatureAlgorithms adds u to the "signature_algorithms" field.
+func (m *TLSFingerprintProfileMutation) AppendSignatureAlgorithms(u []uint16) {
+	m.appendsignature_algorithms = append(m.appendsignature_algorithms, u...)
+}
+
+// AppendedSignatureAlgorithms returns the list of values that were appended to the "signature_algorithms" field in this mutation.
+func (m *TLSFingerprintProfileMutation) AppendedSignatureAlgorithms() ([]uint16, bool) {
+	if len(m.appendsignature_algorithms) == 0 {
+		return nil, false
+	}
+	return m.appendsignature_algorithms, true
+}
+
+// ClearSignatureAlgorithms clears the value of the "signature_algorithms" field.
+func (m *TLSFingerprintProfileMutation) ClearSignatureAlgorithms() {
+	m.signature_algorithms = nil
+	m.appendsignature_algorithms = nil
+	m.clearedFields[tlsfingerprintprofile.FieldSignatureAlgorithms] = struct{}{}
+}
+
+// SignatureAlgorithmsCleared returns if the "signature_algorithms" field was cleared in this mutation.
+func (m *TLSFingerprintProfileMutation) SignatureAlgorithmsCleared() bool {
+	_, ok := m.clearedFields[tlsfingerprintprofile.FieldSignatureAlgorithms]
+	return ok
+}
+
+// ResetSignatureAlgorithms resets all changes to the "signature_algorithms" field.
+func (m *TLSFingerprintProfileMutation) ResetSignatureAlgorithms() {
+	m.signature_algorithms = nil
+	m.appendsignature_algorithms = nil
+	delete(m.clearedFields, tlsfingerprintprofile.FieldSignatureAlgorithms)
+}
+
+// SetAlpnProtocols sets the "alpn_protocols" field.
+func (m *TLSFingerprintProfileMutation) SetAlpnProtocols(s []string) {
+	m.alpn_protocols = &s
+	m.appendalpn_protocols = nil
+}
+
+// AlpnProtocols returns the value of the "alpn_protocols" field in the mutation.
+func (m *TLSFingerprintProfileMutation) AlpnProtocols() (r []string, exists bool) {
+	v := m.alpn_protocols
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAlpnProtocols returns the old "alpn_protocols" field's value of the TLSFingerprintProfile entity.
+// If the TLSFingerprintProfile object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TLSFingerprintProfileMutation) OldAlpnProtocols(ctx context.Context) (v []string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAlpnProtocols is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAlpnProtocols requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAlpnProtocols: %w", err)
+	}
+	return oldValue.AlpnProtocols, nil
+}
+
+// AppendAlpnProtocols adds s to the "alpn_protocols" field.
+func (m *TLSFingerprintProfileMutation) AppendAlpnProtocols(s []string) {
+	m.appendalpn_protocols = append(m.appendalpn_protocols, s...)
+}
+
+// AppendedAlpnProtocols returns the list of values that were appended to the "alpn_protocols" field in this mutation.
+func (m *TLSFingerprintProfileMutation) AppendedAlpnProtocols() ([]string, bool) {
+	if len(m.appendalpn_protocols) == 0 {
+		return nil, false
+	}
+	return m.appendalpn_protocols, true
+}
+
+// ClearAlpnProtocols clears the value of the "alpn_protocols" field.
+func (m *TLSFingerprintProfileMutation) ClearAlpnProtocols() {
+	m.alpn_protocols = nil
+	m.appendalpn_protocols = nil
+	m.clearedFields[tlsfingerprintprofile.FieldAlpnProtocols] = struct{}{}
+}
+
+// AlpnProtocolsCleared returns if the "alpn_protocols" field was cleared in this mutation.
+func (m *TLSFingerprintProfileMutation) AlpnProtocolsCleared() bool {
+	_, ok := m.clearedFields[tlsfingerprintprofile.FieldAlpnProtocols]
+	return ok
+}
+
+// ResetAlpnProtocols resets all changes to the "alpn_protocols" field.
+func (m *TLSFingerprintProfileMutation) ResetAlpnProtocols() {
+	m.alpn_protocols = nil
+	m.appendalpn_protocols = nil
+	delete(m.clearedFields, tlsfingerprintprofile.FieldAlpnProtocols)
+}
+
+// SetSupportedVersions sets the "supported_versions" field.
+func (m *TLSFingerprintProfileMutation) SetSupportedVersions(u []uint16) {
+	m.supported_versions = &u
+	m.appendsupported_versions = nil
+}
+
+// SupportedVersions returns the value of the "supported_versions" field in the mutation.
+func (m *TLSFingerprintProfileMutation) SupportedVersions() (r []uint16, exists bool) {
+	v := m.supported_versions
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSupportedVersions returns the old "supported_versions" field's value of the TLSFingerprintProfile entity.
+// If the TLSFingerprintProfile object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TLSFingerprintProfileMutation) OldSupportedVersions(ctx context.Context) (v []uint16, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSupportedVersions is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSupportedVersions requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSupportedVersions: %w", err)
+	}
+	return oldValue.SupportedVersions, nil
+}
+
+// AppendSupportedVersions adds u to the "supported_versions" field.
+func (m *TLSFingerprintProfileMutation) AppendSupportedVersions(u []uint16) {
+	m.appendsupported_versions = append(m.appendsupported_versions, u...)
+}
+
+// AppendedSupportedVersions returns the list of values that were appended to the "supported_versions" field in this mutation.
+func (m *TLSFingerprintProfileMutation) AppendedSupportedVersions() ([]uint16, bool) {
+	if len(m.appendsupported_versions) == 0 {
+		return nil, false
+	}
+	return m.appendsupported_versions, true
+}
+
+// ClearSupportedVersions clears the value of the "supported_versions" field.
+func (m *TLSFingerprintProfileMutation) ClearSupportedVersions() {
+	m.supported_versions = nil
+	m.appendsupported_versions = nil
+	m.clearedFields[tlsfingerprintprofile.FieldSupportedVersions] = struct{}{}
+}
+
+// SupportedVersionsCleared returns if the "supported_versions" field was cleared in this mutation.
+func (m *TLSFingerprintProfileMutation) SupportedVersionsCleared() bool {
+	_, ok := m.clearedFields[tlsfingerprintprofile.FieldSupportedVersions]
+	return ok
+}
+
+// ResetSupportedVersions resets all changes to the "supported_versions" field.
+func (m *TLSFingerprintProfileMutation) ResetSupportedVersions() {
+	m.supported_versions = nil
+	m.appendsupported_versions = nil
+	delete(m.clearedFields, tlsfingerprintprofile.FieldSupportedVersions)
+}
+
+// SetKeyShareGroups sets the "key_share_groups" field.
+func (m *TLSFingerprintProfileMutation) SetKeyShareGroups(u []uint16) {
+	m.key_share_groups = &u
+	m.appendkey_share_groups = nil
+}
+
+// KeyShareGroups returns the value of the "key_share_groups" field in the mutation.
+func (m *TLSFingerprintProfileMutation) KeyShareGroups() (r []uint16, exists bool) {
+	v := m.key_share_groups
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldKeyShareGroups returns the old "key_share_groups" field's value of the TLSFingerprintProfile entity.
+// If the TLSFingerprintProfile object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TLSFingerprintProfileMutation) OldKeyShareGroups(ctx context.Context) (v []uint16, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldKeyShareGroups is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldKeyShareGroups requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldKeyShareGroups: %w", err)
+	}
+	return oldValue.KeyShareGroups, nil
+}
+
+// AppendKeyShareGroups adds u to the "key_share_groups" field.
+func (m *TLSFingerprintProfileMutation) AppendKeyShareGroups(u []uint16) {
+	m.appendkey_share_groups = append(m.appendkey_share_groups, u...)
+}
+
+// AppendedKeyShareGroups returns the list of values that were appended to the "key_share_groups" field in this mutation.
+func (m *TLSFingerprintProfileMutation) AppendedKeyShareGroups() ([]uint16, bool) {
+	if len(m.appendkey_share_groups) == 0 {
+		return nil, false
+	}
+	return m.appendkey_share_groups, true
+}
+
+// ClearKeyShareGroups clears the value of the "key_share_groups" field.
+func (m *TLSFingerprintProfileMutation) ClearKeyShareGroups() {
+	m.key_share_groups = nil
+	m.appendkey_share_groups = nil
+	m.clearedFields[tlsfingerprintprofile.FieldKeyShareGroups] = struct{}{}
+}
+
+// KeyShareGroupsCleared returns if the "key_share_groups" field was cleared in this mutation.
+func (m *TLSFingerprintProfileMutation) KeyShareGroupsCleared() bool {
+	_, ok := m.clearedFields[tlsfingerprintprofile.FieldKeyShareGroups]
+	return ok
+}
+
+// ResetKeyShareGroups resets all changes to the "key_share_groups" field.
+func (m *TLSFingerprintProfileMutation) ResetKeyShareGroups() {
+	m.key_share_groups = nil
+	m.appendkey_share_groups = nil
+	delete(m.clearedFields, tlsfingerprintprofile.FieldKeyShareGroups)
+}
+
+// SetPskModes sets the "psk_modes" field.
+func (m *TLSFingerprintProfileMutation) SetPskModes(u []uint16) {
+	m.psk_modes = &u
+	m.appendpsk_modes = nil
+}
+
+// PskModes returns the value of the "psk_modes" field in the mutation.
+func (m *TLSFingerprintProfileMutation) PskModes() (r []uint16, exists bool) {
+	v := m.psk_modes
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPskModes returns the old "psk_modes" field's value of the TLSFingerprintProfile entity.
+// If the TLSFingerprintProfile object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TLSFingerprintProfileMutation) OldPskModes(ctx context.Context) (v []uint16, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPskModes is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPskModes requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPskModes: %w", err)
+	}
+	return oldValue.PskModes, nil
+}
+
+// AppendPskModes adds u to the "psk_modes" field.
+func (m *TLSFingerprintProfileMutation) AppendPskModes(u []uint16) {
+	m.appendpsk_modes = append(m.appendpsk_modes, u...)
+}
+
+// AppendedPskModes returns the list of values that were appended to the "psk_modes" field in this mutation.
+func (m *TLSFingerprintProfileMutation) AppendedPskModes() ([]uint16, bool) {
+	if len(m.appendpsk_modes) == 0 {
+		return nil, false
+	}
+	return m.appendpsk_modes, true
+}
+
+// ClearPskModes clears the value of the "psk_modes" field.
+func (m *TLSFingerprintProfileMutation) ClearPskModes() {
+	m.psk_modes = nil
+	m.appendpsk_modes = nil
+	m.clearedFields[tlsfingerprintprofile.FieldPskModes] = struct{}{}
+}
+
+// PskModesCleared returns if the "psk_modes" field was cleared in this mutation.
+func (m *TLSFingerprintProfileMutation) PskModesCleared() bool {
+	_, ok := m.clearedFields[tlsfingerprintprofile.FieldPskModes]
+	return ok
+}
+
+// ResetPskModes resets all changes to the "psk_modes" field.
+func (m *TLSFingerprintProfileMutation) ResetPskModes() {
+	m.psk_modes = nil
+	m.appendpsk_modes = nil
+	delete(m.clearedFields, tlsfingerprintprofile.FieldPskModes)
+}
+
+// SetExtensions sets the "extensions" field.
+func (m *TLSFingerprintProfileMutation) SetExtensions(u []uint16) {
+	m.extensions = &u
+	m.appendextensions = nil
+}
+
+// Extensions returns the value of the "extensions" field in the mutation.
+func (m *TLSFingerprintProfileMutation) Extensions() (r []uint16, exists bool) {
+	v := m.extensions
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldExtensions returns the old "extensions" field's value of the TLSFingerprintProfile entity.
+// If the TLSFingerprintProfile object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TLSFingerprintProfileMutation) OldExtensions(ctx context.Context) (v []uint16, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldExtensions is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldExtensions requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldExtensions: %w", err)
+	}
+	return oldValue.Extensions, nil
+}
+
+// AppendExtensions adds u to the "extensions" field.
+func (m *TLSFingerprintProfileMutation) AppendExtensions(u []uint16) {
+	m.appendextensions = append(m.appendextensions, u...)
+}
+
+// AppendedExtensions returns the list of values that were appended to the "extensions" field in this mutation.
+func (m *TLSFingerprintProfileMutation) AppendedExtensions() ([]uint16, bool) {
+	if len(m.appendextensions) == 0 {
+		return nil, false
+	}
+	return m.appendextensions, true
+}
+
+// ClearExtensions clears the value of the "extensions" field.
+func (m *TLSFingerprintProfileMutation) ClearExtensions() {
+	m.extensions = nil
+	m.appendextensions = nil
+	m.clearedFields[tlsfingerprintprofile.FieldExtensions] = struct{}{}
+}
+
+// ExtensionsCleared returns if the "extensions" field was cleared in this mutation.
+func (m *TLSFingerprintProfileMutation) ExtensionsCleared() bool {
+	_, ok := m.clearedFields[tlsfingerprintprofile.FieldExtensions]
+	return ok
+}
+
+// ResetExtensions resets all changes to the "extensions" field.
+func (m *TLSFingerprintProfileMutation) ResetExtensions() {
+	m.extensions = nil
+	m.appendextensions = nil
+	delete(m.clearedFields, tlsfingerprintprofile.FieldExtensions)
+}
+
+// Where appends a list predicates to the TLSFingerprintProfileMutation builder.
+func (m *TLSFingerprintProfileMutation) Where(ps ...predicate.TLSFingerprintProfile) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the TLSFingerprintProfileMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *TLSFingerprintProfileMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.TLSFingerprintProfile, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *TLSFingerprintProfileMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *TLSFingerprintProfileMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (TLSFingerprintProfile).
+func (m *TLSFingerprintProfileMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *TLSFingerprintProfileMutation) Fields() []string {
+	fields := make([]string, 0, 14)
+	if m.created_at != nil {
+		fields = append(fields, tlsfingerprintprofile.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, tlsfingerprintprofile.FieldUpdatedAt)
+	}
+	if m.name != nil {
+		fields = append(fields, tlsfingerprintprofile.FieldName)
+	}
+	if m.description != nil {
+		fields = append(fields, tlsfingerprintprofile.FieldDescription)
+	}
+	if m.enable_grease != nil {
+		fields = append(fields, tlsfingerprintprofile.FieldEnableGrease)
+	}
+	if m.cipher_suites != nil {
+		fields = append(fields, tlsfingerprintprofile.FieldCipherSuites)
+	}
+	if m.curves != nil {
+		fields = append(fields, tlsfingerprintprofile.FieldCurves)
+	}
+	if m.point_formats != nil {
+		fields = append(fields, tlsfingerprintprofile.FieldPointFormats)
+	}
+	if m.signature_algorithms != nil {
+		fields = append(fields, tlsfingerprintprofile.FieldSignatureAlgorithms)
+	}
+	if m.alpn_protocols != nil {
+		fields = append(fields, tlsfingerprintprofile.FieldAlpnProtocols)
+	}
+	if m.supported_versions != nil {
+		fields = append(fields, tlsfingerprintprofile.FieldSupportedVersions)
+	}
+	if m.key_share_groups != nil {
+		fields = append(fields, tlsfingerprintprofile.FieldKeyShareGroups)
+	}
+	if m.psk_modes != nil {
+		fields = append(fields, tlsfingerprintprofile.FieldPskModes)
+	}
+	if m.extensions != nil {
+		fields = append(fields, tlsfingerprintprofile.FieldExtensions)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *TLSFingerprintProfileMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case tlsfingerprintprofile.FieldCreatedAt:
+		return m.CreatedAt()
+	case tlsfingerprintprofile.FieldUpdatedAt:
+		return m.UpdatedAt()
+	case tlsfingerprintprofile.FieldName:
+		return m.Name()
+	case tlsfingerprintprofile.FieldDescription:
+		return m.Description()
+	case tlsfingerprintprofile.FieldEnableGrease:
+		return m.EnableGrease()
+	case tlsfingerprintprofile.FieldCipherSuites:
+		return m.CipherSuites()
+	case tlsfingerprintprofile.FieldCurves:
+		return m.Curves()
+	case tlsfingerprintprofile.FieldPointFormats:
+		return m.PointFormats()
+	case tlsfingerprintprofile.FieldSignatureAlgorithms:
+		return m.SignatureAlgorithms()
+	case tlsfingerprintprofile.FieldAlpnProtocols:
+		return m.AlpnProtocols()
+	case tlsfingerprintprofile.FieldSupportedVersions:
+		return m.SupportedVersions()
+	case tlsfingerprintprofile.FieldKeyShareGroups:
+		return m.KeyShareGroups()
+	case tlsfingerprintprofile.FieldPskModes:
+		return m.PskModes()
+	case tlsfingerprintprofile.FieldExtensions:
+		return m.Extensions()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *TLSFingerprintProfileMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case tlsfingerprintprofile.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case tlsfingerprintprofile.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	case tlsfingerprintprofile.FieldName:
+		return m.OldName(ctx)
+	case tlsfingerprintprofile.FieldDescription:
+		return m.OldDescription(ctx)
+	case tlsfingerprintprofile.FieldEnableGrease:
+		return m.OldEnableGrease(ctx)
+	case tlsfingerprintprofile.FieldCipherSuites:
+		return m.OldCipherSuites(ctx)
+	case tlsfingerprintprofile.FieldCurves:
+		return m.OldCurves(ctx)
+	case tlsfingerprintprofile.FieldPointFormats:
+		return m.OldPointFormats(ctx)
+	case tlsfingerprintprofile.FieldSignatureAlgorithms:
+		return m.OldSignatureAlgorithms(ctx)
+	case tlsfingerprintprofile.FieldAlpnProtocols:
+		return m.OldAlpnProtocols(ctx)
+	case tlsfingerprintprofile.FieldSupportedVersions:
+		return m.OldSupportedVersions(ctx)
+	case tlsfingerprintprofile.FieldKeyShareGroups:
+		return m.OldKeyShareGroups(ctx)
+	case tlsfingerprintprofile.FieldPskModes:
+		return m.OldPskModes(ctx)
+	case tlsfingerprintprofile.FieldExtensions:
+		return m.OldExtensions(ctx)
+	}
+	return nil, fmt.Errorf("unknown TLSFingerprintProfile field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *TLSFingerprintProfileMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case tlsfingerprintprofile.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case tlsfingerprintprofile.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	case tlsfingerprintprofile.FieldName:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetName(v)
+		return nil
+	case tlsfingerprintprofile.FieldDescription:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDescription(v)
+		return nil
+	case tlsfingerprintprofile.FieldEnableGrease:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetEnableGrease(v)
+		return nil
+	case tlsfingerprintprofile.FieldCipherSuites:
+		v, ok := value.([]uint16)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCipherSuites(v)
+		return nil
+	case tlsfingerprintprofile.FieldCurves:
+		v, ok := value.([]uint16)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCurves(v)
+		return nil
+	case tlsfingerprintprofile.FieldPointFormats:
+		v, ok := value.([]uint16)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPointFormats(v)
+		return nil
+	case tlsfingerprintprofile.FieldSignatureAlgorithms:
+		v, ok := value.([]uint16)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSignatureAlgorithms(v)
+		return nil
+	case tlsfingerprintprofile.FieldAlpnProtocols:
+		v, ok := value.([]string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAlpnProtocols(v)
+		return nil
+	case tlsfingerprintprofile.FieldSupportedVersions:
+		v, ok := value.([]uint16)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSupportedVersions(v)
+		return nil
+	case tlsfingerprintprofile.FieldKeyShareGroups:
+		v, ok := value.([]uint16)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetKeyShareGroups(v)
+		return nil
+	case tlsfingerprintprofile.FieldPskModes:
+		v, ok := value.([]uint16)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPskModes(v)
+		return nil
+	case tlsfingerprintprofile.FieldExtensions:
+		v, ok := value.([]uint16)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetExtensions(v)
+		return nil
+	}
+	return fmt.Errorf("unknown TLSFingerprintProfile field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *TLSFingerprintProfileMutation) AddedFields() []string {
+	return nil
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *TLSFingerprintProfileMutation) AddedField(name string) (ent.Value, bool) {
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *TLSFingerprintProfileMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	}
+	return fmt.Errorf("unknown TLSFingerprintProfile numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *TLSFingerprintProfileMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(tlsfingerprintprofile.FieldDescription) {
+		fields = append(fields, tlsfingerprintprofile.FieldDescription)
+	}
+	if m.FieldCleared(tlsfingerprintprofile.FieldCipherSuites) {
+		fields = append(fields, tlsfingerprintprofile.FieldCipherSuites)
+	}
+	if m.FieldCleared(tlsfingerprintprofile.FieldCurves) {
+		fields = append(fields, tlsfingerprintprofile.FieldCurves)
+	}
+	if m.FieldCleared(tlsfingerprintprofile.FieldPointFormats) {
+		fields = append(fields, tlsfingerprintprofile.FieldPointFormats)
+	}
+	if m.FieldCleared(tlsfingerprintprofile.FieldSignatureAlgorithms) {
+		fields = append(fields, tlsfingerprintprofile.FieldSignatureAlgorithms)
+	}
+	if m.FieldCleared(tlsfingerprintprofile.FieldAlpnProtocols) {
+		fields = append(fields, tlsfingerprintprofile.FieldAlpnProtocols)
+	}
+	if m.FieldCleared(tlsfingerprintprofile.FieldSupportedVersions) {
+		fields = append(fields, tlsfingerprintprofile.FieldSupportedVersions)
+	}
+	if m.FieldCleared(tlsfingerprintprofile.FieldKeyShareGroups) {
+		fields = append(fields, tlsfingerprintprofile.FieldKeyShareGroups)
+	}
+	if m.FieldCleared(tlsfingerprintprofile.FieldPskModes) {
+		fields = append(fields, tlsfingerprintprofile.FieldPskModes)
+	}
+	if m.FieldCleared(tlsfingerprintprofile.FieldExtensions) {
+		fields = append(fields, tlsfingerprintprofile.FieldExtensions)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *TLSFingerprintProfileMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *TLSFingerprintProfileMutation) ClearField(name string) error {
+	switch name {
+	case tlsfingerprintprofile.FieldDescription:
+		m.ClearDescription()
+		return nil
+	case tlsfingerprintprofile.FieldCipherSuites:
+		m.ClearCipherSuites()
+		return nil
+	case tlsfingerprintprofile.FieldCurves:
+		m.ClearCurves()
+		return nil
+	case tlsfingerprintprofile.FieldPointFormats:
+		m.ClearPointFormats()
+		return nil
+	case tlsfingerprintprofile.FieldSignatureAlgorithms:
+		m.ClearSignatureAlgorithms()
+		return nil
+	case tlsfingerprintprofile.FieldAlpnProtocols:
+		m.ClearAlpnProtocols()
+		return nil
+	case tlsfingerprintprofile.FieldSupportedVersions:
+		m.ClearSupportedVersions()
+		return nil
+	case tlsfingerprintprofile.FieldKeyShareGroups:
+		m.ClearKeyShareGroups()
+		return nil
+	case tlsfingerprintprofile.FieldPskModes:
+		m.ClearPskModes()
+		return nil
+	case tlsfingerprintprofile.FieldExtensions:
+		m.ClearExtensions()
+		return nil
+	}
+	return fmt.Errorf("unknown TLSFingerprintProfile nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *TLSFingerprintProfileMutation) ResetField(name string) error {
+	switch name {
+	case tlsfingerprintprofile.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case tlsfingerprintprofile.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	case tlsfingerprintprofile.FieldName:
+		m.ResetName()
+		return nil
+	case tlsfingerprintprofile.FieldDescription:
+		m.ResetDescription()
+		return nil
+	case tlsfingerprintprofile.FieldEnableGrease:
+		m.ResetEnableGrease()
+		return nil
+	case tlsfingerprintprofile.FieldCipherSuites:
+		m.ResetCipherSuites()
+		return nil
+	case tlsfingerprintprofile.FieldCurves:
+		m.ResetCurves()
+		return nil
+	case tlsfingerprintprofile.FieldPointFormats:
+		m.ResetPointFormats()
+		return nil
+	case tlsfingerprintprofile.FieldSignatureAlgorithms:
+		m.ResetSignatureAlgorithms()
+		return nil
+	case tlsfingerprintprofile.FieldAlpnProtocols:
+		m.ResetAlpnProtocols()
+		return nil
+	case tlsfingerprintprofile.FieldSupportedVersions:
+		m.ResetSupportedVersions()
+		return nil
+	case tlsfingerprintprofile.FieldKeyShareGroups:
+		m.ResetKeyShareGroups()
+		return nil
+	case tlsfingerprintprofile.FieldPskModes:
+		m.ResetPskModes()
+		return nil
+	case tlsfingerprintprofile.FieldExtensions:
+		m.ResetExtensions()
+		return nil
+	}
+	return fmt.Errorf("unknown TLSFingerprintProfile field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *TLSFingerprintProfileMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *TLSFingerprintProfileMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *TLSFingerprintProfileMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *TLSFingerprintProfileMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *TLSFingerprintProfileMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *TLSFingerprintProfileMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *TLSFingerprintProfileMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown TLSFingerprintProfile unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *TLSFingerprintProfileMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown TLSFingerprintProfile edge %s", name)
+}
+
 // UsageCleanupTaskMutation represents an operation that mutates the UsageCleanupTask nodes in the graph.
 type UsageCleanupTaskMutation struct {
 	config
@@ -18239,6 +19208,13 @@ type UsageLogMutation struct {
 	id                          *int64
 	request_id                  *string
 	model                       *string
+	requested_model             *string
+	upstream_model              *string
+	channel_id                  *int64
+	addchannel_id               *int64
+	model_mapping_chain         *string
+	billing_tier                *string
+	billing_mode                *string
 	input_tokens                *int
 	addinput_tokens             *int
 	output_tokens               *int
@@ -18279,7 +19255,6 @@ type UsageLogMutation struct {
 	image_count                 *int
 	addimage_count              *int
 	image_size                  *string
-	media_type                  *string
 	cache_ttl_overridden        *bool
 	created_at                  *time.Time
 	clearedFields               map[string]struct{}
@@ -18574,6 +19549,321 @@ func (m *UsageLogMutation) OldModel(ctx context.Context) (v string, err error) {
 // ResetModel resets all changes to the "model" field.
 func (m *UsageLogMutation) ResetModel() {
 	m.model = nil
+}
+
+// SetRequestedModel sets the "requested_model" field.
+func (m *UsageLogMutation) SetRequestedModel(s string) {
+	m.requested_model = &s
+}
+
+// RequestedModel returns the value of the "requested_model" field in the mutation.
+func (m *UsageLogMutation) RequestedModel() (r string, exists bool) {
+	v := m.requested_model
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRequestedModel returns the old "requested_model" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldRequestedModel(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRequestedModel is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRequestedModel requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRequestedModel: %w", err)
+	}
+	return oldValue.RequestedModel, nil
+}
+
+// ClearRequestedModel clears the value of the "requested_model" field.
+func (m *UsageLogMutation) ClearRequestedModel() {
+	m.requested_model = nil
+	m.clearedFields[usagelog.FieldRequestedModel] = struct{}{}
+}
+
+// RequestedModelCleared returns if the "requested_model" field was cleared in this mutation.
+func (m *UsageLogMutation) RequestedModelCleared() bool {
+	_, ok := m.clearedFields[usagelog.FieldRequestedModel]
+	return ok
+}
+
+// ResetRequestedModel resets all changes to the "requested_model" field.
+func (m *UsageLogMutation) ResetRequestedModel() {
+	m.requested_model = nil
+	delete(m.clearedFields, usagelog.FieldRequestedModel)
+}
+
+// SetUpstreamModel sets the "upstream_model" field.
+func (m *UsageLogMutation) SetUpstreamModel(s string) {
+	m.upstream_model = &s
+}
+
+// UpstreamModel returns the value of the "upstream_model" field in the mutation.
+func (m *UsageLogMutation) UpstreamModel() (r string, exists bool) {
+	v := m.upstream_model
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpstreamModel returns the old "upstream_model" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldUpstreamModel(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpstreamModel is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpstreamModel requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpstreamModel: %w", err)
+	}
+	return oldValue.UpstreamModel, nil
+}
+
+// ClearUpstreamModel clears the value of the "upstream_model" field.
+func (m *UsageLogMutation) ClearUpstreamModel() {
+	m.upstream_model = nil
+	m.clearedFields[usagelog.FieldUpstreamModel] = struct{}{}
+}
+
+// UpstreamModelCleared returns if the "upstream_model" field was cleared in this mutation.
+func (m *UsageLogMutation) UpstreamModelCleared() bool {
+	_, ok := m.clearedFields[usagelog.FieldUpstreamModel]
+	return ok
+}
+
+// ResetUpstreamModel resets all changes to the "upstream_model" field.
+func (m *UsageLogMutation) ResetUpstreamModel() {
+	m.upstream_model = nil
+	delete(m.clearedFields, usagelog.FieldUpstreamModel)
+}
+
+// SetChannelID sets the "channel_id" field.
+func (m *UsageLogMutation) SetChannelID(i int64) {
+	m.channel_id = &i
+	m.addchannel_id = nil
+}
+
+// ChannelID returns the value of the "channel_id" field in the mutation.
+func (m *UsageLogMutation) ChannelID() (r int64, exists bool) {
+	v := m.channel_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldChannelID returns the old "channel_id" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldChannelID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldChannelID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldChannelID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldChannelID: %w", err)
+	}
+	return oldValue.ChannelID, nil
+}
+
+// AddChannelID adds i to the "channel_id" field.
+func (m *UsageLogMutation) AddChannelID(i int64) {
+	if m.addchannel_id != nil {
+		*m.addchannel_id += i
+	} else {
+		m.addchannel_id = &i
+	}
+}
+
+// AddedChannelID returns the value that was added to the "channel_id" field in this mutation.
+func (m *UsageLogMutation) AddedChannelID() (r int64, exists bool) {
+	v := m.addchannel_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearChannelID clears the value of the "channel_id" field.
+func (m *UsageLogMutation) ClearChannelID() {
+	m.channel_id = nil
+	m.addchannel_id = nil
+	m.clearedFields[usagelog.FieldChannelID] = struct{}{}
+}
+
+// ChannelIDCleared returns if the "channel_id" field was cleared in this mutation.
+func (m *UsageLogMutation) ChannelIDCleared() bool {
+	_, ok := m.clearedFields[usagelog.FieldChannelID]
+	return ok
+}
+
+// ResetChannelID resets all changes to the "channel_id" field.
+func (m *UsageLogMutation) ResetChannelID() {
+	m.channel_id = nil
+	m.addchannel_id = nil
+	delete(m.clearedFields, usagelog.FieldChannelID)
+}
+
+// SetModelMappingChain sets the "model_mapping_chain" field.
+func (m *UsageLogMutation) SetModelMappingChain(s string) {
+	m.model_mapping_chain = &s
+}
+
+// ModelMappingChain returns the value of the "model_mapping_chain" field in the mutation.
+func (m *UsageLogMutation) ModelMappingChain() (r string, exists bool) {
+	v := m.model_mapping_chain
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldModelMappingChain returns the old "model_mapping_chain" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldModelMappingChain(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldModelMappingChain is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldModelMappingChain requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldModelMappingChain: %w", err)
+	}
+	return oldValue.ModelMappingChain, nil
+}
+
+// ClearModelMappingChain clears the value of the "model_mapping_chain" field.
+func (m *UsageLogMutation) ClearModelMappingChain() {
+	m.model_mapping_chain = nil
+	m.clearedFields[usagelog.FieldModelMappingChain] = struct{}{}
+}
+
+// ModelMappingChainCleared returns if the "model_mapping_chain" field was cleared in this mutation.
+func (m *UsageLogMutation) ModelMappingChainCleared() bool {
+	_, ok := m.clearedFields[usagelog.FieldModelMappingChain]
+	return ok
+}
+
+// ResetModelMappingChain resets all changes to the "model_mapping_chain" field.
+func (m *UsageLogMutation) ResetModelMappingChain() {
+	m.model_mapping_chain = nil
+	delete(m.clearedFields, usagelog.FieldModelMappingChain)
+}
+
+// SetBillingTier sets the "billing_tier" field.
+func (m *UsageLogMutation) SetBillingTier(s string) {
+	m.billing_tier = &s
+}
+
+// BillingTier returns the value of the "billing_tier" field in the mutation.
+func (m *UsageLogMutation) BillingTier() (r string, exists bool) {
+	v := m.billing_tier
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBillingTier returns the old "billing_tier" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldBillingTier(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBillingTier is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBillingTier requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBillingTier: %w", err)
+	}
+	return oldValue.BillingTier, nil
+}
+
+// ClearBillingTier clears the value of the "billing_tier" field.
+func (m *UsageLogMutation) ClearBillingTier() {
+	m.billing_tier = nil
+	m.clearedFields[usagelog.FieldBillingTier] = struct{}{}
+}
+
+// BillingTierCleared returns if the "billing_tier" field was cleared in this mutation.
+func (m *UsageLogMutation) BillingTierCleared() bool {
+	_, ok := m.clearedFields[usagelog.FieldBillingTier]
+	return ok
+}
+
+// ResetBillingTier resets all changes to the "billing_tier" field.
+func (m *UsageLogMutation) ResetBillingTier() {
+	m.billing_tier = nil
+	delete(m.clearedFields, usagelog.FieldBillingTier)
+}
+
+// SetBillingMode sets the "billing_mode" field.
+func (m *UsageLogMutation) SetBillingMode(s string) {
+	m.billing_mode = &s
+}
+
+// BillingMode returns the value of the "billing_mode" field in the mutation.
+func (m *UsageLogMutation) BillingMode() (r string, exists bool) {
+	v := m.billing_mode
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBillingMode returns the old "billing_mode" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldBillingMode(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBillingMode is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBillingMode requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBillingMode: %w", err)
+	}
+	return oldValue.BillingMode, nil
+}
+
+// ClearBillingMode clears the value of the "billing_mode" field.
+func (m *UsageLogMutation) ClearBillingMode() {
+	m.billing_mode = nil
+	m.clearedFields[usagelog.FieldBillingMode] = struct{}{}
+}
+
+// BillingModeCleared returns if the "billing_mode" field was cleared in this mutation.
+func (m *UsageLogMutation) BillingModeCleared() bool {
+	_, ok := m.clearedFields[usagelog.FieldBillingMode]
+	return ok
+}
+
+// ResetBillingMode resets all changes to the "billing_mode" field.
+func (m *UsageLogMutation) ResetBillingMode() {
+	m.billing_mode = nil
+	delete(m.clearedFields, usagelog.FieldBillingMode)
 }
 
 // SetGroupID sets the "group_id" field.
@@ -19907,55 +21197,6 @@ func (m *UsageLogMutation) ResetImageSize() {
 	delete(m.clearedFields, usagelog.FieldImageSize)
 }
 
-// SetMediaType sets the "media_type" field.
-func (m *UsageLogMutation) SetMediaType(s string) {
-	m.media_type = &s
-}
-
-// MediaType returns the value of the "media_type" field in the mutation.
-func (m *UsageLogMutation) MediaType() (r string, exists bool) {
-	v := m.media_type
-	if v == nil {
-		return
-	}
-	return *v, true
-}
-
-// OldMediaType returns the old "media_type" field's value of the UsageLog entity.
-// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
-// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *UsageLogMutation) OldMediaType(ctx context.Context) (v *string, err error) {
-	if !m.op.Is(OpUpdateOne) {
-		return v, errors.New("OldMediaType is only allowed on UpdateOne operations")
-	}
-	if m.id == nil || m.oldValue == nil {
-		return v, errors.New("OldMediaType requires an ID field in the mutation")
-	}
-	oldValue, err := m.oldValue(ctx)
-	if err != nil {
-		return v, fmt.Errorf("querying old value for OldMediaType: %w", err)
-	}
-	return oldValue.MediaType, nil
-}
-
-// ClearMediaType clears the value of the "media_type" field.
-func (m *UsageLogMutation) ClearMediaType() {
-	m.media_type = nil
-	m.clearedFields[usagelog.FieldMediaType] = struct{}{}
-}
-
-// MediaTypeCleared returns if the "media_type" field was cleared in this mutation.
-func (m *UsageLogMutation) MediaTypeCleared() bool {
-	_, ok := m.clearedFields[usagelog.FieldMediaType]
-	return ok
-}
-
-// ResetMediaType resets all changes to the "media_type" field.
-func (m *UsageLogMutation) ResetMediaType() {
-	m.media_type = nil
-	delete(m.clearedFields, usagelog.FieldMediaType)
-}
-
 // SetCacheTTLOverridden sets the "cache_ttl_overridden" field.
 func (m *UsageLogMutation) SetCacheTTLOverridden(b bool) {
 	m.cache_ttl_overridden = &b
@@ -20197,7 +21438,7 @@ func (m *UsageLogMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UsageLogMutation) Fields() []string {
-	fields := make([]string, 0, 32)
+	fields := make([]string, 0, 37)
 	if m.user != nil {
 		fields = append(fields, usagelog.FieldUserID)
 	}
@@ -20212,6 +21453,24 @@ func (m *UsageLogMutation) Fields() []string {
 	}
 	if m.model != nil {
 		fields = append(fields, usagelog.FieldModel)
+	}
+	if m.requested_model != nil {
+		fields = append(fields, usagelog.FieldRequestedModel)
+	}
+	if m.upstream_model != nil {
+		fields = append(fields, usagelog.FieldUpstreamModel)
+	}
+	if m.channel_id != nil {
+		fields = append(fields, usagelog.FieldChannelID)
+	}
+	if m.model_mapping_chain != nil {
+		fields = append(fields, usagelog.FieldModelMappingChain)
+	}
+	if m.billing_tier != nil {
+		fields = append(fields, usagelog.FieldBillingTier)
+	}
+	if m.billing_mode != nil {
+		fields = append(fields, usagelog.FieldBillingMode)
 	}
 	if m.group != nil {
 		fields = append(fields, usagelog.FieldGroupID)
@@ -20285,9 +21544,6 @@ func (m *UsageLogMutation) Fields() []string {
 	if m.image_size != nil {
 		fields = append(fields, usagelog.FieldImageSize)
 	}
-	if m.media_type != nil {
-		fields = append(fields, usagelog.FieldMediaType)
-	}
 	if m.cache_ttl_overridden != nil {
 		fields = append(fields, usagelog.FieldCacheTTLOverridden)
 	}
@@ -20312,6 +21568,18 @@ func (m *UsageLogMutation) Field(name string) (ent.Value, bool) {
 		return m.RequestID()
 	case usagelog.FieldModel:
 		return m.Model()
+	case usagelog.FieldRequestedModel:
+		return m.RequestedModel()
+	case usagelog.FieldUpstreamModel:
+		return m.UpstreamModel()
+	case usagelog.FieldChannelID:
+		return m.ChannelID()
+	case usagelog.FieldModelMappingChain:
+		return m.ModelMappingChain()
+	case usagelog.FieldBillingTier:
+		return m.BillingTier()
+	case usagelog.FieldBillingMode:
+		return m.BillingMode()
 	case usagelog.FieldGroupID:
 		return m.GroupID()
 	case usagelog.FieldSubscriptionID:
@@ -20360,8 +21628,6 @@ func (m *UsageLogMutation) Field(name string) (ent.Value, bool) {
 		return m.ImageCount()
 	case usagelog.FieldImageSize:
 		return m.ImageSize()
-	case usagelog.FieldMediaType:
-		return m.MediaType()
 	case usagelog.FieldCacheTTLOverridden:
 		return m.CacheTTLOverridden()
 	case usagelog.FieldCreatedAt:
@@ -20385,6 +21651,18 @@ func (m *UsageLogMutation) OldField(ctx context.Context, name string) (ent.Value
 		return m.OldRequestID(ctx)
 	case usagelog.FieldModel:
 		return m.OldModel(ctx)
+	case usagelog.FieldRequestedModel:
+		return m.OldRequestedModel(ctx)
+	case usagelog.FieldUpstreamModel:
+		return m.OldUpstreamModel(ctx)
+	case usagelog.FieldChannelID:
+		return m.OldChannelID(ctx)
+	case usagelog.FieldModelMappingChain:
+		return m.OldModelMappingChain(ctx)
+	case usagelog.FieldBillingTier:
+		return m.OldBillingTier(ctx)
+	case usagelog.FieldBillingMode:
+		return m.OldBillingMode(ctx)
 	case usagelog.FieldGroupID:
 		return m.OldGroupID(ctx)
 	case usagelog.FieldSubscriptionID:
@@ -20433,8 +21711,6 @@ func (m *UsageLogMutation) OldField(ctx context.Context, name string) (ent.Value
 		return m.OldImageCount(ctx)
 	case usagelog.FieldImageSize:
 		return m.OldImageSize(ctx)
-	case usagelog.FieldMediaType:
-		return m.OldMediaType(ctx)
 	case usagelog.FieldCacheTTLOverridden:
 		return m.OldCacheTTLOverridden(ctx)
 	case usagelog.FieldCreatedAt:
@@ -20482,6 +21758,48 @@ func (m *UsageLogMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetModel(v)
+		return nil
+	case usagelog.FieldRequestedModel:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRequestedModel(v)
+		return nil
+	case usagelog.FieldUpstreamModel:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpstreamModel(v)
+		return nil
+	case usagelog.FieldChannelID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetChannelID(v)
+		return nil
+	case usagelog.FieldModelMappingChain:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetModelMappingChain(v)
+		return nil
+	case usagelog.FieldBillingTier:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBillingTier(v)
+		return nil
+	case usagelog.FieldBillingMode:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBillingMode(v)
 		return nil
 	case usagelog.FieldGroupID:
 		v, ok := value.(int64)
@@ -20651,13 +21969,6 @@ func (m *UsageLogMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetImageSize(v)
 		return nil
-	case usagelog.FieldMediaType:
-		v, ok := value.(string)
-		if !ok {
-			return fmt.Errorf("unexpected type %T for field %s", value, name)
-		}
-		m.SetMediaType(v)
-		return nil
 	case usagelog.FieldCacheTTLOverridden:
 		v, ok := value.(bool)
 		if !ok {
@@ -20680,6 +21991,9 @@ func (m *UsageLogMutation) SetField(name string, value ent.Value) error {
 // this mutation.
 func (m *UsageLogMutation) AddedFields() []string {
 	var fields []string
+	if m.addchannel_id != nil {
+		fields = append(fields, usagelog.FieldChannelID)
+	}
 	if m.addinput_tokens != nil {
 		fields = append(fields, usagelog.FieldInputTokens)
 	}
@@ -20742,6 +22056,8 @@ func (m *UsageLogMutation) AddedFields() []string {
 // was not set, or was not defined in the schema.
 func (m *UsageLogMutation) AddedField(name string) (ent.Value, bool) {
 	switch name {
+	case usagelog.FieldChannelID:
+		return m.AddedChannelID()
 	case usagelog.FieldInputTokens:
 		return m.AddedInputTokens()
 	case usagelog.FieldOutputTokens:
@@ -20787,6 +22103,13 @@ func (m *UsageLogMutation) AddedField(name string) (ent.Value, bool) {
 // type.
 func (m *UsageLogMutation) AddField(name string, value ent.Value) error {
 	switch name {
+	case usagelog.FieldChannelID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddChannelID(v)
+		return nil
 	case usagelog.FieldInputTokens:
 		v, ok := value.(int)
 		if !ok {
@@ -20921,6 +22244,24 @@ func (m *UsageLogMutation) AddField(name string, value ent.Value) error {
 // mutation.
 func (m *UsageLogMutation) ClearedFields() []string {
 	var fields []string
+	if m.FieldCleared(usagelog.FieldRequestedModel) {
+		fields = append(fields, usagelog.FieldRequestedModel)
+	}
+	if m.FieldCleared(usagelog.FieldUpstreamModel) {
+		fields = append(fields, usagelog.FieldUpstreamModel)
+	}
+	if m.FieldCleared(usagelog.FieldChannelID) {
+		fields = append(fields, usagelog.FieldChannelID)
+	}
+	if m.FieldCleared(usagelog.FieldModelMappingChain) {
+		fields = append(fields, usagelog.FieldModelMappingChain)
+	}
+	if m.FieldCleared(usagelog.FieldBillingTier) {
+		fields = append(fields, usagelog.FieldBillingTier)
+	}
+	if m.FieldCleared(usagelog.FieldBillingMode) {
+		fields = append(fields, usagelog.FieldBillingMode)
+	}
 	if m.FieldCleared(usagelog.FieldGroupID) {
 		fields = append(fields, usagelog.FieldGroupID)
 	}
@@ -20945,9 +22286,6 @@ func (m *UsageLogMutation) ClearedFields() []string {
 	if m.FieldCleared(usagelog.FieldImageSize) {
 		fields = append(fields, usagelog.FieldImageSize)
 	}
-	if m.FieldCleared(usagelog.FieldMediaType) {
-		fields = append(fields, usagelog.FieldMediaType)
-	}
 	return fields
 }
 
@@ -20962,6 +22300,24 @@ func (m *UsageLogMutation) FieldCleared(name string) bool {
 // error if the field is not defined in the schema.
 func (m *UsageLogMutation) ClearField(name string) error {
 	switch name {
+	case usagelog.FieldRequestedModel:
+		m.ClearRequestedModel()
+		return nil
+	case usagelog.FieldUpstreamModel:
+		m.ClearUpstreamModel()
+		return nil
+	case usagelog.FieldChannelID:
+		m.ClearChannelID()
+		return nil
+	case usagelog.FieldModelMappingChain:
+		m.ClearModelMappingChain()
+		return nil
+	case usagelog.FieldBillingTier:
+		m.ClearBillingTier()
+		return nil
+	case usagelog.FieldBillingMode:
+		m.ClearBillingMode()
+		return nil
 	case usagelog.FieldGroupID:
 		m.ClearGroupID()
 		return nil
@@ -20986,9 +22342,6 @@ func (m *UsageLogMutation) ClearField(name string) error {
 	case usagelog.FieldImageSize:
 		m.ClearImageSize()
 		return nil
-	case usagelog.FieldMediaType:
-		m.ClearMediaType()
-		return nil
 	}
 	return fmt.Errorf("unknown UsageLog nullable field %s", name)
 }
@@ -21011,6 +22364,24 @@ func (m *UsageLogMutation) ResetField(name string) error {
 		return nil
 	case usagelog.FieldModel:
 		m.ResetModel()
+		return nil
+	case usagelog.FieldRequestedModel:
+		m.ResetRequestedModel()
+		return nil
+	case usagelog.FieldUpstreamModel:
+		m.ResetUpstreamModel()
+		return nil
+	case usagelog.FieldChannelID:
+		m.ResetChannelID()
+		return nil
+	case usagelog.FieldModelMappingChain:
+		m.ResetModelMappingChain()
+		return nil
+	case usagelog.FieldBillingTier:
+		m.ResetBillingTier()
+		return nil
+	case usagelog.FieldBillingMode:
+		m.ResetBillingMode()
 		return nil
 	case usagelog.FieldGroupID:
 		m.ResetGroupID()
@@ -21083,9 +22454,6 @@ func (m *UsageLogMutation) ResetField(name string) error {
 		return nil
 	case usagelog.FieldImageSize:
 		m.ResetImageSize()
-		return nil
-	case usagelog.FieldMediaType:
-		m.ResetMediaType()
 		return nil
 	case usagelog.FieldCacheTTLOverridden:
 		m.ResetCacheTTLOverridden()
@@ -21265,10 +22633,6 @@ type UserMutation struct {
 	totp_secret_encrypted         *string
 	totp_enabled                  *bool
 	totp_enabled_at               *time.Time
-	sora_storage_quota_bytes      *int64
-	addsora_storage_quota_bytes   *int64
-	sora_storage_used_bytes       *int64
-	addsora_storage_used_bytes    *int64
 	clearedFields                 map[string]struct{}
 	api_keys                      map[int64]struct{}
 	removedapi_keys               map[int64]struct{}
@@ -21983,118 +23347,6 @@ func (m *UserMutation) ResetTotpEnabledAt() {
 	delete(m.clearedFields, user.FieldTotpEnabledAt)
 }
 
-// SetSoraStorageQuotaBytes sets the "sora_storage_quota_bytes" field.
-func (m *UserMutation) SetSoraStorageQuotaBytes(i int64) {
-	m.sora_storage_quota_bytes = &i
-	m.addsora_storage_quota_bytes = nil
-}
-
-// SoraStorageQuotaBytes returns the value of the "sora_storage_quota_bytes" field in the mutation.
-func (m *UserMutation) SoraStorageQuotaBytes() (r int64, exists bool) {
-	v := m.sora_storage_quota_bytes
-	if v == nil {
-		return
-	}
-	return *v, true
-}
-
-// OldSoraStorageQuotaBytes returns the old "sora_storage_quota_bytes" field's value of the User entity.
-// If the User object wasn't provided to the builder, the object is fetched from the database.
-// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *UserMutation) OldSoraStorageQuotaBytes(ctx context.Context) (v int64, err error) {
-	if !m.op.Is(OpUpdateOne) {
-		return v, errors.New("OldSoraStorageQuotaBytes is only allowed on UpdateOne operations")
-	}
-	if m.id == nil || m.oldValue == nil {
-		return v, errors.New("OldSoraStorageQuotaBytes requires an ID field in the mutation")
-	}
-	oldValue, err := m.oldValue(ctx)
-	if err != nil {
-		return v, fmt.Errorf("querying old value for OldSoraStorageQuotaBytes: %w", err)
-	}
-	return oldValue.SoraStorageQuotaBytes, nil
-}
-
-// AddSoraStorageQuotaBytes adds i to the "sora_storage_quota_bytes" field.
-func (m *UserMutation) AddSoraStorageQuotaBytes(i int64) {
-	if m.addsora_storage_quota_bytes != nil {
-		*m.addsora_storage_quota_bytes += i
-	} else {
-		m.addsora_storage_quota_bytes = &i
-	}
-}
-
-// AddedSoraStorageQuotaBytes returns the value that was added to the "sora_storage_quota_bytes" field in this mutation.
-func (m *UserMutation) AddedSoraStorageQuotaBytes() (r int64, exists bool) {
-	v := m.addsora_storage_quota_bytes
-	if v == nil {
-		return
-	}
-	return *v, true
-}
-
-// ResetSoraStorageQuotaBytes resets all changes to the "sora_storage_quota_bytes" field.
-func (m *UserMutation) ResetSoraStorageQuotaBytes() {
-	m.sora_storage_quota_bytes = nil
-	m.addsora_storage_quota_bytes = nil
-}
-
-// SetSoraStorageUsedBytes sets the "sora_storage_used_bytes" field.
-func (m *UserMutation) SetSoraStorageUsedBytes(i int64) {
-	m.sora_storage_used_bytes = &i
-	m.addsora_storage_used_bytes = nil
-}
-
-// SoraStorageUsedBytes returns the value of the "sora_storage_used_bytes" field in the mutation.
-func (m *UserMutation) SoraStorageUsedBytes() (r int64, exists bool) {
-	v := m.sora_storage_used_bytes
-	if v == nil {
-		return
-	}
-	return *v, true
-}
-
-// OldSoraStorageUsedBytes returns the old "sora_storage_used_bytes" field's value of the User entity.
-// If the User object wasn't provided to the builder, the object is fetched from the database.
-// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *UserMutation) OldSoraStorageUsedBytes(ctx context.Context) (v int64, err error) {
-	if !m.op.Is(OpUpdateOne) {
-		return v, errors.New("OldSoraStorageUsedBytes is only allowed on UpdateOne operations")
-	}
-	if m.id == nil || m.oldValue == nil {
-		return v, errors.New("OldSoraStorageUsedBytes requires an ID field in the mutation")
-	}
-	oldValue, err := m.oldValue(ctx)
-	if err != nil {
-		return v, fmt.Errorf("querying old value for OldSoraStorageUsedBytes: %w", err)
-	}
-	return oldValue.SoraStorageUsedBytes, nil
-}
-
-// AddSoraStorageUsedBytes adds i to the "sora_storage_used_bytes" field.
-func (m *UserMutation) AddSoraStorageUsedBytes(i int64) {
-	if m.addsora_storage_used_bytes != nil {
-		*m.addsora_storage_used_bytes += i
-	} else {
-		m.addsora_storage_used_bytes = &i
-	}
-}
-
-// AddedSoraStorageUsedBytes returns the value that was added to the "sora_storage_used_bytes" field in this mutation.
-func (m *UserMutation) AddedSoraStorageUsedBytes() (r int64, exists bool) {
-	v := m.addsora_storage_used_bytes
-	if v == nil {
-		return
-	}
-	return *v, true
-}
-
-// ResetSoraStorageUsedBytes resets all changes to the "sora_storage_used_bytes" field.
-func (m *UserMutation) ResetSoraStorageUsedBytes() {
-	m.sora_storage_used_bytes = nil
-	m.addsora_storage_used_bytes = nil
-}
-
 // AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by ids.
 func (m *UserMutation) AddAPIKeyIDs(ids ...int64) {
 	if m.api_keys == nil {
@@ -22615,7 +23867,7 @@ func (m *UserMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UserMutation) Fields() []string {
-	fields := make([]string, 0, 16)
+	fields := make([]string, 0, 14)
 	if m.created_at != nil {
 		fields = append(fields, user.FieldCreatedAt)
 	}
@@ -22658,12 +23910,6 @@ func (m *UserMutation) Fields() []string {
 	if m.totp_enabled_at != nil {
 		fields = append(fields, user.FieldTotpEnabledAt)
 	}
-	if m.sora_storage_quota_bytes != nil {
-		fields = append(fields, user.FieldSoraStorageQuotaBytes)
-	}
-	if m.sora_storage_used_bytes != nil {
-		fields = append(fields, user.FieldSoraStorageUsedBytes)
-	}
 	return fields
 }
 
@@ -22700,10 +23946,6 @@ func (m *UserMutation) Field(name string) (ent.Value, bool) {
 		return m.TotpEnabled()
 	case user.FieldTotpEnabledAt:
 		return m.TotpEnabledAt()
-	case user.FieldSoraStorageQuotaBytes:
-		return m.SoraStorageQuotaBytes()
-	case user.FieldSoraStorageUsedBytes:
-		return m.SoraStorageUsedBytes()
 	}
 	return nil, false
 }
@@ -22741,10 +23983,6 @@ func (m *UserMutation) OldField(ctx context.Context, name string) (ent.Value, er
 		return m.OldTotpEnabled(ctx)
 	case user.FieldTotpEnabledAt:
 		return m.OldTotpEnabledAt(ctx)
-	case user.FieldSoraStorageQuotaBytes:
-		return m.OldSoraStorageQuotaBytes(ctx)
-	case user.FieldSoraStorageUsedBytes:
-		return m.OldSoraStorageUsedBytes(ctx)
 	}
 	return nil, fmt.Errorf("unknown User field %s", name)
 }
@@ -22852,20 +24090,6 @@ func (m *UserMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetTotpEnabledAt(v)
 		return nil
-	case user.FieldSoraStorageQuotaBytes:
-		v, ok := value.(int64)
-		if !ok {
-			return fmt.Errorf("unexpected type %T for field %s", value, name)
-		}
-		m.SetSoraStorageQuotaBytes(v)
-		return nil
-	case user.FieldSoraStorageUsedBytes:
-		v, ok := value.(int64)
-		if !ok {
-			return fmt.Errorf("unexpected type %T for field %s", value, name)
-		}
-		m.SetSoraStorageUsedBytes(v)
-		return nil
 	}
 	return fmt.Errorf("unknown User field %s", name)
 }
@@ -22880,12 +24104,6 @@ func (m *UserMutation) AddedFields() []string {
 	if m.addconcurrency != nil {
 		fields = append(fields, user.FieldConcurrency)
 	}
-	if m.addsora_storage_quota_bytes != nil {
-		fields = append(fields, user.FieldSoraStorageQuotaBytes)
-	}
-	if m.addsora_storage_used_bytes != nil {
-		fields = append(fields, user.FieldSoraStorageUsedBytes)
-	}
 	return fields
 }
 
@@ -22898,10 +24116,6 @@ func (m *UserMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedBalance()
 	case user.FieldConcurrency:
 		return m.AddedConcurrency()
-	case user.FieldSoraStorageQuotaBytes:
-		return m.AddedSoraStorageQuotaBytes()
-	case user.FieldSoraStorageUsedBytes:
-		return m.AddedSoraStorageUsedBytes()
 	}
 	return nil, false
 }
@@ -22924,20 +24138,6 @@ func (m *UserMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddConcurrency(v)
-		return nil
-	case user.FieldSoraStorageQuotaBytes:
-		v, ok := value.(int64)
-		if !ok {
-			return fmt.Errorf("unexpected type %T for field %s", value, name)
-		}
-		m.AddSoraStorageQuotaBytes(v)
-		return nil
-	case user.FieldSoraStorageUsedBytes:
-		v, ok := value.(int64)
-		if !ok {
-			return fmt.Errorf("unexpected type %T for field %s", value, name)
-		}
-		m.AddSoraStorageUsedBytes(v)
 		return nil
 	}
 	return fmt.Errorf("unknown User numeric field %s", name)
@@ -23028,12 +24228,6 @@ func (m *UserMutation) ResetField(name string) error {
 		return nil
 	case user.FieldTotpEnabledAt:
 		m.ResetTotpEnabledAt()
-		return nil
-	case user.FieldSoraStorageQuotaBytes:
-		m.ResetSoraStorageQuotaBytes()
-		return nil
-	case user.FieldSoraStorageUsedBytes:
-		m.ResetSoraStorageUsedBytes()
 		return nil
 	}
 	return fmt.Errorf("unknown User field %s", name)

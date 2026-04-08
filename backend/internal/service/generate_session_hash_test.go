@@ -24,7 +24,7 @@ func TestGenerateSessionHash_MetadataHasHighestPriority(t *testing.T) {
 	svc := &GatewayService{}
 
 	parsed := &ParsedRequest{
-		MetadataUserID: "session_123e4567-e89b-12d3-a456-426614174000",
+		MetadataUserID: "user_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2_account__session_123e4567-e89b-12d3-a456-426614174000",
 		System:         "You are a helpful assistant.",
 		HasSystem:      true,
 		Messages: []any{
@@ -196,7 +196,7 @@ func TestGenerateSessionHash_MetadataOverridesSessionContext(t *testing.T) {
 	svc := &GatewayService{}
 
 	parsed := &ParsedRequest{
-		MetadataUserID: "session_123e4567-e89b-12d3-a456-426614174000",
+		MetadataUserID: "user_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2_account__session_123e4567-e89b-12d3-a456-426614174000",
 		Messages: []any{
 			map[string]any{"role": "user", "content": "hello"},
 		},
@@ -210,6 +210,22 @@ func TestGenerateSessionHash_MetadataOverridesSessionContext(t *testing.T) {
 	hash := svc.GenerateSessionHash(parsed)
 	require.Equal(t, "123e4567-e89b-12d3-a456-426614174000", hash,
 		"metadata session_id should take priority over SessionContext")
+}
+
+func TestGenerateSessionHash_MetadataJSON_HasHighestPriority(t *testing.T) {
+	svc := &GatewayService{}
+
+	parsed := &ParsedRequest{
+		MetadataUserID: `{"device_id":"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2","account_uuid":"","session_id":"c72554f2-1234-5678-abcd-123456789abc"}`,
+		System:         "You are a helpful assistant.",
+		HasSystem:      true,
+		Messages: []any{
+			map[string]any{"role": "user", "content": "hello"},
+		},
+	}
+
+	hash := svc.GenerateSessionHash(parsed)
+	require.Equal(t, "c72554f2-1234-5678-abcd-123456789abc", hash, "JSON format metadata session_id should have highest priority")
 }
 
 func TestGenerateSessionHash_NilSessionContextBackwardCompatible(t *testing.T) {
@@ -486,6 +502,48 @@ func TestGenerateSessionHash_SessionContext_UADifference(t *testing.T) {
 	h1 := svc.GenerateSessionHash(base("Mozilla/5.0"))
 	h2 := svc.GenerateSessionHash(base("curl/7.0"))
 	require.NotEqual(t, h1, h2, "different User-Agent should produce different hash")
+}
+
+func TestGenerateSessionHash_SessionContext_UAVersionNoiseIgnored(t *testing.T) {
+	svc := &GatewayService{}
+
+	base := func(ua string) *ParsedRequest {
+		return &ParsedRequest{
+			Messages: []any{
+				map[string]any{"role": "user", "content": "test"},
+			},
+			SessionContext: &SessionContext{
+				ClientIP:  "1.1.1.1",
+				UserAgent: ua,
+				APIKeyID:  1,
+			},
+		}
+	}
+
+	h1 := svc.GenerateSessionHash(base("Mozilla/5.0 codex_cli_rs/0.1.0"))
+	h2 := svc.GenerateSessionHash(base("Mozilla/5.0 codex_cli_rs/0.1.1"))
+	require.Equal(t, h1, h2, "version-only User-Agent changes should not perturb the sticky session hash")
+}
+
+func TestGenerateSessionHash_SessionContext_FreeformUAVersionNoiseIgnored(t *testing.T) {
+	svc := &GatewayService{}
+
+	base := func(ua string) *ParsedRequest {
+		return &ParsedRequest{
+			Messages: []any{
+				map[string]any{"role": "user", "content": "test"},
+			},
+			SessionContext: &SessionContext{
+				ClientIP:  "1.1.1.1",
+				UserAgent: ua,
+				APIKeyID:  1,
+			},
+		}
+	}
+
+	h1 := svc.GenerateSessionHash(base("Codex CLI 0.1.0"))
+	h2 := svc.GenerateSessionHash(base("Codex CLI 0.1.1"))
+	require.Equal(t, h1, h2, "free-form version-only User-Agent changes should not perturb the sticky session hash")
 }
 
 func TestGenerateSessionHash_SessionContext_APIKeyIDDifference(t *testing.T) {

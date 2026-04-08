@@ -75,8 +75,10 @@ func (f *fakeGroupRepo) ListActive(context.Context) ([]service.Group, error) { r
 func (f *fakeGroupRepo) ListActiveByPlatform(context.Context, string) ([]service.Group, error) {
 	return nil, nil
 }
-func (f *fakeGroupRepo) ExistsByName(context.Context, string) (bool, error)    { return false, nil }
-func (f *fakeGroupRepo) GetAccountCount(context.Context, int64) (int64, error) { return 0, nil }
+func (f *fakeGroupRepo) ExistsByName(context.Context, string) (bool, error) { return false, nil }
+func (f *fakeGroupRepo) GetAccountCount(context.Context, int64) (int64, int64, error) {
+	return 0, 0, nil
+}
 func (f *fakeGroupRepo) DeleteAccountGroupsByGroupID(context.Context, int64) (int64, error) {
 	return 0, nil
 }
@@ -139,6 +141,7 @@ func newTestGatewayHandler(t *testing.T, group *service.Group, accounts []*servi
 		nil, // accountRepo (not used: scheduler snapshot hit)
 		&fakeGroupRepo{group: group},
 		nil, // usageLogRepo
+		nil, // usageBillingRepo
 		nil, // userRepo
 		nil, // userSubRepo
 		nil, // userGroupRateRepo
@@ -157,6 +160,9 @@ func newTestGatewayHandler(t *testing.T, group *service.Group, accounts []*servi
 		nil, // rpmCache
 		nil, // digestStore
 		nil, // settingService
+		nil, // tlsFPProfileService
+		nil, // channelService
+		nil, // resolver
 	)
 
 	// RunModeSimple：跳过计费检查，避免引入 repo/cache 依赖。

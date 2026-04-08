@@ -59,11 +59,9 @@ func UserFromServiceAdmin(u *service.User) *AdminUser {
 		return nil
 	}
 	return &AdminUser{
-		User:                  *base,
-		Notes:                 u.Notes,
-		GroupRates:            u.GroupRates,
-		SoraStorageQuotaBytes: u.SoraStorageQuotaBytes,
-		SoraStorageUsedBytes:  u.SoraStorageUsedBytes,
+		User:       *base,
+		Notes:      u.Notes,
+		GroupRates: u.GroupRates,
 	}
 }
 
@@ -135,14 +133,16 @@ func GroupFromServiceAdmin(g *service.Group) *AdminGroup {
 		return nil
 	}
 	out := &AdminGroup{
-		Group:                groupFromServiceBase(g),
-		ModelRouting:         g.ModelRouting,
-		ModelRoutingEnabled:  g.ModelRoutingEnabled,
-		MCPXMLInject:         g.MCPXMLInject,
-		DefaultMappedModel:   g.DefaultMappedModel,
-		SupportedModelScopes: g.SupportedModelScopes,
-		AccountCount:         g.AccountCount,
-		SortOrder:            g.SortOrder,
+		Group:                   groupFromServiceBase(g),
+		ModelRouting:            g.ModelRouting,
+		ModelRoutingEnabled:     g.ModelRoutingEnabled,
+		MCPXMLInject:            g.MCPXMLInject,
+		DefaultMappedModel:      g.DefaultMappedModel,
+		SupportedModelScopes:    g.SupportedModelScopes,
+		AccountCount:            g.AccountCount,
+		ActiveAccountCount:      g.ActiveAccountCount,
+		RateLimitedAccountCount: g.RateLimitedAccountCount,
+		SortOrder:               g.SortOrder,
 	}
 	if len(g.AccountGroups) > 0 {
 		out.AccountGroups = make([]AccountGroup, 0, len(g.AccountGroups))
@@ -170,15 +170,12 @@ func groupFromServiceBase(g *service.Group) Group {
 		ImagePrice1K:                    g.ImagePrice1K,
 		ImagePrice2K:                    g.ImagePrice2K,
 		ImagePrice4K:                    g.ImagePrice4K,
-		SoraImagePrice360:               g.SoraImagePrice360,
-		SoraImagePrice540:               g.SoraImagePrice540,
-		SoraVideoPricePerRequest:        g.SoraVideoPricePerRequest,
-		SoraVideoPricePerRequestHD:      g.SoraVideoPricePerRequestHD,
 		ClaudeCodeOnly:                  g.ClaudeCodeOnly,
 		FallbackGroupID:                 g.FallbackGroupID,
 		FallbackGroupIDOnInvalidRequest: g.FallbackGroupIDOnInvalidRequest,
-		SoraStorageQuotaBytes:           g.SoraStorageQuotaBytes,
 		AllowMessagesDispatch:           g.AllowMessagesDispatch,
+		RequireOAuthOnly:                g.RequireOAuthOnly,
+		RequirePrivacySet:               g.RequirePrivacySet,
 		CreatedAt:                       g.CreatedAt,
 		UpdatedAt:                       g.UpdatedAt,
 	}
@@ -250,6 +247,10 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 			enabled := true
 			out.EnableTLSFingerprint = &enabled
 		}
+		// TLS指纹模板ID
+		if profileID := a.GetTLSFingerprintProfileID(); profileID > 0 {
+			out.TLSFingerprintProfileID = &profileID
+		}
 		// 会话ID伪装开关
 		if a.IsSessionIDMaskingEnabled() {
 			enabled := true
@@ -262,10 +263,18 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 			target := a.GetCacheTTLOverrideTarget()
 			out.CacheTTLOverrideTarget = &target
 		}
+		// 自定义 Base URL 中继转发
+		if a.IsCustomBaseURLEnabled() {
+			enabled := true
+			out.CustomBaseURLEnabled = &enabled
+			if customURL := a.GetCustomBaseURL(); customURL != "" {
+				out.CustomBaseURL = &customURL
+			}
+		}
 	}
 
-	// 提取 API Key 账号配额限制（仅 apikey 类型有效）
-	if a.Type == service.AccountTypeAPIKey {
+	// 提取账号配额限制（apikey / bedrock 类型有效）
+	if a.IsAPIKeyOrBedrock() {
 		if limit := a.GetQuotaLimit(); limit > 0 {
 			out.QuotaLimit = &limit
 			used := a.GetQuotaUsed()
@@ -274,12 +283,43 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 		if limit := a.GetQuotaDailyLimit(); limit > 0 {
 			out.QuotaDailyLimit = &limit
 			used := a.GetQuotaDailyUsed()
+			if a.IsDailyQuotaPeriodExpired() {
+				used = 0
+			}
 			out.QuotaDailyUsed = &used
 		}
 		if limit := a.GetQuotaWeeklyLimit(); limit > 0 {
 			out.QuotaWeeklyLimit = &limit
 			used := a.GetQuotaWeeklyUsed()
+			if a.IsWeeklyQuotaPeriodExpired() {
+				used = 0
+			}
 			out.QuotaWeeklyUsed = &used
+		}
+		// 固定时间重置配置
+		if mode := a.GetQuotaDailyResetMode(); mode == "fixed" {
+			out.QuotaDailyResetMode = &mode
+			hour := a.GetQuotaDailyResetHour()
+			out.QuotaDailyResetHour = &hour
+		}
+		if mode := a.GetQuotaWeeklyResetMode(); mode == "fixed" {
+			out.QuotaWeeklyResetMode = &mode
+			day := a.GetQuotaWeeklyResetDay()
+			out.QuotaWeeklyResetDay = &day
+			hour := a.GetQuotaWeeklyResetHour()
+			out.QuotaWeeklyResetHour = &hour
+		}
+		if a.GetQuotaDailyResetMode() == "fixed" || a.GetQuotaWeeklyResetMode() == "fixed" {
+			tz := a.GetQuotaResetTimezone()
+			out.QuotaResetTimezone = &tz
+		}
+		if a.Extra != nil {
+			if v, ok := a.Extra["quota_daily_reset_at"].(string); ok && v != "" {
+				out.QuotaDailyResetAt = &v
+			}
+			if v, ok := a.Extra["quota_weekly_reset_at"].(string); ok && v != "" {
+				out.QuotaWeeklyResetAt = &v
+			}
 		}
 	}
 
@@ -489,15 +529,21 @@ func usageLogFromServiceUser(l *service.UsageLog) UsageLog {
 	// 普通用户 DTO：严禁包含管理员字段（例如 account_rate_multiplier、ip_address、account）。
 	requestType := l.EffectiveRequestType()
 	stream, openAIWSMode := service.ApplyLegacyRequestFields(requestType, l.Stream, l.OpenAIWSMode)
+	requestedModel := l.RequestedModel
+	if requestedModel == "" {
+		requestedModel = l.Model
+	}
 	return UsageLog{
 		ID:                    l.ID,
 		UserID:                l.UserID,
 		APIKeyID:              l.APIKeyID,
 		AccountID:             l.AccountID,
 		RequestID:             l.RequestID,
-		Model:                 l.Model,
+		Model:                 requestedModel,
 		ServiceTier:           l.ServiceTier,
 		ReasoningEffort:       l.ReasoningEffort,
+		InboundEndpoint:       l.InboundEndpoint,
+		UpstreamEndpoint:      l.UpstreamEndpoint,
 		GroupID:               l.GroupID,
 		SubscriptionID:        l.SubscriptionID,
 		InputTokens:           l.InputTokens,
@@ -524,6 +570,7 @@ func usageLogFromServiceUser(l *service.UsageLog) UsageLog {
 		MediaType:             l.MediaType,
 		UserAgent:             l.UserAgent,
 		CacheTTLOverridden:    l.CacheTTLOverridden,
+		BillingMode:           l.BillingMode,
 		CreatedAt:             l.CreatedAt,
 		User:                  UserFromServiceShallow(l.User),
 		APIKey:                APIKeyFromService(l.APIKey),
@@ -550,6 +597,10 @@ func UsageLogFromServiceAdmin(l *service.UsageLog) *AdminUsageLog {
 	}
 	return &AdminUsageLog{
 		UsageLog:              usageLogFromServiceUser(l),
+		UpstreamModel:         l.UpstreamModel,
+		ChannelID:             l.ChannelID,
+		ModelMappingChain:     l.ModelMappingChain,
+		BillingTier:           l.BillingTier,
 		AccountRateMultiplier: l.AccountRateMultiplier,
 		IPAddress:             l.IPAddress,
 		Account:               AccountSummaryFromService(l.Account),

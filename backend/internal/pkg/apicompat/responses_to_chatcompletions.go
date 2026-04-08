@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -29,6 +30,7 @@ func ResponsesToChatCompletions(resp *ResponsesResponse, model string) *ChatComp
 	}
 
 	var contentText string
+	var reasoningText string
 	var toolCalls []ChatToolCall
 
 	for _, item := range resp.Output {
@@ -51,7 +53,7 @@ func ResponsesToChatCompletions(resp *ResponsesResponse, model string) *ChatComp
 		case "reasoning":
 			for _, s := range item.Summary {
 				if s.Type == "summary_text" && s.Text != "" {
-					contentText += s.Text
+					reasoningText += s.Text
 				}
 			}
 		case "web_search_call":
@@ -66,6 +68,9 @@ func ResponsesToChatCompletions(resp *ResponsesResponse, model string) *ChatComp
 	if contentText != "" {
 		raw, _ := json.Marshal(contentText)
 		msg.Content = raw
+	}
+	if reasoningText != "" {
+		msg.ReasoningContent = reasoningText
 	}
 
 	finishReason := responsesStatusToChatFinishReason(resp.Status, resp.IncompleteDetails, toolCalls)
@@ -153,6 +158,8 @@ func ResponsesEventToChatChunks(evt *ResponsesStreamEvent, state *ResponsesEvent
 		return resToChatHandleFuncArgsDelta(evt, state)
 	case "response.reasoning_summary_text.delta":
 		return resToChatHandleReasoningDelta(evt, state)
+	case "response.reasoning_summary_text.done":
+		return nil
 	case "response.completed", "response.incomplete", "response.failed":
 		return resToChatHandleCompleted(evt, state)
 	default:
@@ -276,8 +283,8 @@ func resToChatHandleReasoningDelta(evt *ResponsesStreamEvent, state *ResponsesEv
 	if evt.Delta == "" {
 		return nil
 	}
-	content := evt.Delta
-	return []ChatCompletionsChunk{makeChatDeltaChunk(state, ChatDelta{Content: &content})}
+	reasoning := evt.Delta
+	return []ChatCompletionsChunk{makeChatDeltaChunk(state, ChatDelta{ReasoningContent: &reasoning})}
 }
 
 func resToChatHandleCompleted(evt *ResponsesStreamEvent, state *ResponsesEventToChatState) []ChatCompletionsChunk {
@@ -365,4 +372,120 @@ func generateChatCmplID() string {
 	b := make([]byte, 12)
 	_, _ = rand.Read(b)
 	return "chatcmpl-" + hex.EncodeToString(b)
+}
+
+// ---------------------------------------------------------------------------
+// BufferedResponseAccumulator: accumulates SSE delta events for non-streaming
+// paths where the terminal event may have empty output.
+// ---------------------------------------------------------------------------
+
+type bufferedFuncCall struct {
+	CallID string
+	Name   string
+	Args   strings.Builder
+}
+
+// BufferedResponseAccumulator collects content from Responses SSE delta events
+// so that non-streaming handlers can reconstruct output when the terminal event
+// (response.completed / response.done) carries an empty output array.
+type BufferedResponseAccumulator struct {
+	text                 strings.Builder
+	reasoning            strings.Builder
+	funcCalls            []bufferedFuncCall
+	outputIndexToFuncIdx map[int]int
+}
+
+// NewBufferedResponseAccumulator returns an initialised accumulator.
+func NewBufferedResponseAccumulator() *BufferedResponseAccumulator {
+	return &BufferedResponseAccumulator{
+		outputIndexToFuncIdx: make(map[int]int),
+	}
+}
+
+// ProcessEvent inspects a single Responses SSE event and accumulates any
+// content it carries. Only delta events that contribute to the final output
+// are handled; all other event types are silently ignored.
+func (a *BufferedResponseAccumulator) ProcessEvent(event *ResponsesStreamEvent) {
+	switch event.Type {
+	case "response.output_text.delta":
+		if event.Delta != "" {
+			_, _ = a.text.WriteString(event.Delta)
+		}
+	case "response.output_item.added":
+		if event.Item != nil && event.Item.Type == "function_call" {
+			idx := len(a.funcCalls)
+			a.outputIndexToFuncIdx[event.OutputIndex] = idx
+			a.funcCalls = append(a.funcCalls, bufferedFuncCall{
+				CallID: event.Item.CallID,
+				Name:   event.Item.Name,
+			})
+		}
+	case "response.function_call_arguments.delta":
+		if event.Delta != "" {
+			if idx, ok := a.outputIndexToFuncIdx[event.OutputIndex]; ok {
+				_, _ = a.funcCalls[idx].Args.WriteString(event.Delta)
+			}
+		}
+	case "response.reasoning_summary_text.delta":
+		if event.Delta != "" {
+			_, _ = a.reasoning.WriteString(event.Delta)
+		}
+	}
+}
+
+// HasContent reports whether any content has been accumulated.
+func (a *BufferedResponseAccumulator) HasContent() bool {
+	return a.text.Len() > 0 || len(a.funcCalls) > 0 || a.reasoning.Len() > 0
+}
+
+// BuildOutput constructs a []ResponsesOutput from the accumulated delta
+// content. The order matches what ResponsesToChatCompletions expects:
+// reasoning → message → function_calls.
+func (a *BufferedResponseAccumulator) BuildOutput() []ResponsesOutput {
+	var out []ResponsesOutput
+
+	if a.reasoning.Len() > 0 {
+		out = append(out, ResponsesOutput{
+			Type: "reasoning",
+			Summary: []ResponsesSummary{{
+				Type: "summary_text",
+				Text: a.reasoning.String(),
+			}},
+		})
+	}
+
+	if a.text.Len() > 0 {
+		out = append(out, ResponsesOutput{
+			Type: "message",
+			Role: "assistant",
+			Content: []ResponsesContentPart{{
+				Type: "output_text",
+				Text: a.text.String(),
+			}},
+		})
+	}
+
+	for i := range a.funcCalls {
+		out = append(out, ResponsesOutput{
+			Type:      "function_call",
+			CallID:    a.funcCalls[i].CallID,
+			Name:      a.funcCalls[i].Name,
+			Arguments: a.funcCalls[i].Args.String(),
+		})
+	}
+
+	return out
+}
+
+// SupplementResponseOutput fills resp.Output from accumulated delta content
+// when the terminal event delivered an empty output array. If resp.Output is
+// already populated, this is a no-op (preserves backward compatibility).
+func (a *BufferedResponseAccumulator) SupplementResponseOutput(resp *ResponsesResponse) {
+	if resp == nil || len(resp.Output) > 0 {
+		return
+	}
+	if !a.HasContent() {
+		return
+	}
+	resp.Output = a.BuildOutput()
 }

@@ -142,6 +142,35 @@ func (s *AccountRepoSuite) TestUpdate_SyncSchedulerSnapshotOnDisabled() {
 	s.Require().Equal(service.StatusDisabled, cacheRecorder.setAccounts[0].Status)
 }
 
+func (s *AccountRepoSuite) TestUpdate_SyncSchedulerSnapshotOnCredentialsChange() {
+	account := mustCreateAccount(s.T(), s.client, &service.Account{
+		Name:        "sync-credentials-update",
+		Status:      service.StatusActive,
+		Schedulable: true,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				"gpt-5": "gpt-5.1",
+			},
+		},
+	})
+	cacheRecorder := &schedulerCacheRecorder{}
+	s.repo.schedulerCache = cacheRecorder
+
+	account.Credentials = map[string]any{
+		"model_mapping": map[string]any{
+			"gpt-5": "gpt-5.2",
+		},
+	}
+	err := s.repo.Update(s.ctx, account)
+	s.Require().NoError(err, "Update")
+
+	s.Require().Len(cacheRecorder.setAccounts, 1)
+	s.Require().Equal(account.ID, cacheRecorder.setAccounts[0].ID)
+	mapping, ok := cacheRecorder.setAccounts[0].Credentials["model_mapping"].(map[string]any)
+	s.Require().True(ok)
+	s.Require().Equal("gpt-5.2", mapping["gpt-5"])
+}
+
 func (s *AccountRepoSuite) TestDelete() {
 	account := mustCreateAccount(s.T(), s.client, &service.Account{Name: "to-delete"})
 
@@ -179,14 +208,16 @@ func (s *AccountRepoSuite) TestList() {
 
 func (s *AccountRepoSuite) TestListWithFilters() {
 	tests := []struct {
-		name      string
-		setup     func(client *dbent.Client)
-		platform  string
-		accType   string
-		status    string
-		search    string
-		wantCount int
-		validate  func(accounts []service.Account)
+		name        string
+		setup       func(client *dbent.Client)
+		platform    string
+		accType     string
+		status      string
+		search      string
+		groupID     int64
+		privacyMode string
+		wantCount   int
+		validate    func(accounts []service.Account)
 	}{
 		{
 			name: "filter_by_platform",
@@ -225,6 +256,22 @@ func (s *AccountRepoSuite) TestListWithFilters() {
 			},
 		},
 		{
+			name: "filter_by_status_active_excludes_rate_limited",
+			setup: func(client *dbent.Client) {
+				mustCreateAccount(s.T(), client, &service.Account{Name: "active-normal", Status: service.StatusActive})
+				rateLimited := mustCreateAccount(s.T(), client, &service.Account{Name: "active-rate-limited", Status: service.StatusActive})
+				err := client.Account.UpdateOneID(rateLimited.ID).
+					SetRateLimitResetAt(time.Now().Add(10 * time.Minute)).
+					Exec(context.Background())
+				s.Require().NoError(err)
+			},
+			status:    service.StatusActive,
+			wantCount: 1,
+			validate: func(accounts []service.Account) {
+				s.Require().Equal("active-normal", accounts[0].Name)
+			},
+		},
+		{
 			name: "filter_by_search",
 			setup: func(client *dbent.Client) {
 				mustCreateAccount(s.T(), client, &service.Account{Name: "alpha-account"})
@@ -234,6 +281,47 @@ func (s *AccountRepoSuite) TestListWithFilters() {
 			wantCount: 1,
 			validate: func(accounts []service.Account) {
 				s.Require().Contains(accounts[0].Name, "alpha")
+			},
+		},
+		{
+			name: "filter_by_ungrouped",
+			setup: func(client *dbent.Client) {
+				group := mustCreateGroup(s.T(), client, &service.Group{Name: "g-ungrouped"})
+				grouped := mustCreateAccount(s.T(), client, &service.Account{Name: "grouped-account"})
+				mustCreateAccount(s.T(), client, &service.Account{Name: "ungrouped-account"})
+				mustBindAccountToGroup(s.T(), client, grouped.ID, group.ID, 1)
+			},
+			groupID:   service.AccountListGroupUngrouped,
+			wantCount: 1,
+			validate: func(accounts []service.Account) {
+				s.Require().Equal("ungrouped-account", accounts[0].Name)
+				s.Require().Empty(accounts[0].GroupIDs)
+			},
+		},
+		{
+			name: "filter_by_privacy_mode",
+			setup: func(client *dbent.Client) {
+				mustCreateAccount(s.T(), client, &service.Account{Name: "privacy-ok", Extra: map[string]any{"privacy_mode": service.PrivacyModeTrainingOff}})
+				mustCreateAccount(s.T(), client, &service.Account{Name: "privacy-fail", Extra: map[string]any{"privacy_mode": service.PrivacyModeFailed}})
+			},
+			privacyMode: service.PrivacyModeTrainingOff,
+			wantCount:   1,
+			validate: func(accounts []service.Account) {
+				s.Require().Equal("privacy-ok", accounts[0].Name)
+			},
+		},
+		{
+			name: "filter_by_privacy_mode_unset",
+			setup: func(client *dbent.Client) {
+				mustCreateAccount(s.T(), client, &service.Account{Name: "privacy-unset", Extra: nil})
+				mustCreateAccount(s.T(), client, &service.Account{Name: "privacy-empty", Extra: map[string]any{"privacy_mode": ""}})
+				mustCreateAccount(s.T(), client, &service.Account{Name: "privacy-set", Extra: map[string]any{"privacy_mode": service.PrivacyModeTrainingOff}})
+			},
+			privacyMode: service.AccountPrivacyModeUnsetFilter,
+			wantCount:   2,
+			validate: func(accounts []service.Account) {
+				names := []string{accounts[0].Name, accounts[1].Name}
+				s.ElementsMatch([]string{"privacy-unset", "privacy-empty"}, names)
 			},
 		},
 	}
@@ -248,7 +336,7 @@ func (s *AccountRepoSuite) TestListWithFilters() {
 
 			tt.setup(client)
 
-			accounts, _, err := repo.ListWithFilters(ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, tt.platform, tt.accType, tt.status, tt.search, 0)
+			accounts, _, err := repo.ListWithFilters(ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, tt.platform, tt.accType, tt.status, tt.search, tt.groupID, tt.privacyMode)
 			s.Require().NoError(err)
 			s.Require().Len(accounts, tt.wantCount)
 			if tt.validate != nil {
@@ -315,7 +403,7 @@ func (s *AccountRepoSuite) TestPreload_And_VirtualFields() {
 	s.Require().Len(got.Groups, 1, "expected Groups to be populated")
 	s.Require().Equal(group.ID, got.Groups[0].ID)
 
-	accounts, page, err := s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, "", "", "", "acc", 0)
+	accounts, page, err := s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, "", "", "", "acc", 0, "")
 	s.Require().NoError(err, "ListWithFilters")
 	s.Require().Equal(int64(1), page.Total)
 	s.Require().Len(accounts, 1)

@@ -14,6 +14,9 @@ var (
 	ErrAccountNilInput = infraerrors.BadRequest("ACCOUNT_NIL_INPUT", "account input cannot be nil")
 )
 
+const AccountListGroupUngrouped int64 = -1
+const AccountPrivacyModeUnsetFilter = "__unset__"
+
 type AccountRepository interface {
 	Create(ctx context.Context, account *Account) error
 	GetByID(ctx context.Context, id int64) (*Account, error)
@@ -25,8 +28,7 @@ type AccountRepository interface {
 	// GetByCRSAccountID finds an account previously synced from CRS.
 	// Returns (nil, nil) if not found.
 	GetByCRSAccountID(ctx context.Context, crsAccountID string) (*Account, error)
-	// FindByExtraField 根据 extra 字段中的键值对查找账号（限定 platform='sora'）
-	// 用于查找通过 linked_openai_account_id 关联的 Sora 账号
+	// FindByExtraField 根据 extra 字段中的键值对查找账号
 	FindByExtraField(ctx context.Context, key string, value any) ([]Account, error)
 	// ListCRSAccountIDs returns a map of crs_account_id -> local account ID
 	// for all accounts that have been synced from CRS.
@@ -35,7 +37,7 @@ type AccountRepository interface {
 	Delete(ctx context.Context, id int64) error
 
 	List(ctx context.Context, params pagination.PaginationParams) ([]Account, *pagination.PaginationResult, error)
-	ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64) ([]Account, *pagination.PaginationResult, error)
+	ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string) ([]Account, *pagination.PaginationResult, error)
 	ListByGroup(ctx context.Context, groupID int64) ([]Account, error)
 	ListActive(ctx context.Context) ([]Account, error)
 	ListByPlatform(ctx context.Context, platform string) ([]Account, error)
@@ -172,6 +174,19 @@ func (s *AccountService) Create(ctx context.Context, req CreateAccountRequest) (
 		return nil, fmt.Errorf("create account: %w", err)
 	}
 
+	// require_oauth_only 检查：apikey 类型账号不可加入限制分组
+	if account.Type == AccountTypeAPIKey && len(req.GroupIDs) > 0 {
+		for _, gid := range req.GroupIDs {
+			g, err := s.groupRepo.GetByID(ctx, gid)
+			if err != nil {
+				return nil, err
+			}
+			if g.RequireOAuthOnly && (g.Platform == PlatformOpenAI || g.Platform == PlatformAntigravity || g.Platform == PlatformAnthropic || g.Platform == PlatformGemini) {
+				return nil, fmt.Errorf("分组 [%s] 仅允许 OAuth 账号，apikey 类型账号无法加入", g.Name)
+			}
+		}
+	}
+
 	// 绑定分组
 	if len(req.GroupIDs) > 0 {
 		if err := s.accountRepo.BindGroups(ctx, account.ID, req.GroupIDs); err != nil {
@@ -273,6 +288,19 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 	// 执行更新
 	if err := s.accountRepo.Update(ctx, account); err != nil {
 		return nil, fmt.Errorf("update account: %w", err)
+	}
+
+	// require_oauth_only 检查
+	if account.Type == AccountTypeAPIKey && req.GroupIDs != nil {
+		for _, gid := range *req.GroupIDs {
+			g, err := s.groupRepo.GetByID(ctx, gid)
+			if err != nil {
+				return nil, err
+			}
+			if g.RequireOAuthOnly && (g.Platform == PlatformOpenAI || g.Platform == PlatformAntigravity || g.Platform == PlatformAnthropic || g.Platform == PlatformGemini) {
+				return nil, fmt.Errorf("分组 [%s] 仅允许 OAuth 账号，apikey 类型账号无法加入", g.Name)
+			}
+		}
 	}
 
 	// 绑定分组

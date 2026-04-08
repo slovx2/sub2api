@@ -73,6 +73,16 @@
                 <span class="hidden md:inline">{{ t('admin.errorPassthrough.title') }}</span>
               </button>
 
+              <!-- TLS Fingerprint Profiles -->
+              <button
+                @click="showTLSFingerprintProfiles = true"
+                class="btn btn-secondary"
+                :title="t('admin.tlsFingerprintProfiles.title')"
+              >
+                <Icon name="lock" size="md" class="mr-1.5" />
+                <span class="hidden md:inline">{{ t('admin.tlsFingerprintProfiles.title') }}</span>
+              </button>
+
               <!-- Column Settings Dropdown -->
               <div class="relative" ref="columnDropdownRef">
                 <button
@@ -171,7 +181,15 @@
             <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
           </template>
           <template #cell-platform_type="{ row }">
-            <PlatformTypeBadge :platform="row.platform" :type="row.type" :plan-type="row.credentials?.plan_type" :privacy-mode="row.extra?.privacy_mode" />
+            <div class="flex flex-wrap items-center gap-1">
+              <PlatformTypeBadge :platform="row.platform" :type="row.type" :plan-type="row.credentials?.plan_type" :privacy-mode="row.extra?.privacy_mode" :subscription-expires-at="row.credentials?.subscription_expires_at" />
+              <span
+                v-if="getAntigravityTierLabel(row)"
+                :class="['inline-block rounded px-1.5 py-0.5 text-[10px] font-medium', getAntigravityTierClass(row)]"
+              >
+                {{ getAntigravityTierLabel(row) }}
+              </span>
+            </div>
           </template>
           <template #cell-capacity="{ row }">
             <AccountCapacityCell :account="row" />
@@ -195,7 +213,12 @@
             <AccountGroupsCell :groups="row.groups" :max-display="4" />
           </template>
           <template #cell-usage="{ row }">
-            <AccountUsageCell :account="row" />
+            <AccountUsageCell
+              :account="row"
+              :today-stats="todayStatsByAccountId[String(row.id)] ?? null"
+              :today-stats-loading="todayStatsLoading"
+              :manual-refresh-token="usageManualRefreshToken"
+            />
           </template>
           <template #cell-proxy="{ row }">
             <div v-if="row.proxy" class="flex items-center gap-2">
@@ -263,7 +286,7 @@
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
-    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" />
+    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" />
     <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="reload" />
     <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
     <BulkEditAccountModal :show="showBulkEdit" :account-ids="selIds" :selected-platforms="selPlatforms" :selected-types="selTypes" :proxies="proxies" :groups="groups" @close="showBulkEdit = false" @updated="handleBulkUpdated" />
@@ -276,6 +299,7 @@
       </label>
     </ConfirmDialog>
     <ErrorPassthroughRulesModal :show="showErrorPassthrough" @close="showErrorPassthrough = false" />
+    <TLSFingerprintProfilesModal :show="showTLSFingerprintProfiles" @close="showTLSFingerprintProfiles = false" />
   </AppLayout>
 </template>
 
@@ -313,15 +337,16 @@ import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
 import ErrorPassthroughRulesModal from '@/components/admin/ErrorPassthroughRulesModal.vue'
+import TLSFingerprintProfilesModal from '@/components/admin/TLSFingerprintProfilesModal.vue'
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
-import type { Account, AccountPlatform, AccountType, Proxy, AdminGroup, WindowStats, ClaudeModel } from '@/types'
+import type { Account, AccountPlatform, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel } from '@/types'
 
 const { t } = useI18n()
 const appStore = useAppStore()
 const authStore = useAuthStore()
 
-const proxies = ref<Proxy[]>([])
+const proxies = ref<AccountProxy[]>([])
 const groups = ref<AdminGroup[]>([])
 const accountTableRef = ref<HTMLElement | null>(null)
 const selPlatforms = computed<AccountPlatform[]>(() => {
@@ -353,6 +378,7 @@ const showReAuth = ref(false)
 const showTest = ref(false)
 const showStats = ref(false)
 const showErrorPassthrough = ref(false)
+const showTLSFingerprintProfiles = ref(false)
 const edAcc = ref<Account | null>(null)
 const tempUnschedAcc = ref<Account | null>(null)
 const deletingAcc = ref<Account | null>(null)
@@ -394,6 +420,7 @@ const todayStatsLoading = ref(false)
 const todayStatsError = ref<string | null>(null)
 const todayStatsReqSeq = ref(0)
 const pendingTodayStatsRefresh = ref(false)
+const usageManualRefreshToken = ref(0)
 
 const buildDefaultTodayStats = (): WindowStats => ({
   requests: 0,
@@ -404,7 +431,11 @@ const buildDefaultTodayStats = (): WindowStats => ({
 })
 
 const refreshTodayStatsBatch = async () => {
-  if (hiddenColumns.has('today_stats')) {
+  // Why this checks both columns:
+  // - today_stats column shows dedicated today's metrics.
+  // - usage column also embeds today's stats for Key/Bedrock rows.
+  // So we only skip fetching when BOTH columns are hidden.
+  if (hiddenColumns.has('today_stats') && hiddenColumns.has('usage')) {
     todayStatsLoading.value = false
     todayStatsError.value = null
     return
@@ -456,13 +487,19 @@ const loadSavedColumns = () => {
     const saved = localStorage.getItem(HIDDEN_COLUMNS_KEY)
     if (saved) {
       const parsed = JSON.parse(saved) as string[]
-      parsed.forEach(key => hiddenColumns.add(key))
+      parsed.forEach(key => {
+        hiddenColumns.add(key)
+      })
     } else {
-      DEFAULT_HIDDEN_COLUMNS.forEach(key => hiddenColumns.add(key))
+      DEFAULT_HIDDEN_COLUMNS.forEach(key => {
+        hiddenColumns.add(key)
+      })
     }
   } catch (e) {
     console.error('Failed to load saved columns:', e)
-    DEFAULT_HIDDEN_COLUMNS.forEach(key => hiddenColumns.add(key))
+    DEFAULT_HIDDEN_COLUMNS.forEach(key => {
+      hiddenColumns.add(key)
+    })
   }
 }
 
@@ -536,7 +573,7 @@ const toggleColumn = (key: string) => {
     hiddenColumns.add(key)
   }
   saveColumnsToStorage()
-  if (key === 'today_stats' && wasHidden) {
+  if ((key === 'today_stats' || key === 'usage') && wasHidden) {
     refreshTodayStatsBatch().catch((error) => {
       console.error('Failed to load account today stats after showing column:', error)
     })
@@ -557,7 +594,7 @@ const {
   handlePageSizeChange: baseHandlePageSizeChange
 } = useTableLoader<Account, any>({
   fetchFn: adminAPI.accounts.list,
-  initialParams: { platform: '', type: '', status: '', group: '', search: '' }
+  initialParams: { platform: '', type: '', status: '', privacy_mode: '', group: '', search: '' }
 })
 
 const {
@@ -734,6 +771,8 @@ const refreshAccountsIncrementally = async () => {
         platform?: string
         type?: string
         status?: string
+        privacy_mode?: string
+        group?: string
         search?: string
 
       },
@@ -760,11 +799,15 @@ const refreshAccountsIncrementally = async () => {
 
 const handleManualRefresh = async () => {
   await load()
+  // Force usage cells to refetch /usage on explicit user refresh.
+  usageManualRefreshToken.value += 1
 }
 
 const syncPendingListChanges = async () => {
   hasPendingListSync.value = false
   await load()
+  // Keep behavior consistent with manual refresh.
+  usageManualRefreshToken.value += 1
 }
 
 const { pause: pauseAutoRefresh, resume: resumeAutoRefresh } = useIntervalFn(
@@ -793,6 +836,40 @@ const { pause: pauseAutoRefresh, resume: resumeAutoRefresh } = useIntervalFn(
   1000,
   { immediate: false }
 )
+
+// Antigravity 订阅等级辅助函数
+function getAntigravityTierFromRow(row: any): string | null {
+  if (row.platform !== 'antigravity') return null
+  const extra = row.extra as Record<string, unknown> | undefined
+  if (!extra) return null
+  const lca = extra.load_code_assist as Record<string, unknown> | undefined
+  if (!lca) return null
+  const paid = lca.paidTier as Record<string, unknown> | undefined
+  if (paid && typeof paid.id === 'string') return paid.id
+  const current = lca.currentTier as Record<string, unknown> | undefined
+  if (current && typeof current.id === 'string') return current.id
+  return null
+}
+
+function getAntigravityTierLabel(row: any): string | null {
+  const tier = getAntigravityTierFromRow(row)
+  switch (tier) {
+    case 'free-tier': return t('admin.accounts.tier.free')
+    case 'g1-pro-tier': return t('admin.accounts.tier.pro')
+    case 'g1-ultra-tier': return t('admin.accounts.tier.ultra')
+    default: return null
+  }
+}
+
+function getAntigravityTierClass(row: any): string {
+  const tier = getAntigravityTierFromRow(row)
+  switch (tier) {
+    case 'free-tier': return 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
+    case 'g1-pro-tier': return 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300'
+    case 'g1-ultra-tier': return 'bg-purple-100 text-purple-600 dark:bg-purple-900/40 dark:text-purple-300'
+    default: return ''
+  }
+}
 
 // All available columns
 const allColumns = computed(() => {
@@ -846,7 +923,8 @@ const openMenu = (a: Account, e: MouseEvent) => {
     const viewportWidth = window.innerWidth
     const viewportHeight = window.innerHeight
 
-    let left, top
+    let left: number
+    let top: number
 
     if (viewportWidth < 768) {
       // 居中显示,水平位置
@@ -1174,6 +1252,17 @@ const handleResetQuota = async (a: Account) => {
     appStore.showSuccess(t('common.success'))
   } catch (error) {
     console.error('Failed to reset quota:', error)
+  }
+}
+const handleSetPrivacy = async (a: Account) => {
+  try {
+    const updated = await adminAPI.accounts.setPrivacy(a.id)
+    patchAccountInList(updated)
+    enterAutoRefreshSilentWindow()
+    appStore.showSuccess(t('common.success'))
+  } catch (error: any) {
+    console.error('Failed to set privacy:', error)
+    appStore.showError(error?.response?.data?.message || t('admin.accounts.privacyFailed'))
   }
 }
 const handleDelete = (a: Account) => { deletingAcc.value = a; showDeleteDialog.value = true }

@@ -41,17 +41,15 @@ type SettingHandler struct {
 	emailService     *service.EmailService
 	turnstileService *service.TurnstileService
 	opsService       *service.OpsService
-	soraS3Storage    *service.SoraS3Storage
 }
 
 // NewSettingHandler 创建系统设置处理器
-func NewSettingHandler(settingService *service.SettingService, emailService *service.EmailService, turnstileService *service.TurnstileService, opsService *service.OpsService, soraS3Storage *service.SoraS3Storage) *SettingHandler {
+func NewSettingHandler(settingService *service.SettingService, emailService *service.EmailService, turnstileService *service.TurnstileService, opsService *service.OpsService) *SettingHandler {
 	return &SettingHandler{
 		settingService:   settingService,
 		emailService:     emailService,
 		turnstileService: turnstileService,
 		opsService:       opsService,
-		soraS3Storage:    soraS3Storage,
 	}
 }
 
@@ -80,6 +78,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		RegistrationEmailSuffixWhitelist:     settings.RegistrationEmailSuffixWhitelist,
 		PromoCodeEnabled:                     settings.PromoCodeEnabled,
 		PasswordResetEnabled:                 settings.PasswordResetEnabled,
+		FrontendURL:                          settings.FrontendURL,
 		InvitationCodeEnabled:                settings.InvitationCodeEnabled,
 		TotpEnabled:                          settings.TotpEnabled,
 		TotpEncryptionKeyConfigured:          h.settingService.IsTotpEncryptionKeyConfigured(),
@@ -107,8 +106,8 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		HideCcsImportButton:                  settings.HideCcsImportButton,
 		PurchaseSubscriptionEnabled:          settings.PurchaseSubscriptionEnabled,
 		PurchaseSubscriptionURL:              settings.PurchaseSubscriptionURL,
-		SoraClientEnabled:                    settings.SoraClientEnabled,
 		CustomMenuItems:                      dto.ParseCustomMenuItems(settings.CustomMenuItems),
+		CustomEndpoints:                      dto.ParseCustomEndpoints(settings.CustomEndpoints),
 		DefaultConcurrency:                   settings.DefaultConcurrency,
 		DefaultBalance:                       settings.DefaultBalance,
 		DefaultSubscriptions:                 defaultSubscriptions,
@@ -124,7 +123,11 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		OpsQueryModeDefault:                  settings.OpsQueryModeDefault,
 		OpsMetricsIntervalSeconds:            settings.OpsMetricsIntervalSeconds,
 		MinClaudeCodeVersion:                 settings.MinClaudeCodeVersion,
+		MaxClaudeCodeVersion:                 settings.MaxClaudeCodeVersion,
 		AllowUngroupedKeyScheduling:          settings.AllowUngroupedKeyScheduling,
+		BackendModeEnabled:                   settings.BackendModeEnabled,
+		EnableFingerprintUnification:         settings.EnableFingerprintUnification,
+		EnableMetadataPassthrough:            settings.EnableMetadataPassthrough,
 	})
 }
 
@@ -136,6 +139,7 @@ type UpdateSettingsRequest struct {
 	RegistrationEmailSuffixWhitelist []string `json:"registration_email_suffix_whitelist"`
 	PromoCodeEnabled                 bool     `json:"promo_code_enabled"`
 	PasswordResetEnabled             bool     `json:"password_reset_enabled"`
+	FrontendURL                      string   `json:"frontend_url"`
 	InvitationCodeEnabled            bool     `json:"invitation_code_enabled"`
 	TotpEnabled                      bool     `json:"totp_enabled"` // TOTP 双因素认证
 
@@ -170,8 +174,8 @@ type UpdateSettingsRequest struct {
 	HideCcsImportButton         bool                  `json:"hide_ccs_import_button"`
 	PurchaseSubscriptionEnabled *bool                 `json:"purchase_subscription_enabled"`
 	PurchaseSubscriptionURL     *string               `json:"purchase_subscription_url"`
-	SoraClientEnabled           bool                  `json:"sora_client_enabled"`
 	CustomMenuItems             *[]dto.CustomMenuItem `json:"custom_menu_items"`
+	CustomEndpoints             *[]dto.CustomEndpoint `json:"custom_endpoints"`
 
 	// 默认配置
 	DefaultConcurrency   int                              `json:"default_concurrency"`
@@ -196,9 +200,17 @@ type UpdateSettingsRequest struct {
 	OpsMetricsIntervalSeconds    *int    `json:"ops_metrics_interval_seconds"`
 
 	MinClaudeCodeVersion string `json:"min_claude_code_version"`
+	MaxClaudeCodeVersion string `json:"max_claude_code_version"`
 
 	// 分组隔离
 	AllowUngroupedKeyScheduling bool `json:"allow_ungrouped_key_scheduling"`
+
+	// Backend Mode
+	BackendModeEnabled bool `json:"backend_mode_enabled"`
+
+	// Gateway forwarding behavior
+	EnableFingerprintUnification *bool `json:"enable_fingerprint_unification"`
+	EnableMetadataPassthrough    *bool `json:"enable_metadata_passthrough"`
 }
 
 // UpdateSettings 更新系统设置
@@ -223,10 +235,26 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	if req.DefaultBalance < 0 {
 		req.DefaultBalance = 0
 	}
+	req.SMTPHost = strings.TrimSpace(req.SMTPHost)
+	req.SMTPUsername = strings.TrimSpace(req.SMTPUsername)
+	req.SMTPPassword = strings.TrimSpace(req.SMTPPassword)
+	req.SMTPFrom = strings.TrimSpace(req.SMTPFrom)
+	req.SMTPFromName = strings.TrimSpace(req.SMTPFromName)
 	if req.SMTPPort <= 0 {
 		req.SMTPPort = 587
 	}
 	req.DefaultSubscriptions = normalizeDefaultSubscriptions(req.DefaultSubscriptions)
+
+	// SMTP 配置保护：如果请求中 smtp_host 为空但数据库中已有配置，则保留已有 SMTP 配置
+	// 防止前端加载设置失败时空表单覆盖已保存的 SMTP 配置
+	if req.SMTPHost == "" && previousSettings.SMTPHost != "" {
+		req.SMTPHost = previousSettings.SMTPHost
+		req.SMTPPort = previousSettings.SMTPPort
+		req.SMTPUsername = previousSettings.SMTPUsername
+		req.SMTPFrom = previousSettings.SMTPFrom
+		req.SMTPFromName = previousSettings.SMTPFromName
+		req.SMTPUseTLS = previousSettings.SMTPUseTLS
+	}
 
 	// Turnstile 参数验证
 	if req.TurnstileEnabled {
@@ -322,6 +350,15 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		}
 	}
 
+	// Frontend URL 验证
+	req.FrontendURL = strings.TrimSpace(req.FrontendURL)
+	if req.FrontendURL != "" {
+		if err := config.ValidateAbsoluteHTTPURL(req.FrontendURL); err != nil {
+			response.BadRequest(c, "Frontend URL must be an absolute http(s) URL")
+			return
+		}
+	}
+
 	// 自定义菜单项验证
 	const (
 		maxCustomMenuItems    = 20
@@ -400,6 +437,55 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		customMenuJSON = string(menuBytes)
 	}
 
+	// 自定义端点验证
+	const (
+		maxCustomEndpoints        = 10
+		maxEndpointNameLen        = 50
+		maxEndpointURLLen         = 2048
+		maxEndpointDescriptionLen = 200
+	)
+
+	customEndpointsJSON := previousSettings.CustomEndpoints
+	if req.CustomEndpoints != nil {
+		endpoints := *req.CustomEndpoints
+		if len(endpoints) > maxCustomEndpoints {
+			response.BadRequest(c, "Too many custom endpoints (max 10)")
+			return
+		}
+		for _, ep := range endpoints {
+			if strings.TrimSpace(ep.Name) == "" {
+				response.BadRequest(c, "Custom endpoint name is required")
+				return
+			}
+			if len(ep.Name) > maxEndpointNameLen {
+				response.BadRequest(c, "Custom endpoint name is too long (max 50 characters)")
+				return
+			}
+			if strings.TrimSpace(ep.Endpoint) == "" {
+				response.BadRequest(c, "Custom endpoint URL is required")
+				return
+			}
+			if len(ep.Endpoint) > maxEndpointURLLen {
+				response.BadRequest(c, "Custom endpoint URL is too long (max 2048 characters)")
+				return
+			}
+			if err := config.ValidateAbsoluteHTTPURL(strings.TrimSpace(ep.Endpoint)); err != nil {
+				response.BadRequest(c, "Custom endpoint URL must be an absolute http(s) URL")
+				return
+			}
+			if len(ep.Description) > maxEndpointDescriptionLen {
+				response.BadRequest(c, "Custom endpoint description is too long (max 200 characters)")
+				return
+			}
+		}
+		endpointBytes, err := json.Marshal(endpoints)
+		if err != nil {
+			response.BadRequest(c, "Failed to serialize custom endpoints")
+			return
+		}
+		customEndpointsJSON = string(endpointBytes)
+	}
+
 	// Ops metrics collector interval validation (seconds).
 	if req.OpsMetricsIntervalSeconds != nil {
 		v := *req.OpsMetricsIntervalSeconds
@@ -427,12 +513,29 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		}
 	}
 
+	// 验证最高版本号格式（空字符串=禁用，或合法 semver）
+	if req.MaxClaudeCodeVersion != "" {
+		if !semverPattern.MatchString(req.MaxClaudeCodeVersion) {
+			response.Error(c, http.StatusBadRequest, "max_claude_code_version must be empty or a valid semver (e.g. 3.0.0)")
+			return
+		}
+	}
+
+	// 交叉验证：如果同时设置了最低和最高版本号，最高版本号必须 >= 最低版本号
+	if req.MinClaudeCodeVersion != "" && req.MaxClaudeCodeVersion != "" {
+		if service.CompareVersions(req.MaxClaudeCodeVersion, req.MinClaudeCodeVersion) < 0 {
+			response.Error(c, http.StatusBadRequest, "max_claude_code_version must be greater than or equal to min_claude_code_version")
+			return
+		}
+	}
+
 	settings := &service.SystemSettings{
 		RegistrationEnabled:              req.RegistrationEnabled,
 		EmailVerifyEnabled:               req.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist: req.RegistrationEmailSuffixWhitelist,
 		PromoCodeEnabled:                 req.PromoCodeEnabled,
 		PasswordResetEnabled:             req.PasswordResetEnabled,
+		FrontendURL:                      req.FrontendURL,
 		InvitationCodeEnabled:            req.InvitationCodeEnabled,
 		TotpEnabled:                      req.TotpEnabled,
 		SMTPHost:                         req.SMTPHost,
@@ -459,8 +562,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		HideCcsImportButton:              req.HideCcsImportButton,
 		PurchaseSubscriptionEnabled:      purchaseEnabled,
 		PurchaseSubscriptionURL:          purchaseURL,
-		SoraClientEnabled:                req.SoraClientEnabled,
 		CustomMenuItems:                  customMenuJSON,
+		CustomEndpoints:                  customEndpointsJSON,
 		DefaultConcurrency:               req.DefaultConcurrency,
 		DefaultBalance:                   req.DefaultBalance,
 		DefaultSubscriptions:             defaultSubscriptions,
@@ -472,7 +575,9 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		EnableIdentityPatch:              req.EnableIdentityPatch,
 		IdentityPatchPrompt:              req.IdentityPatchPrompt,
 		MinClaudeCodeVersion:             req.MinClaudeCodeVersion,
+		MaxClaudeCodeVersion:             req.MaxClaudeCodeVersion,
 		AllowUngroupedKeyScheduling:      req.AllowUngroupedKeyScheduling,
+		BackendModeEnabled:               req.BackendModeEnabled,
 		OpsMonitoringEnabled: func() bool {
 			if req.OpsMonitoringEnabled != nil {
 				return *req.OpsMonitoringEnabled
@@ -496,6 +601,18 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 				return *req.OpsMetricsIntervalSeconds
 			}
 			return previousSettings.OpsMetricsIntervalSeconds
+		}(),
+		EnableFingerprintUnification: func() bool {
+			if req.EnableFingerprintUnification != nil {
+				return *req.EnableFingerprintUnification
+			}
+			return previousSettings.EnableFingerprintUnification
+		}(),
+		EnableMetadataPassthrough: func() bool {
+			if req.EnableMetadataPassthrough != nil {
+				return *req.EnableMetadataPassthrough
+			}
+			return previousSettings.EnableMetadataPassthrough
 		}(),
 	}
 
@@ -526,6 +643,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		RegistrationEmailSuffixWhitelist:     updatedSettings.RegistrationEmailSuffixWhitelist,
 		PromoCodeEnabled:                     updatedSettings.PromoCodeEnabled,
 		PasswordResetEnabled:                 updatedSettings.PasswordResetEnabled,
+		FrontendURL:                          updatedSettings.FrontendURL,
 		InvitationCodeEnabled:                updatedSettings.InvitationCodeEnabled,
 		TotpEnabled:                          updatedSettings.TotpEnabled,
 		TotpEncryptionKeyConfigured:          h.settingService.IsTotpEncryptionKeyConfigured(),
@@ -553,8 +671,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		HideCcsImportButton:                  updatedSettings.HideCcsImportButton,
 		PurchaseSubscriptionEnabled:          updatedSettings.PurchaseSubscriptionEnabled,
 		PurchaseSubscriptionURL:              updatedSettings.PurchaseSubscriptionURL,
-		SoraClientEnabled:                    updatedSettings.SoraClientEnabled,
 		CustomMenuItems:                      dto.ParseCustomMenuItems(updatedSettings.CustomMenuItems),
+		CustomEndpoints:                      dto.ParseCustomEndpoints(updatedSettings.CustomEndpoints),
 		DefaultConcurrency:                   updatedSettings.DefaultConcurrency,
 		DefaultBalance:                       updatedSettings.DefaultBalance,
 		DefaultSubscriptions:                 updatedDefaultSubscriptions,
@@ -570,7 +688,11 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		OpsQueryModeDefault:                  updatedSettings.OpsQueryModeDefault,
 		OpsMetricsIntervalSeconds:            updatedSettings.OpsMetricsIntervalSeconds,
 		MinClaudeCodeVersion:                 updatedSettings.MinClaudeCodeVersion,
+		MaxClaudeCodeVersion:                 updatedSettings.MaxClaudeCodeVersion,
 		AllowUngroupedKeyScheduling:          updatedSettings.AllowUngroupedKeyScheduling,
+		BackendModeEnabled:                   updatedSettings.BackendModeEnabled,
+		EnableFingerprintUnification:         updatedSettings.EnableFingerprintUnification,
+		EnableMetadataPassthrough:            updatedSettings.EnableMetadataPassthrough,
 	})
 }
 
@@ -607,6 +729,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.PasswordResetEnabled != after.PasswordResetEnabled {
 		changed = append(changed, "password_reset_enabled")
+	}
+	if before.FrontendURL != after.FrontendURL {
+		changed = append(changed, "frontend_url")
 	}
 	if before.TotpEnabled != after.TotpEnabled {
 		changed = append(changed, "totp_enabled")
@@ -722,8 +847,14 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.MinClaudeCodeVersion != after.MinClaudeCodeVersion {
 		changed = append(changed, "min_claude_code_version")
 	}
+	if before.MaxClaudeCodeVersion != after.MaxClaudeCodeVersion {
+		changed = append(changed, "max_claude_code_version")
+	}
 	if before.AllowUngroupedKeyScheduling != after.AllowUngroupedKeyScheduling {
 		changed = append(changed, "allow_ungrouped_key_scheduling")
+	}
+	if before.BackendModeEnabled != after.BackendModeEnabled {
+		changed = append(changed, "backend_mode_enabled")
 	}
 	if before.PurchaseSubscriptionEnabled != after.PurchaseSubscriptionEnabled {
 		changed = append(changed, "purchase_subscription_enabled")
@@ -733,6 +864,12 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.CustomMenuItems != after.CustomMenuItems {
 		changed = append(changed, "custom_menu_items")
+	}
+	if before.EnableFingerprintUnification != after.EnableFingerprintUnification {
+		changed = append(changed, "enable_fingerprint_unification")
+	}
+	if before.EnableMetadataPassthrough != after.EnableMetadataPassthrough {
+		changed = append(changed, "enable_metadata_passthrough")
 	}
 	return changed
 }
@@ -780,7 +917,7 @@ func equalDefaultSubscriptions(a, b []service.DefaultSubscriptionSetting) bool {
 
 // TestSMTPRequest 测试SMTP连接请求
 type TestSMTPRequest struct {
-	SMTPHost     string `json:"smtp_host" binding:"required"`
+	SMTPHost     string `json:"smtp_host"`
 	SMTPPort     int    `json:"smtp_port"`
 	SMTPUsername string `json:"smtp_username"`
 	SMTPPassword string `json:"smtp_password"`
@@ -796,17 +933,34 @@ func (h *SettingHandler) TestSMTPConnection(c *gin.Context) {
 		return
 	}
 
-	if req.SMTPPort <= 0 {
-		req.SMTPPort = 587
+	req.SMTPHost = strings.TrimSpace(req.SMTPHost)
+	req.SMTPUsername = strings.TrimSpace(req.SMTPUsername)
+
+	var savedConfig *service.SMTPConfig
+	if cfg, err := h.emailService.GetSMTPConfig(c.Request.Context()); err == nil && cfg != nil {
+		savedConfig = cfg
 	}
 
-	// 如果未提供密码，从数据库获取已保存的密码
-	password := req.SMTPPassword
-	if password == "" {
-		savedConfig, err := h.emailService.GetSMTPConfig(c.Request.Context())
-		if err == nil && savedConfig != nil {
-			password = savedConfig.Password
+	if req.SMTPHost == "" && savedConfig != nil {
+		req.SMTPHost = savedConfig.Host
+	}
+	if req.SMTPPort <= 0 {
+		if savedConfig != nil && savedConfig.Port > 0 {
+			req.SMTPPort = savedConfig.Port
+		} else {
+			req.SMTPPort = 587
 		}
+	}
+	if req.SMTPUsername == "" && savedConfig != nil {
+		req.SMTPUsername = savedConfig.Username
+	}
+	password := strings.TrimSpace(req.SMTPPassword)
+	if password == "" && savedConfig != nil {
+		password = savedConfig.Password
+	}
+	if req.SMTPHost == "" {
+		response.BadRequest(c, "SMTP host is required")
+		return
 	}
 
 	config := &service.SMTPConfig{
@@ -829,7 +983,7 @@ func (h *SettingHandler) TestSMTPConnection(c *gin.Context) {
 // SendTestEmailRequest 发送测试邮件请求
 type SendTestEmailRequest struct {
 	Email        string `json:"email" binding:"required,email"`
-	SMTPHost     string `json:"smtp_host" binding:"required"`
+	SMTPHost     string `json:"smtp_host"`
 	SMTPPort     int    `json:"smtp_port"`
 	SMTPUsername string `json:"smtp_username"`
 	SMTPPassword string `json:"smtp_password"`
@@ -847,17 +1001,42 @@ func (h *SettingHandler) SendTestEmail(c *gin.Context) {
 		return
 	}
 
-	if req.SMTPPort <= 0 {
-		req.SMTPPort = 587
+	req.SMTPHost = strings.TrimSpace(req.SMTPHost)
+	req.SMTPUsername = strings.TrimSpace(req.SMTPUsername)
+	req.SMTPFrom = strings.TrimSpace(req.SMTPFrom)
+	req.SMTPFromName = strings.TrimSpace(req.SMTPFromName)
+
+	var savedConfig *service.SMTPConfig
+	if cfg, err := h.emailService.GetSMTPConfig(c.Request.Context()); err == nil && cfg != nil {
+		savedConfig = cfg
 	}
 
-	// 如果未提供密码，从数据库获取已保存的密码
-	password := req.SMTPPassword
-	if password == "" {
-		savedConfig, err := h.emailService.GetSMTPConfig(c.Request.Context())
-		if err == nil && savedConfig != nil {
-			password = savedConfig.Password
+	if req.SMTPHost == "" && savedConfig != nil {
+		req.SMTPHost = savedConfig.Host
+	}
+	if req.SMTPPort <= 0 {
+		if savedConfig != nil && savedConfig.Port > 0 {
+			req.SMTPPort = savedConfig.Port
+		} else {
+			req.SMTPPort = 587
 		}
+	}
+	if req.SMTPUsername == "" && savedConfig != nil {
+		req.SMTPUsername = savedConfig.Username
+	}
+	password := strings.TrimSpace(req.SMTPPassword)
+	if password == "" && savedConfig != nil {
+		password = savedConfig.Password
+	}
+	if req.SMTPFrom == "" && savedConfig != nil {
+		req.SMTPFrom = savedConfig.From
+	}
+	if req.SMTPFromName == "" && savedConfig != nil {
+		req.SMTPFromName = savedConfig.FromName
+	}
+	if req.SMTPHost == "" {
+		response.BadRequest(c, "SMTP host is required")
+		return
 	}
 
 	config := &service.SMTPConfig{
@@ -952,6 +1131,58 @@ func (h *SettingHandler) DeleteAdminAPIKey(c *gin.Context) {
 	response.Success(c, gin.H{"message": "Admin API key deleted"})
 }
 
+// GetOverloadCooldownSettings 获取529过载冷却配置
+// GET /api/v1/admin/settings/overload-cooldown
+func (h *SettingHandler) GetOverloadCooldownSettings(c *gin.Context) {
+	settings, err := h.settingService.GetOverloadCooldownSettings(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, dto.OverloadCooldownSettings{
+		Enabled:         settings.Enabled,
+		CooldownMinutes: settings.CooldownMinutes,
+	})
+}
+
+// UpdateOverloadCooldownSettingsRequest 更新529过载冷却配置请求
+type UpdateOverloadCooldownSettingsRequest struct {
+	Enabled         bool `json:"enabled"`
+	CooldownMinutes int  `json:"cooldown_minutes"`
+}
+
+// UpdateOverloadCooldownSettings 更新529过载冷却配置
+// PUT /api/v1/admin/settings/overload-cooldown
+func (h *SettingHandler) UpdateOverloadCooldownSettings(c *gin.Context) {
+	var req UpdateOverloadCooldownSettingsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	settings := &service.OverloadCooldownSettings{
+		Enabled:         req.Enabled,
+		CooldownMinutes: req.CooldownMinutes,
+	}
+
+	if err := h.settingService.SetOverloadCooldownSettings(c.Request.Context(), settings); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	updatedSettings, err := h.settingService.GetOverloadCooldownSettings(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, dto.OverloadCooldownSettings{
+		Enabled:         updatedSettings.Enabled,
+		CooldownMinutes: updatedSettings.CooldownMinutes,
+	})
+}
+
 // GetStreamTimeoutSettings 获取流超时处理配置
 // GET /api/v1/admin/settings/stream-timeout
 func (h *SettingHandler) GetStreamTimeoutSettings(c *gin.Context) {
@@ -970,384 +1201,6 @@ func (h *SettingHandler) GetStreamTimeoutSettings(c *gin.Context) {
 	})
 }
 
-func toSoraS3SettingsDTO(settings *service.SoraS3Settings) dto.SoraS3Settings {
-	if settings == nil {
-		return dto.SoraS3Settings{}
-	}
-	return dto.SoraS3Settings{
-		Enabled:                   settings.Enabled,
-		Endpoint:                  settings.Endpoint,
-		Region:                    settings.Region,
-		Bucket:                    settings.Bucket,
-		AccessKeyID:               settings.AccessKeyID,
-		SecretAccessKeyConfigured: settings.SecretAccessKeyConfigured,
-		Prefix:                    settings.Prefix,
-		ForcePathStyle:            settings.ForcePathStyle,
-		CDNURL:                    settings.CDNURL,
-		DefaultStorageQuotaBytes:  settings.DefaultStorageQuotaBytes,
-	}
-}
-
-func toSoraS3ProfileDTO(profile service.SoraS3Profile) dto.SoraS3Profile {
-	return dto.SoraS3Profile{
-		ProfileID:                 profile.ProfileID,
-		Name:                      profile.Name,
-		IsActive:                  profile.IsActive,
-		Enabled:                   profile.Enabled,
-		Endpoint:                  profile.Endpoint,
-		Region:                    profile.Region,
-		Bucket:                    profile.Bucket,
-		AccessKeyID:               profile.AccessKeyID,
-		SecretAccessKeyConfigured: profile.SecretAccessKeyConfigured,
-		Prefix:                    profile.Prefix,
-		ForcePathStyle:            profile.ForcePathStyle,
-		CDNURL:                    profile.CDNURL,
-		DefaultStorageQuotaBytes:  profile.DefaultStorageQuotaBytes,
-		UpdatedAt:                 profile.UpdatedAt,
-	}
-}
-
-func validateSoraS3RequiredWhenEnabled(enabled bool, endpoint, bucket, accessKeyID, secretAccessKey string, hasStoredSecret bool) error {
-	if !enabled {
-		return nil
-	}
-	if strings.TrimSpace(endpoint) == "" {
-		return fmt.Errorf("S3 Endpoint is required when enabled")
-	}
-	if strings.TrimSpace(bucket) == "" {
-		return fmt.Errorf("S3 Bucket is required when enabled")
-	}
-	if strings.TrimSpace(accessKeyID) == "" {
-		return fmt.Errorf("S3 Access Key ID is required when enabled")
-	}
-	if strings.TrimSpace(secretAccessKey) != "" || hasStoredSecret {
-		return nil
-	}
-	return fmt.Errorf("S3 Secret Access Key is required when enabled")
-}
-
-func findSoraS3ProfileByID(items []service.SoraS3Profile, profileID string) *service.SoraS3Profile {
-	for idx := range items {
-		if items[idx].ProfileID == profileID {
-			return &items[idx]
-		}
-	}
-	return nil
-}
-
-// GetSoraS3Settings 获取 Sora S3 存储配置（兼容旧单配置接口）
-// GET /api/v1/admin/settings/sora-s3
-func (h *SettingHandler) GetSoraS3Settings(c *gin.Context) {
-	settings, err := h.settingService.GetSoraS3Settings(c.Request.Context())
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	response.Success(c, toSoraS3SettingsDTO(settings))
-}
-
-// ListSoraS3Profiles 获取 Sora S3 多配置
-// GET /api/v1/admin/settings/sora-s3/profiles
-func (h *SettingHandler) ListSoraS3Profiles(c *gin.Context) {
-	result, err := h.settingService.ListSoraS3Profiles(c.Request.Context())
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	items := make([]dto.SoraS3Profile, 0, len(result.Items))
-	for idx := range result.Items {
-		items = append(items, toSoraS3ProfileDTO(result.Items[idx]))
-	}
-	response.Success(c, dto.ListSoraS3ProfilesResponse{
-		ActiveProfileID: result.ActiveProfileID,
-		Items:           items,
-	})
-}
-
-// UpdateSoraS3SettingsRequest 更新/测试 Sora S3 配置请求（兼容旧接口）
-type UpdateSoraS3SettingsRequest struct {
-	ProfileID                string `json:"profile_id"`
-	Enabled                  bool   `json:"enabled"`
-	Endpoint                 string `json:"endpoint"`
-	Region                   string `json:"region"`
-	Bucket                   string `json:"bucket"`
-	AccessKeyID              string `json:"access_key_id"`
-	SecretAccessKey          string `json:"secret_access_key"`
-	Prefix                   string `json:"prefix"`
-	ForcePathStyle           bool   `json:"force_path_style"`
-	CDNURL                   string `json:"cdn_url"`
-	DefaultStorageQuotaBytes int64  `json:"default_storage_quota_bytes"`
-}
-
-type CreateSoraS3ProfileRequest struct {
-	ProfileID                string `json:"profile_id"`
-	Name                     string `json:"name"`
-	SetActive                bool   `json:"set_active"`
-	Enabled                  bool   `json:"enabled"`
-	Endpoint                 string `json:"endpoint"`
-	Region                   string `json:"region"`
-	Bucket                   string `json:"bucket"`
-	AccessKeyID              string `json:"access_key_id"`
-	SecretAccessKey          string `json:"secret_access_key"`
-	Prefix                   string `json:"prefix"`
-	ForcePathStyle           bool   `json:"force_path_style"`
-	CDNURL                   string `json:"cdn_url"`
-	DefaultStorageQuotaBytes int64  `json:"default_storage_quota_bytes"`
-}
-
-type UpdateSoraS3ProfileRequest struct {
-	Name                     string `json:"name"`
-	Enabled                  bool   `json:"enabled"`
-	Endpoint                 string `json:"endpoint"`
-	Region                   string `json:"region"`
-	Bucket                   string `json:"bucket"`
-	AccessKeyID              string `json:"access_key_id"`
-	SecretAccessKey          string `json:"secret_access_key"`
-	Prefix                   string `json:"prefix"`
-	ForcePathStyle           bool   `json:"force_path_style"`
-	CDNURL                   string `json:"cdn_url"`
-	DefaultStorageQuotaBytes int64  `json:"default_storage_quota_bytes"`
-}
-
-// CreateSoraS3Profile 创建 Sora S3 配置
-// POST /api/v1/admin/settings/sora-s3/profiles
-func (h *SettingHandler) CreateSoraS3Profile(c *gin.Context) {
-	var req CreateSoraS3ProfileRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-
-	if req.DefaultStorageQuotaBytes < 0 {
-		req.DefaultStorageQuotaBytes = 0
-	}
-	if strings.TrimSpace(req.Name) == "" {
-		response.BadRequest(c, "Name is required")
-		return
-	}
-	if strings.TrimSpace(req.ProfileID) == "" {
-		response.BadRequest(c, "Profile ID is required")
-		return
-	}
-	if err := validateSoraS3RequiredWhenEnabled(req.Enabled, req.Endpoint, req.Bucket, req.AccessKeyID, req.SecretAccessKey, false); err != nil {
-		response.BadRequest(c, err.Error())
-		return
-	}
-
-	created, err := h.settingService.CreateSoraS3Profile(c.Request.Context(), &service.SoraS3Profile{
-		ProfileID:                req.ProfileID,
-		Name:                     req.Name,
-		Enabled:                  req.Enabled,
-		Endpoint:                 req.Endpoint,
-		Region:                   req.Region,
-		Bucket:                   req.Bucket,
-		AccessKeyID:              req.AccessKeyID,
-		SecretAccessKey:          req.SecretAccessKey,
-		Prefix:                   req.Prefix,
-		ForcePathStyle:           req.ForcePathStyle,
-		CDNURL:                   req.CDNURL,
-		DefaultStorageQuotaBytes: req.DefaultStorageQuotaBytes,
-	}, req.SetActive)
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-
-	response.Success(c, toSoraS3ProfileDTO(*created))
-}
-
-// UpdateSoraS3Profile 更新 Sora S3 配置
-// PUT /api/v1/admin/settings/sora-s3/profiles/:profile_id
-func (h *SettingHandler) UpdateSoraS3Profile(c *gin.Context) {
-	profileID := strings.TrimSpace(c.Param("profile_id"))
-	if profileID == "" {
-		response.BadRequest(c, "Profile ID is required")
-		return
-	}
-
-	var req UpdateSoraS3ProfileRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-
-	if req.DefaultStorageQuotaBytes < 0 {
-		req.DefaultStorageQuotaBytes = 0
-	}
-	if strings.TrimSpace(req.Name) == "" {
-		response.BadRequest(c, "Name is required")
-		return
-	}
-
-	existingList, err := h.settingService.ListSoraS3Profiles(c.Request.Context())
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	existing := findSoraS3ProfileByID(existingList.Items, profileID)
-	if existing == nil {
-		response.ErrorFrom(c, service.ErrSoraS3ProfileNotFound)
-		return
-	}
-	if err := validateSoraS3RequiredWhenEnabled(req.Enabled, req.Endpoint, req.Bucket, req.AccessKeyID, req.SecretAccessKey, existing.SecretAccessKeyConfigured); err != nil {
-		response.BadRequest(c, err.Error())
-		return
-	}
-
-	updated, updateErr := h.settingService.UpdateSoraS3Profile(c.Request.Context(), profileID, &service.SoraS3Profile{
-		Name:                     req.Name,
-		Enabled:                  req.Enabled,
-		Endpoint:                 req.Endpoint,
-		Region:                   req.Region,
-		Bucket:                   req.Bucket,
-		AccessKeyID:              req.AccessKeyID,
-		SecretAccessKey:          req.SecretAccessKey,
-		Prefix:                   req.Prefix,
-		ForcePathStyle:           req.ForcePathStyle,
-		CDNURL:                   req.CDNURL,
-		DefaultStorageQuotaBytes: req.DefaultStorageQuotaBytes,
-	})
-	if updateErr != nil {
-		response.ErrorFrom(c, updateErr)
-		return
-	}
-
-	response.Success(c, toSoraS3ProfileDTO(*updated))
-}
-
-// DeleteSoraS3Profile 删除 Sora S3 配置
-// DELETE /api/v1/admin/settings/sora-s3/profiles/:profile_id
-func (h *SettingHandler) DeleteSoraS3Profile(c *gin.Context) {
-	profileID := strings.TrimSpace(c.Param("profile_id"))
-	if profileID == "" {
-		response.BadRequest(c, "Profile ID is required")
-		return
-	}
-	if err := h.settingService.DeleteSoraS3Profile(c.Request.Context(), profileID); err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	response.Success(c, gin.H{"deleted": true})
-}
-
-// SetActiveSoraS3Profile 切换激活 Sora S3 配置
-// POST /api/v1/admin/settings/sora-s3/profiles/:profile_id/activate
-func (h *SettingHandler) SetActiveSoraS3Profile(c *gin.Context) {
-	profileID := strings.TrimSpace(c.Param("profile_id"))
-	if profileID == "" {
-		response.BadRequest(c, "Profile ID is required")
-		return
-	}
-	active, err := h.settingService.SetActiveSoraS3Profile(c.Request.Context(), profileID)
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	response.Success(c, toSoraS3ProfileDTO(*active))
-}
-
-// UpdateSoraS3Settings 更新 Sora S3 存储配置（兼容旧单配置接口）
-// PUT /api/v1/admin/settings/sora-s3
-func (h *SettingHandler) UpdateSoraS3Settings(c *gin.Context) {
-	var req UpdateSoraS3SettingsRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-
-	existing, err := h.settingService.GetSoraS3Settings(c.Request.Context())
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-
-	if req.DefaultStorageQuotaBytes < 0 {
-		req.DefaultStorageQuotaBytes = 0
-	}
-	if err := validateSoraS3RequiredWhenEnabled(req.Enabled, req.Endpoint, req.Bucket, req.AccessKeyID, req.SecretAccessKey, existing.SecretAccessKeyConfigured); err != nil {
-		response.BadRequest(c, err.Error())
-		return
-	}
-
-	settings := &service.SoraS3Settings{
-		Enabled:                  req.Enabled,
-		Endpoint:                 req.Endpoint,
-		Region:                   req.Region,
-		Bucket:                   req.Bucket,
-		AccessKeyID:              req.AccessKeyID,
-		SecretAccessKey:          req.SecretAccessKey,
-		Prefix:                   req.Prefix,
-		ForcePathStyle:           req.ForcePathStyle,
-		CDNURL:                   req.CDNURL,
-		DefaultStorageQuotaBytes: req.DefaultStorageQuotaBytes,
-	}
-	if err := h.settingService.SetSoraS3Settings(c.Request.Context(), settings); err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-
-	updatedSettings, err := h.settingService.GetSoraS3Settings(c.Request.Context())
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	response.Success(c, toSoraS3SettingsDTO(updatedSettings))
-}
-
-// TestSoraS3Connection 测试 Sora S3 连接（HeadBucket）
-// POST /api/v1/admin/settings/sora-s3/test
-func (h *SettingHandler) TestSoraS3Connection(c *gin.Context) {
-	if h.soraS3Storage == nil {
-		response.Error(c, 500, "S3 存储服务未初始化")
-		return
-	}
-
-	var req UpdateSoraS3SettingsRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-	if !req.Enabled {
-		response.BadRequest(c, "S3 未启用，无法测试连接")
-		return
-	}
-
-	if req.SecretAccessKey == "" {
-		if req.ProfileID != "" {
-			profiles, err := h.settingService.ListSoraS3Profiles(c.Request.Context())
-			if err == nil {
-				profile := findSoraS3ProfileByID(profiles.Items, req.ProfileID)
-				if profile != nil {
-					req.SecretAccessKey = profile.SecretAccessKey
-				}
-			}
-		}
-		if req.SecretAccessKey == "" {
-			existing, err := h.settingService.GetSoraS3Settings(c.Request.Context())
-			if err == nil {
-				req.SecretAccessKey = existing.SecretAccessKey
-			}
-		}
-	}
-
-	testCfg := &service.SoraS3Settings{
-		Enabled:         true,
-		Endpoint:        req.Endpoint,
-		Region:          req.Region,
-		Bucket:          req.Bucket,
-		AccessKeyID:     req.AccessKeyID,
-		SecretAccessKey: req.SecretAccessKey,
-		Prefix:          req.Prefix,
-		ForcePathStyle:  req.ForcePathStyle,
-		CDNURL:          req.CDNURL,
-	}
-	if err := h.soraS3Storage.TestConnectionWithSettings(c.Request.Context(), testCfg); err != nil {
-		response.Error(c, 400, "S3 连接测试失败: "+err.Error())
-		return
-	}
-	response.Success(c, gin.H{"message": "S3 连接成功"})
-}
-
 // GetRectifierSettings 获取请求整流器配置
 // GET /api/v1/admin/settings/rectifier
 func (h *SettingHandler) GetRectifierSettings(c *gin.Context) {
@@ -1357,18 +1210,26 @@ func (h *SettingHandler) GetRectifierSettings(c *gin.Context) {
 		return
 	}
 
+	patterns := settings.APIKeySignaturePatterns
+	if patterns == nil {
+		patterns = []string{}
+	}
 	response.Success(c, dto.RectifierSettings{
 		Enabled:                  settings.Enabled,
 		ThinkingSignatureEnabled: settings.ThinkingSignatureEnabled,
 		ThinkingBudgetEnabled:    settings.ThinkingBudgetEnabled,
+		APIKeySignatureEnabled:   settings.APIKeySignatureEnabled,
+		APIKeySignaturePatterns:  patterns,
 	})
 }
 
 // UpdateRectifierSettingsRequest 更新整流器配置请求
 type UpdateRectifierSettingsRequest struct {
-	Enabled                  bool `json:"enabled"`
-	ThinkingSignatureEnabled bool `json:"thinking_signature_enabled"`
-	ThinkingBudgetEnabled    bool `json:"thinking_budget_enabled"`
+	Enabled                  bool     `json:"enabled"`
+	ThinkingSignatureEnabled bool     `json:"thinking_signature_enabled"`
+	ThinkingBudgetEnabled    bool     `json:"thinking_budget_enabled"`
+	APIKeySignatureEnabled   bool     `json:"apikey_signature_enabled"`
+	APIKeySignaturePatterns  []string `json:"apikey_signature_patterns"`
 }
 
 // UpdateRectifierSettings 更新请求整流器配置
@@ -1380,10 +1241,32 @@ func (h *SettingHandler) UpdateRectifierSettings(c *gin.Context) {
 		return
 	}
 
+	// 校验并清理自定义匹配关键词
+	const maxPatterns = 50
+	const maxPatternLen = 500
+	if len(req.APIKeySignaturePatterns) > maxPatterns {
+		response.BadRequest(c, "Too many signature patterns (max 50)")
+		return
+	}
+	var cleanedPatterns []string
+	for _, p := range req.APIKeySignaturePatterns {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if len(p) > maxPatternLen {
+			response.BadRequest(c, "Signature pattern too long (max 500 characters)")
+			return
+		}
+		cleanedPatterns = append(cleanedPatterns, p)
+	}
+
 	settings := &service.RectifierSettings{
 		Enabled:                  req.Enabled,
 		ThinkingSignatureEnabled: req.ThinkingSignatureEnabled,
 		ThinkingBudgetEnabled:    req.ThinkingBudgetEnabled,
+		APIKeySignatureEnabled:   req.APIKeySignatureEnabled,
+		APIKeySignaturePatterns:  cleanedPatterns,
 	}
 
 	if err := h.settingService.SetRectifierSettings(c.Request.Context(), settings); err != nil {
@@ -1398,10 +1281,16 @@ func (h *SettingHandler) UpdateRectifierSettings(c *gin.Context) {
 		return
 	}
 
+	updatedPatterns := updatedSettings.APIKeySignaturePatterns
+	if updatedPatterns == nil {
+		updatedPatterns = []string{}
+	}
 	response.Success(c, dto.RectifierSettings{
 		Enabled:                  updatedSettings.Enabled,
 		ThinkingSignatureEnabled: updatedSettings.ThinkingSignatureEnabled,
 		ThinkingBudgetEnabled:    updatedSettings.ThinkingBudgetEnabled,
+		APIKeySignatureEnabled:   updatedSettings.APIKeySignatureEnabled,
+		APIKeySignaturePatterns:  updatedPatterns,
 	})
 }
 

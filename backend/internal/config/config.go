@@ -77,7 +77,6 @@ type Config struct {
 	UsageCleanup            UsageCleanupConfig            `mapstructure:"usage_cleanup"`
 	Concurrency             ConcurrencyConfig             `mapstructure:"concurrency"`
 	TokenRefresh            TokenRefreshConfig            `mapstructure:"token_refresh"`
-	Sora                    SoraConfig                    `mapstructure:"sora"`
 	RunMode                 string                        `mapstructure:"run_mode" yaml:"run_mode"`
 	Timezone                string                        `mapstructure:"timezone"` // e.g. "Asia/Shanghai", "UTC"
 	Gemini                  GeminiConfig                  `mapstructure:"gemini"`
@@ -197,8 +196,6 @@ type TokenRefreshConfig struct {
 	MaxRetries int `mapstructure:"max_retries"`
 	// 重试退避基础时间（秒）
 	RetryBackoffSeconds int `mapstructure:"retry_backoff_seconds"`
-	// 是否允许 OpenAI 刷新器同步覆盖关联的 Sora 账号 token（默认关闭）
-	SyncLinkedSoraAccounts bool `mapstructure:"sync_linked_sora_accounts"`
 }
 
 type PricingConfig struct {
@@ -303,59 +300,6 @@ type ConcurrencyConfig struct {
 	PingInterval int `mapstructure:"ping_interval"`
 }
 
-// SoraConfig 直连 Sora 配置
-type SoraConfig struct {
-	Client  SoraClientConfig  `mapstructure:"client"`
-	Storage SoraStorageConfig `mapstructure:"storage"`
-}
-
-// SoraClientConfig 直连 Sora 客户端配置
-type SoraClientConfig struct {
-	BaseURL                            string                    `mapstructure:"base_url"`
-	TimeoutSeconds                     int                       `mapstructure:"timeout_seconds"`
-	MaxRetries                         int                       `mapstructure:"max_retries"`
-	CloudflareChallengeCooldownSeconds int                       `mapstructure:"cloudflare_challenge_cooldown_seconds"`
-	PollIntervalSeconds                int                       `mapstructure:"poll_interval_seconds"`
-	MaxPollAttempts                    int                       `mapstructure:"max_poll_attempts"`
-	RecentTaskLimit                    int                       `mapstructure:"recent_task_limit"`
-	RecentTaskLimitMax                 int                       `mapstructure:"recent_task_limit_max"`
-	Debug                              bool                      `mapstructure:"debug"`
-	UseOpenAITokenProvider             bool                      `mapstructure:"use_openai_token_provider"`
-	Headers                            map[string]string         `mapstructure:"headers"`
-	UserAgent                          string                    `mapstructure:"user_agent"`
-	DisableTLSFingerprint              bool                      `mapstructure:"disable_tls_fingerprint"`
-	CurlCFFISidecar                    SoraCurlCFFISidecarConfig `mapstructure:"curl_cffi_sidecar"`
-}
-
-// SoraCurlCFFISidecarConfig Sora 专用 curl_cffi sidecar 配置
-type SoraCurlCFFISidecarConfig struct {
-	Enabled             bool   `mapstructure:"enabled"`
-	BaseURL             string `mapstructure:"base_url"`
-	Impersonate         string `mapstructure:"impersonate"`
-	TimeoutSeconds      int    `mapstructure:"timeout_seconds"`
-	SessionReuseEnabled bool   `mapstructure:"session_reuse_enabled"`
-	SessionTTLSeconds   int    `mapstructure:"session_ttl_seconds"`
-}
-
-// SoraStorageConfig 媒体存储配置
-type SoraStorageConfig struct {
-	Type                   string                   `mapstructure:"type"`
-	LocalPath              string                   `mapstructure:"local_path"`
-	FallbackToUpstream     bool                     `mapstructure:"fallback_to_upstream"`
-	MaxConcurrentDownloads int                      `mapstructure:"max_concurrent_downloads"`
-	DownloadTimeoutSeconds int                      `mapstructure:"download_timeout_seconds"`
-	MaxDownloadBytes       int64                    `mapstructure:"max_download_bytes"`
-	Debug                  bool                     `mapstructure:"debug"`
-	Cleanup                SoraStorageCleanupConfig `mapstructure:"cleanup"`
-}
-
-// SoraStorageCleanupConfig 媒体清理配置
-type SoraStorageCleanupConfig struct {
-	Enabled       bool   `mapstructure:"enabled"`
-	Schedule      string `mapstructure:"schedule"`
-	RetentionDays int    `mapstructure:"retention_days"`
-}
-
 // GatewayConfig API网关相关配置
 type GatewayConfig struct {
 	// 等待上游响应头的超时时间（秒），0表示无超时
@@ -423,24 +367,6 @@ type GatewayConfig struct {
 
 	// 是否允许对部分 400 错误触发 failover（默认关闭以避免改变语义）
 	FailoverOn400 bool `mapstructure:"failover_on_400"`
-
-	// Sora 专用配置
-	// SoraMaxBodySize: Sora 请求体最大字节数（0 表示使用 gateway.max_body_size）
-	SoraMaxBodySize int64 `mapstructure:"sora_max_body_size"`
-	// SoraStreamTimeoutSeconds: Sora 流式请求总超时（秒，0 表示不限制）
-	SoraStreamTimeoutSeconds int `mapstructure:"sora_stream_timeout_seconds"`
-	// SoraRequestTimeoutSeconds: Sora 非流式请求超时（秒，0 表示不限制）
-	SoraRequestTimeoutSeconds int `mapstructure:"sora_request_timeout_seconds"`
-	// SoraStreamMode: stream 强制策略（force/error）
-	SoraStreamMode string `mapstructure:"sora_stream_mode"`
-	// SoraModelFilters: 模型列表过滤配置
-	SoraModelFilters SoraModelFiltersConfig `mapstructure:"sora_model_filters"`
-	// SoraMediaRequireAPIKey: 是否要求访问 /sora/media 携带 API Key
-	SoraMediaRequireAPIKey bool `mapstructure:"sora_media_require_api_key"`
-	// SoraMediaSigningKey: /sora/media 临时签名密钥（空表示禁用签名）
-	SoraMediaSigningKey string `mapstructure:"sora_media_signing_key"`
-	// SoraMediaSignedURLTTLSeconds: 临时签名 URL 有效期（秒，<=0 表示禁用）
-	SoraMediaSignedURLTTLSeconds int `mapstructure:"sora_media_signed_url_ttl_seconds"`
 
 	// 账户切换最大次数（遇到上游错误时切换到其他账户的次数上限）
 	MaxAccountSwitches int `mapstructure:"max_account_switches"`
@@ -639,12 +565,6 @@ type GatewayUsageRecordConfig struct {
 	AutoScaleCooldownSeconds int `mapstructure:"auto_scale_cooldown_seconds"`
 }
 
-// SoraModelFiltersConfig Sora 模型过滤配置
-type SoraModelFiltersConfig struct {
-	// HidePromptEnhance 是否隐藏 prompt-enhance 模型
-	HidePromptEnhance bool `mapstructure:"hide_prompt_enhance"`
-}
-
 // TLSFingerprintConfig TLS指纹伪装配置
 // 用于模拟 Claude CLI (Node.js) 的 TLS 握手特征，避免被识别为非官方客户端
 type TLSFingerprintConfig struct {
@@ -656,17 +576,33 @@ type TLSFingerprintConfig struct {
 }
 
 // TLSProfileConfig 单个TLS指纹模板的配置
+// 所有列表字段为空时使用内置默认值（Claude CLI 2.x / Node.js 20.x）
+// 建议通过 TLS 指纹采集工具 (tests/tls-fingerprint-web) 获取完整配置
 type TLSProfileConfig struct {
 	// Name: 模板显示名称
 	Name string `mapstructure:"name"`
 	// EnableGREASE: 是否启用GREASE扩展（Chrome使用，Node.js不使用）
 	EnableGREASE bool `mapstructure:"enable_grease"`
-	// CipherSuites: TLS加密套件列表（空则使用内置默认值）
+	// CipherSuites: TLS加密套件列表
 	CipherSuites []uint16 `mapstructure:"cipher_suites"`
-	// Curves: 椭圆曲线列表（空则使用内置默认值）
+	// Curves: 椭圆曲线列表
 	Curves []uint16 `mapstructure:"curves"`
-	// PointFormats: 点格式列表（空则使用内置默认值）
-	PointFormats []uint8 `mapstructure:"point_formats"`
+	// PointFormats: 点格式列表
+	PointFormats []uint16 `mapstructure:"point_formats"`
+	// SignatureAlgorithms: 签名算法列表
+	SignatureAlgorithms []uint16 `mapstructure:"signature_algorithms"`
+	// ALPNProtocols: ALPN协议列表（如 ["h2", "http/1.1"]）
+	ALPNProtocols []string `mapstructure:"alpn_protocols"`
+	// SupportedVersions: 支持的TLS版本列表（如 [0x0304, 0x0303] 即 TLS1.3, TLS1.2）
+	SupportedVersions []uint16 `mapstructure:"supported_versions"`
+	// KeyShareGroups: Key Share中发送的曲线组（如 [29] 即 X25519）
+	KeyShareGroups []uint16 `mapstructure:"key_share_groups"`
+	// PSKModes: PSK密钥交换模式（如 [1] 即 psk_dhe_ke）
+	PSKModes []uint16 `mapstructure:"psk_modes"`
+	// Extensions: TLS扩展类型ID列表，按发送顺序排列
+	// 空则使用内置默认顺序 [0,11,10,35,16,22,23,13,43,45,51]
+	// GREASE值(如0x0a0a)会自动插入GREASE扩展
+	Extensions []uint16 `mapstructure:"extensions"`
 }
 
 // GatewaySchedulingConfig accounts scheduling configuration.
@@ -934,9 +870,10 @@ type DashboardAggregationConfig struct {
 
 // DashboardAggregationRetentionConfig 预聚合保留窗口
 type DashboardAggregationRetentionConfig struct {
-	UsageLogsDays int `mapstructure:"usage_logs_days"`
-	HourlyDays    int `mapstructure:"hourly_days"`
-	DailyDays     int `mapstructure:"daily_days"`
+	UsageLogsDays         int `mapstructure:"usage_logs_days"`
+	UsageBillingDedupDays int `mapstructure:"usage_billing_dedup_days"`
+	HourlyDays            int `mapstructure:"hourly_days"`
+	DailyDays             int `mapstructure:"daily_days"`
 }
 
 // UsageCleanupConfig 使用记录清理任务配置
@@ -1264,8 +1201,8 @@ func setDefaults() {
 	viper.SetDefault("rate_limit.oauth_401_cooldown_minutes", 10)
 
 	// Pricing - 从 model-price-repo 同步模型定价和上下文窗口数据（固定到 commit，避免分支漂移）
-	viper.SetDefault("pricing.remote_url", "https://raw.githubusercontent.com/Wei-Shaw/model-price-repo/c7947e9871687e664180bc971d4837f1fc2784a9/model_prices_and_context_window.json")
-	viper.SetDefault("pricing.hash_url", "https://raw.githubusercontent.com/Wei-Shaw/model-price-repo/c7947e9871687e664180bc971d4837f1fc2784a9/model_prices_and_context_window.sha256")
+	viper.SetDefault("pricing.remote_url", "https://raw.githubusercontent.com/Wei-Shaw/model-price-repo/main/model_prices_and_context_window.json")
+	viper.SetDefault("pricing.hash_url", "https://raw.githubusercontent.com/Wei-Shaw/model-price-repo/main/model_prices_and_context_window.sha256")
 	viper.SetDefault("pricing.data_dir", "./data")
 	viper.SetDefault("pricing.fallback_file", "./resources/model-pricing/model_prices_and_context_window.json")
 	viper.SetDefault("pricing.update_interval_hours", 24)
@@ -1301,6 +1238,7 @@ func setDefaults() {
 	viper.SetDefault("dashboard_aggregation.backfill_enabled", false)
 	viper.SetDefault("dashboard_aggregation.backfill_max_days", 31)
 	viper.SetDefault("dashboard_aggregation.retention.usage_logs_days", 90)
+	viper.SetDefault("dashboard_aggregation.retention.usage_billing_dedup_days", 365)
 	viper.SetDefault("dashboard_aggregation.retention.hourly_days", 180)
 	viper.SetDefault("dashboard_aggregation.retention.daily_days", 730)
 	viper.SetDefault("dashboard_aggregation.recompute_days", 2)
@@ -1384,13 +1322,6 @@ func setDefaults() {
 	viper.SetDefault("gateway.upstream_response_read_max_bytes", int64(8*1024*1024))
 	viper.SetDefault("gateway.proxy_probe_response_read_max_bytes", int64(1024*1024))
 	viper.SetDefault("gateway.gemini_debug_response_headers", false)
-	viper.SetDefault("gateway.sora_max_body_size", int64(256*1024*1024))
-	viper.SetDefault("gateway.sora_stream_timeout_seconds", 900)
-	viper.SetDefault("gateway.sora_request_timeout_seconds", 180)
-	viper.SetDefault("gateway.sora_stream_mode", "force")
-	viper.SetDefault("gateway.sora_model_filters.hide_prompt_enhance", true)
-	viper.SetDefault("gateway.sora_media_require_api_key", true)
-	viper.SetDefault("gateway.sora_media_signed_url_ttl_seconds", 900)
 	viper.SetDefault("gateway.connection_pool_isolation", ConnectionPoolIsolationAccountProxy)
 	// HTTP 上游连接池配置（针对 5000+ 并发用户优化）
 	viper.SetDefault("gateway.max_idle_conns", 2560)          // 最大空闲连接总数（高并发场景可调大）
@@ -1447,45 +1378,12 @@ func setDefaults() {
 	viper.SetDefault("gateway.tls_fingerprint.enabled", true)
 	viper.SetDefault("concurrency.ping_interval", 10)
 
-	// Sora 直连配置
-	viper.SetDefault("sora.client.base_url", "https://sora.chatgpt.com/backend")
-	viper.SetDefault("sora.client.timeout_seconds", 120)
-	viper.SetDefault("sora.client.max_retries", 3)
-	viper.SetDefault("sora.client.cloudflare_challenge_cooldown_seconds", 900)
-	viper.SetDefault("sora.client.poll_interval_seconds", 2)
-	viper.SetDefault("sora.client.max_poll_attempts", 600)
-	viper.SetDefault("sora.client.recent_task_limit", 50)
-	viper.SetDefault("sora.client.recent_task_limit_max", 200)
-	viper.SetDefault("sora.client.debug", false)
-	viper.SetDefault("sora.client.use_openai_token_provider", false)
-	viper.SetDefault("sora.client.headers", map[string]string{})
-	viper.SetDefault("sora.client.user_agent", "Sora/1.2026.007 (Android 15; 24122RKC7C; build 2600700)")
-	viper.SetDefault("sora.client.disable_tls_fingerprint", false)
-	viper.SetDefault("sora.client.curl_cffi_sidecar.enabled", true)
-	viper.SetDefault("sora.client.curl_cffi_sidecar.base_url", "http://sora-curl-cffi-sidecar:8080")
-	viper.SetDefault("sora.client.curl_cffi_sidecar.impersonate", "chrome131")
-	viper.SetDefault("sora.client.curl_cffi_sidecar.timeout_seconds", 60)
-	viper.SetDefault("sora.client.curl_cffi_sidecar.session_reuse_enabled", true)
-	viper.SetDefault("sora.client.curl_cffi_sidecar.session_ttl_seconds", 3600)
-
-	viper.SetDefault("sora.storage.type", "local")
-	viper.SetDefault("sora.storage.local_path", "")
-	viper.SetDefault("sora.storage.fallback_to_upstream", true)
-	viper.SetDefault("sora.storage.max_concurrent_downloads", 4)
-	viper.SetDefault("sora.storage.download_timeout_seconds", 120)
-	viper.SetDefault("sora.storage.max_download_bytes", int64(200<<20))
-	viper.SetDefault("sora.storage.debug", false)
-	viper.SetDefault("sora.storage.cleanup.enabled", true)
-	viper.SetDefault("sora.storage.cleanup.retention_days", 7)
-	viper.SetDefault("sora.storage.cleanup.schedule", "0 3 * * *")
-
 	// TokenRefresh
 	viper.SetDefault("token_refresh.enabled", true)
 	viper.SetDefault("token_refresh.check_interval_minutes", 5)        // 每5分钟检查一次
 	viper.SetDefault("token_refresh.refresh_before_expiry_hours", 0.5) // 提前30分钟刷新（适配Google 1小时token）
 	viper.SetDefault("token_refresh.max_retries", 3)                   // 最多重试3次
 	viper.SetDefault("token_refresh.retry_backoff_seconds", 2)         // 重试退避基础2秒
-	viper.SetDefault("token_refresh.sync_linked_sora_accounts", false) // 默认不跨平台覆盖 Sora token
 
 	// Gemini OAuth - configure via environment variables or config file
 	// GEMINI_OAUTH_CLIENT_ID and GEMINI_OAUTH_CLIENT_SECRET
@@ -1758,6 +1656,12 @@ func (c *Config) Validate() error {
 		if c.DashboardAgg.Retention.UsageLogsDays <= 0 {
 			return fmt.Errorf("dashboard_aggregation.retention.usage_logs_days must be positive")
 		}
+		if c.DashboardAgg.Retention.UsageBillingDedupDays <= 0 {
+			return fmt.Errorf("dashboard_aggregation.retention.usage_billing_dedup_days must be positive")
+		}
+		if c.DashboardAgg.Retention.UsageBillingDedupDays < c.DashboardAgg.Retention.UsageLogsDays {
+			return fmt.Errorf("dashboard_aggregation.retention.usage_billing_dedup_days must be greater than or equal to usage_logs_days")
+		}
 		if c.DashboardAgg.Retention.HourlyDays <= 0 {
 			return fmt.Errorf("dashboard_aggregation.retention.hourly_days must be positive")
 		}
@@ -1779,6 +1683,14 @@ func (c *Config) Validate() error {
 		}
 		if c.DashboardAgg.Retention.UsageLogsDays < 0 {
 			return fmt.Errorf("dashboard_aggregation.retention.usage_logs_days must be non-negative")
+		}
+		if c.DashboardAgg.Retention.UsageBillingDedupDays < 0 {
+			return fmt.Errorf("dashboard_aggregation.retention.usage_billing_dedup_days must be non-negative")
+		}
+		if c.DashboardAgg.Retention.UsageBillingDedupDays > 0 &&
+			c.DashboardAgg.Retention.UsageLogsDays > 0 &&
+			c.DashboardAgg.Retention.UsageBillingDedupDays < c.DashboardAgg.Retention.UsageLogsDays {
+			return fmt.Errorf("dashboard_aggregation.retention.usage_billing_dedup_days must be greater than or equal to usage_logs_days")
 		}
 		if c.DashboardAgg.Retention.HourlyDays < 0 {
 			return fmt.Errorf("dashboard_aggregation.retention.hourly_days must be non-negative")
@@ -1846,86 +1758,6 @@ func (c *Config) Validate() error {
 	}
 	if c.Gateway.ProxyProbeResponseReadMaxBytes <= 0 {
 		return fmt.Errorf("gateway.proxy_probe_response_read_max_bytes must be positive")
-	}
-	if c.Gateway.SoraMaxBodySize < 0 {
-		return fmt.Errorf("gateway.sora_max_body_size must be non-negative")
-	}
-	if c.Gateway.SoraStreamTimeoutSeconds < 0 {
-		return fmt.Errorf("gateway.sora_stream_timeout_seconds must be non-negative")
-	}
-	if c.Gateway.SoraRequestTimeoutSeconds < 0 {
-		return fmt.Errorf("gateway.sora_request_timeout_seconds must be non-negative")
-	}
-	if c.Gateway.SoraMediaSignedURLTTLSeconds < 0 {
-		return fmt.Errorf("gateway.sora_media_signed_url_ttl_seconds must be non-negative")
-	}
-	if mode := strings.TrimSpace(strings.ToLower(c.Gateway.SoraStreamMode)); mode != "" {
-		switch mode {
-		case "force", "error":
-		default:
-			return fmt.Errorf("gateway.sora_stream_mode must be one of: force/error")
-		}
-	}
-	if c.Sora.Client.TimeoutSeconds < 0 {
-		return fmt.Errorf("sora.client.timeout_seconds must be non-negative")
-	}
-	if c.Sora.Client.MaxRetries < 0 {
-		return fmt.Errorf("sora.client.max_retries must be non-negative")
-	}
-	if c.Sora.Client.CloudflareChallengeCooldownSeconds < 0 {
-		return fmt.Errorf("sora.client.cloudflare_challenge_cooldown_seconds must be non-negative")
-	}
-	if c.Sora.Client.PollIntervalSeconds < 0 {
-		return fmt.Errorf("sora.client.poll_interval_seconds must be non-negative")
-	}
-	if c.Sora.Client.MaxPollAttempts < 0 {
-		return fmt.Errorf("sora.client.max_poll_attempts must be non-negative")
-	}
-	if c.Sora.Client.RecentTaskLimit < 0 {
-		return fmt.Errorf("sora.client.recent_task_limit must be non-negative")
-	}
-	if c.Sora.Client.RecentTaskLimitMax < 0 {
-		return fmt.Errorf("sora.client.recent_task_limit_max must be non-negative")
-	}
-	if c.Sora.Client.RecentTaskLimitMax > 0 && c.Sora.Client.RecentTaskLimit > 0 &&
-		c.Sora.Client.RecentTaskLimitMax < c.Sora.Client.RecentTaskLimit {
-		c.Sora.Client.RecentTaskLimitMax = c.Sora.Client.RecentTaskLimit
-	}
-	if c.Sora.Client.CurlCFFISidecar.TimeoutSeconds < 0 {
-		return fmt.Errorf("sora.client.curl_cffi_sidecar.timeout_seconds must be non-negative")
-	}
-	if c.Sora.Client.CurlCFFISidecar.SessionTTLSeconds < 0 {
-		return fmt.Errorf("sora.client.curl_cffi_sidecar.session_ttl_seconds must be non-negative")
-	}
-	if !c.Sora.Client.CurlCFFISidecar.Enabled {
-		return fmt.Errorf("sora.client.curl_cffi_sidecar.enabled must be true")
-	}
-	if strings.TrimSpace(c.Sora.Client.CurlCFFISidecar.BaseURL) == "" {
-		return fmt.Errorf("sora.client.curl_cffi_sidecar.base_url is required")
-	}
-	if c.Sora.Storage.MaxConcurrentDownloads < 0 {
-		return fmt.Errorf("sora.storage.max_concurrent_downloads must be non-negative")
-	}
-	if c.Sora.Storage.DownloadTimeoutSeconds < 0 {
-		return fmt.Errorf("sora.storage.download_timeout_seconds must be non-negative")
-	}
-	if c.Sora.Storage.MaxDownloadBytes < 0 {
-		return fmt.Errorf("sora.storage.max_download_bytes must be non-negative")
-	}
-	if c.Sora.Storage.Cleanup.Enabled {
-		if c.Sora.Storage.Cleanup.RetentionDays <= 0 {
-			return fmt.Errorf("sora.storage.cleanup.retention_days must be positive")
-		}
-		if strings.TrimSpace(c.Sora.Storage.Cleanup.Schedule) == "" {
-			return fmt.Errorf("sora.storage.cleanup.schedule is required when cleanup is enabled")
-		}
-	} else {
-		if c.Sora.Storage.Cleanup.RetentionDays < 0 {
-			return fmt.Errorf("sora.storage.cleanup.retention_days must be non-negative")
-		}
-	}
-	if storageType := strings.TrimSpace(strings.ToLower(c.Sora.Storage.Type)); storageType != "" && storageType != "local" {
-		return fmt.Errorf("sora.storage.type must be 'local'")
 	}
 	if strings.TrimSpace(c.Gateway.ConnectionPoolIsolation) != "" {
 		switch c.Gateway.ConnectionPoolIsolation {

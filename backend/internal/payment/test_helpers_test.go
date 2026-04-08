@@ -385,7 +385,11 @@ func (s *adminServiceStub) BatchSetGroupRateMultipliers(ctx context.Context, gro
 	return nil
 }
 
-func (s *adminServiceStub) ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64) ([]baseservice.Account, int64, error) {
+func (s *adminServiceStub) ReplaceUserGroup(ctx context.Context, userID, oldGroupID, newGroupID int64) (*baseservice.ReplaceUserGroupResult, error) {
+	return nil, nil
+}
+
+func (s *adminServiceStub) ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string) ([]baseservice.Account, int64, error) {
 	return nil, 0, nil
 }
 
@@ -426,6 +430,18 @@ func (s *adminServiceStub) SetAccountError(ctx context.Context, id int64, errorM
 }
 
 func (s *adminServiceStub) EnsureOpenAIPrivacy(ctx context.Context, account *baseservice.Account) string {
+	return ""
+}
+
+func (s *adminServiceStub) EnsureAntigravityPrivacy(ctx context.Context, account *baseservice.Account) string {
+	return ""
+}
+
+func (s *adminServiceStub) ForceOpenAIPrivacy(ctx context.Context, account *baseservice.Account) string {
+	return ""
+}
+
+func (s *adminServiceStub) ForceAntigravityPrivacy(ctx context.Context, account *baseservice.Account) string {
 	return ""
 }
 

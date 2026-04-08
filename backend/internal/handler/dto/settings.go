@@ -15,6 +15,13 @@ type CustomMenuItem struct {
 	SortOrder  int    `json:"sort_order"`
 }
 
+// CustomEndpoint represents an admin-configured API endpoint for quick copy.
+type CustomEndpoint struct {
+	Name        string `json:"name"`
+	Endpoint    string `json:"endpoint"`
+	Description string `json:"description"`
+}
+
 // SystemSettings represents the admin settings API response payload.
 type SystemSettings struct {
 	RegistrationEnabled              bool     `json:"registration_enabled"`
@@ -22,6 +29,7 @@ type SystemSettings struct {
 	RegistrationEmailSuffixWhitelist []string `json:"registration_email_suffix_whitelist"`
 	PromoCodeEnabled                 bool     `json:"promo_code_enabled"`
 	PasswordResetEnabled             bool     `json:"password_reset_enabled"`
+	FrontendURL                      string   `json:"frontend_url"`
 	InvitationCodeEnabled            bool     `json:"invitation_code_enabled"`
 	TotpEnabled                      bool     `json:"totp_enabled"`                   // TOTP 双因素认证
 	TotpEncryptionKeyConfigured      bool     `json:"totp_encryption_key_configured"` // TOTP 加密密钥是否已配置
@@ -53,8 +61,8 @@ type SystemSettings struct {
 	HideCcsImportButton         bool             `json:"hide_ccs_import_button"`
 	PurchaseSubscriptionEnabled bool             `json:"purchase_subscription_enabled"`
 	PurchaseSubscriptionURL     string           `json:"purchase_subscription_url"`
-	SoraClientEnabled           bool             `json:"sora_client_enabled"`
 	CustomMenuItems             []CustomMenuItem `json:"custom_menu_items"`
+	CustomEndpoints             []CustomEndpoint `json:"custom_endpoints"`
 
 	DefaultConcurrency   int                          `json:"default_concurrency"`
 	DefaultBalance       float64                      `json:"default_balance"`
@@ -78,9 +86,17 @@ type SystemSettings struct {
 	OpsMetricsIntervalSeconds    int    `json:"ops_metrics_interval_seconds"`
 
 	MinClaudeCodeVersion string `json:"min_claude_code_version"`
+	MaxClaudeCodeVersion string `json:"max_claude_code_version"`
 
 	// 分组隔离
 	AllowUngroupedKeyScheduling bool `json:"allow_ungrouped_key_scheduling"`
+
+	// Backend Mode
+	BackendModeEnabled bool `json:"backend_mode_enabled"`
+
+	// Gateway forwarding behavior
+	EnableFingerprintUnification bool `json:"enable_fingerprint_unification"`
+	EnableMetadataPassthrough    bool `json:"enable_metadata_passthrough"`
 }
 
 type DefaultSubscriptionSetting struct {
@@ -109,47 +125,16 @@ type PublicSettings struct {
 	PurchaseSubscriptionEnabled      bool             `json:"purchase_subscription_enabled"`
 	PurchaseSubscriptionURL          string           `json:"purchase_subscription_url"`
 	CustomMenuItems                  []CustomMenuItem `json:"custom_menu_items"`
+	CustomEndpoints                  []CustomEndpoint `json:"custom_endpoints"`
 	LinuxDoOAuthEnabled              bool             `json:"linuxdo_oauth_enabled"`
-	SoraClientEnabled                bool             `json:"sora_client_enabled"`
+	BackendModeEnabled               bool             `json:"backend_mode_enabled"`
 	Version                          string           `json:"version"`
 }
 
-// SoraS3Settings Sora S3 存储配置 DTO（响应用，不含敏感字段）
-type SoraS3Settings struct {
-	Enabled                   bool   `json:"enabled"`
-	Endpoint                  string `json:"endpoint"`
-	Region                    string `json:"region"`
-	Bucket                    string `json:"bucket"`
-	AccessKeyID               string `json:"access_key_id"`
-	SecretAccessKeyConfigured bool   `json:"secret_access_key_configured"`
-	Prefix                    string `json:"prefix"`
-	ForcePathStyle            bool   `json:"force_path_style"`
-	CDNURL                    string `json:"cdn_url"`
-	DefaultStorageQuotaBytes  int64  `json:"default_storage_quota_bytes"`
-}
-
-// SoraS3Profile Sora S3 存储配置项 DTO（响应用，不含敏感字段）
-type SoraS3Profile struct {
-	ProfileID                 string `json:"profile_id"`
-	Name                      string `json:"name"`
-	IsActive                  bool   `json:"is_active"`
-	Enabled                   bool   `json:"enabled"`
-	Endpoint                  string `json:"endpoint"`
-	Region                    string `json:"region"`
-	Bucket                    string `json:"bucket"`
-	AccessKeyID               string `json:"access_key_id"`
-	SecretAccessKeyConfigured bool   `json:"secret_access_key_configured"`
-	Prefix                    string `json:"prefix"`
-	ForcePathStyle            bool   `json:"force_path_style"`
-	CDNURL                    string `json:"cdn_url"`
-	DefaultStorageQuotaBytes  int64  `json:"default_storage_quota_bytes"`
-	UpdatedAt                 string `json:"updated_at"`
-}
-
-// ListSoraS3ProfilesResponse Sora S3 配置列表响应
-type ListSoraS3ProfilesResponse struct {
-	ActiveProfileID string          `json:"active_profile_id"`
-	Items           []SoraS3Profile `json:"items"`
+// OverloadCooldownSettings 529过载冷却配置 DTO
+type OverloadCooldownSettings struct {
+	Enabled         bool `json:"enabled"`
+	CooldownMinutes int  `json:"cooldown_minutes"`
 }
 
 // StreamTimeoutSettings 流超时处理配置 DTO
@@ -163,17 +148,22 @@ type StreamTimeoutSettings struct {
 
 // RectifierSettings 请求整流器配置 DTO
 type RectifierSettings struct {
-	Enabled                  bool `json:"enabled"`
-	ThinkingSignatureEnabled bool `json:"thinking_signature_enabled"`
-	ThinkingBudgetEnabled    bool `json:"thinking_budget_enabled"`
+	Enabled                  bool     `json:"enabled"`
+	ThinkingSignatureEnabled bool     `json:"thinking_signature_enabled"`
+	ThinkingBudgetEnabled    bool     `json:"thinking_budget_enabled"`
+	APIKeySignatureEnabled   bool     `json:"apikey_signature_enabled"`
+	APIKeySignaturePatterns  []string `json:"apikey_signature_patterns"`
 }
 
 // BetaPolicyRule Beta 策略规则 DTO
 type BetaPolicyRule struct {
-	BetaToken    string `json:"beta_token"`
-	Action       string `json:"action"`
-	Scope        string `json:"scope"`
-	ErrorMessage string `json:"error_message,omitempty"`
+	BetaToken            string   `json:"beta_token"`
+	Action               string   `json:"action"`
+	Scope                string   `json:"scope"`
+	ErrorMessage         string   `json:"error_message,omitempty"`
+	ModelWhitelist       []string `json:"model_whitelist,omitempty"`
+	FallbackAction       string   `json:"fallback_action,omitempty"`
+	FallbackErrorMessage string   `json:"fallback_error_message,omitempty"`
 }
 
 // BetaPolicySettings Beta 策略配置 DTO
@@ -205,4 +195,18 @@ func ParseUserVisibleMenuItems(raw string) []CustomMenuItem {
 		}
 	}
 	return filtered
+}
+
+// ParseCustomEndpoints parses a JSON string into a slice of CustomEndpoint.
+// Returns empty slice on empty/invalid input.
+func ParseCustomEndpoints(raw string) []CustomEndpoint {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "[]" {
+		return []CustomEndpoint{}
+	}
+	var items []CustomEndpoint
+	if err := json.Unmarshal([]byte(raw), &items); err != nil {
+		return []CustomEndpoint{}
+	}
+	return items
 }

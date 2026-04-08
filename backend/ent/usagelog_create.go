@@ -57,6 +57,90 @@ func (_c *UsageLogCreate) SetModel(v string) *UsageLogCreate {
 	return _c
 }
 
+// SetRequestedModel sets the "requested_model" field.
+func (_c *UsageLogCreate) SetRequestedModel(v string) *UsageLogCreate {
+	_c.mutation.SetRequestedModel(v)
+	return _c
+}
+
+// SetNillableRequestedModel sets the "requested_model" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableRequestedModel(v *string) *UsageLogCreate {
+	if v != nil {
+		_c.SetRequestedModel(*v)
+	}
+	return _c
+}
+
+// SetUpstreamModel sets the "upstream_model" field.
+func (_c *UsageLogCreate) SetUpstreamModel(v string) *UsageLogCreate {
+	_c.mutation.SetUpstreamModel(v)
+	return _c
+}
+
+// SetNillableUpstreamModel sets the "upstream_model" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableUpstreamModel(v *string) *UsageLogCreate {
+	if v != nil {
+		_c.SetUpstreamModel(*v)
+	}
+	return _c
+}
+
+// SetChannelID sets the "channel_id" field.
+func (_c *UsageLogCreate) SetChannelID(v int64) *UsageLogCreate {
+	_c.mutation.SetChannelID(v)
+	return _c
+}
+
+// SetNillableChannelID sets the "channel_id" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableChannelID(v *int64) *UsageLogCreate {
+	if v != nil {
+		_c.SetChannelID(*v)
+	}
+	return _c
+}
+
+// SetModelMappingChain sets the "model_mapping_chain" field.
+func (_c *UsageLogCreate) SetModelMappingChain(v string) *UsageLogCreate {
+	_c.mutation.SetModelMappingChain(v)
+	return _c
+}
+
+// SetNillableModelMappingChain sets the "model_mapping_chain" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableModelMappingChain(v *string) *UsageLogCreate {
+	if v != nil {
+		_c.SetModelMappingChain(*v)
+	}
+	return _c
+}
+
+// SetBillingTier sets the "billing_tier" field.
+func (_c *UsageLogCreate) SetBillingTier(v string) *UsageLogCreate {
+	_c.mutation.SetBillingTier(v)
+	return _c
+}
+
+// SetNillableBillingTier sets the "billing_tier" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableBillingTier(v *string) *UsageLogCreate {
+	if v != nil {
+		_c.SetBillingTier(*v)
+	}
+	return _c
+}
+
+// SetBillingMode sets the "billing_mode" field.
+func (_c *UsageLogCreate) SetBillingMode(v string) *UsageLogCreate {
+	_c.mutation.SetBillingMode(v)
+	return _c
+}
+
+// SetNillableBillingMode sets the "billing_mode" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableBillingMode(v *string) *UsageLogCreate {
+	if v != nil {
+		_c.SetBillingMode(*v)
+	}
+	return _c
+}
+
 // SetGroupID sets the "group_id" field.
 func (_c *UsageLogCreate) SetGroupID(v int64) *UsageLogCreate {
 	_c.mutation.SetGroupID(v)
@@ -393,20 +477,6 @@ func (_c *UsageLogCreate) SetNillableImageSize(v *string) *UsageLogCreate {
 	return _c
 }
 
-// SetMediaType sets the "media_type" field.
-func (_c *UsageLogCreate) SetMediaType(v string) *UsageLogCreate {
-	_c.mutation.SetMediaType(v)
-	return _c
-}
-
-// SetNillableMediaType sets the "media_type" field if the given value is not nil.
-func (_c *UsageLogCreate) SetNillableMediaType(v *string) *UsageLogCreate {
-	if v != nil {
-		_c.SetMediaType(*v)
-	}
-	return _c
-}
-
 // SetCacheTTLOverridden sets the "cache_ttl_overridden" field.
 func (_c *UsageLogCreate) SetCacheTTLOverridden(v bool) *UsageLogCreate {
 	_c.mutation.SetCacheTTLOverridden(v)
@@ -596,6 +666,31 @@ func (_c *UsageLogCreate) check() error {
 			return &ValidationError{Name: "model", err: fmt.Errorf(`ent: validator failed for field "UsageLog.model": %w`, err)}
 		}
 	}
+	if v, ok := _c.mutation.RequestedModel(); ok {
+		if err := usagelog.RequestedModelValidator(v); err != nil {
+			return &ValidationError{Name: "requested_model", err: fmt.Errorf(`ent: validator failed for field "UsageLog.requested_model": %w`, err)}
+		}
+	}
+	if v, ok := _c.mutation.UpstreamModel(); ok {
+		if err := usagelog.UpstreamModelValidator(v); err != nil {
+			return &ValidationError{Name: "upstream_model", err: fmt.Errorf(`ent: validator failed for field "UsageLog.upstream_model": %w`, err)}
+		}
+	}
+	if v, ok := _c.mutation.ModelMappingChain(); ok {
+		if err := usagelog.ModelMappingChainValidator(v); err != nil {
+			return &ValidationError{Name: "model_mapping_chain", err: fmt.Errorf(`ent: validator failed for field "UsageLog.model_mapping_chain": %w`, err)}
+		}
+	}
+	if v, ok := _c.mutation.BillingTier(); ok {
+		if err := usagelog.BillingTierValidator(v); err != nil {
+			return &ValidationError{Name: "billing_tier", err: fmt.Errorf(`ent: validator failed for field "UsageLog.billing_tier": %w`, err)}
+		}
+	}
+	if v, ok := _c.mutation.BillingMode(); ok {
+		if err := usagelog.BillingModeValidator(v); err != nil {
+			return &ValidationError{Name: "billing_mode", err: fmt.Errorf(`ent: validator failed for field "UsageLog.billing_mode": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.InputTokens(); !ok {
 		return &ValidationError{Name: "input_tokens", err: errors.New(`ent: missing required field "UsageLog.input_tokens"`)}
 	}
@@ -659,11 +754,6 @@ func (_c *UsageLogCreate) check() error {
 			return &ValidationError{Name: "image_size", err: fmt.Errorf(`ent: validator failed for field "UsageLog.image_size": %w`, err)}
 		}
 	}
-	if v, ok := _c.mutation.MediaType(); ok {
-		if err := usagelog.MediaTypeValidator(v); err != nil {
-			return &ValidationError{Name: "media_type", err: fmt.Errorf(`ent: validator failed for field "UsageLog.media_type": %w`, err)}
-		}
-	}
 	if _, ok := _c.mutation.CacheTTLOverridden(); !ok {
 		return &ValidationError{Name: "cache_ttl_overridden", err: errors.New(`ent: missing required field "UsageLog.cache_ttl_overridden"`)}
 	}
@@ -713,6 +803,30 @@ func (_c *UsageLogCreate) createSpec() (*UsageLog, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Model(); ok {
 		_spec.SetField(usagelog.FieldModel, field.TypeString, value)
 		_node.Model = value
+	}
+	if value, ok := _c.mutation.RequestedModel(); ok {
+		_spec.SetField(usagelog.FieldRequestedModel, field.TypeString, value)
+		_node.RequestedModel = &value
+	}
+	if value, ok := _c.mutation.UpstreamModel(); ok {
+		_spec.SetField(usagelog.FieldUpstreamModel, field.TypeString, value)
+		_node.UpstreamModel = &value
+	}
+	if value, ok := _c.mutation.ChannelID(); ok {
+		_spec.SetField(usagelog.FieldChannelID, field.TypeInt64, value)
+		_node.ChannelID = &value
+	}
+	if value, ok := _c.mutation.ModelMappingChain(); ok {
+		_spec.SetField(usagelog.FieldModelMappingChain, field.TypeString, value)
+		_node.ModelMappingChain = &value
+	}
+	if value, ok := _c.mutation.BillingTier(); ok {
+		_spec.SetField(usagelog.FieldBillingTier, field.TypeString, value)
+		_node.BillingTier = &value
+	}
+	if value, ok := _c.mutation.BillingMode(); ok {
+		_spec.SetField(usagelog.FieldBillingMode, field.TypeString, value)
+		_node.BillingMode = &value
 	}
 	if value, ok := _c.mutation.InputTokens(); ok {
 		_spec.SetField(usagelog.FieldInputTokens, field.TypeInt, value)
@@ -801,10 +915,6 @@ func (_c *UsageLogCreate) createSpec() (*UsageLog, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.ImageSize(); ok {
 		_spec.SetField(usagelog.FieldImageSize, field.TypeString, value)
 		_node.ImageSize = &value
-	}
-	if value, ok := _c.mutation.MediaType(); ok {
-		_spec.SetField(usagelog.FieldMediaType, field.TypeString, value)
-		_node.MediaType = &value
 	}
 	if value, ok := _c.mutation.CacheTTLOverridden(); ok {
 		_spec.SetField(usagelog.FieldCacheTTLOverridden, field.TypeBool, value)
@@ -1008,6 +1118,120 @@ func (u *UsageLogUpsert) SetModel(v string) *UsageLogUpsert {
 // UpdateModel sets the "model" field to the value that was provided on create.
 func (u *UsageLogUpsert) UpdateModel() *UsageLogUpsert {
 	u.SetExcluded(usagelog.FieldModel)
+	return u
+}
+
+// SetRequestedModel sets the "requested_model" field.
+func (u *UsageLogUpsert) SetRequestedModel(v string) *UsageLogUpsert {
+	u.Set(usagelog.FieldRequestedModel, v)
+	return u
+}
+
+// UpdateRequestedModel sets the "requested_model" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateRequestedModel() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldRequestedModel)
+	return u
+}
+
+// ClearRequestedModel clears the value of the "requested_model" field.
+func (u *UsageLogUpsert) ClearRequestedModel() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldRequestedModel)
+	return u
+}
+
+// SetUpstreamModel sets the "upstream_model" field.
+func (u *UsageLogUpsert) SetUpstreamModel(v string) *UsageLogUpsert {
+	u.Set(usagelog.FieldUpstreamModel, v)
+	return u
+}
+
+// UpdateUpstreamModel sets the "upstream_model" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateUpstreamModel() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldUpstreamModel)
+	return u
+}
+
+// ClearUpstreamModel clears the value of the "upstream_model" field.
+func (u *UsageLogUpsert) ClearUpstreamModel() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldUpstreamModel)
+	return u
+}
+
+// SetChannelID sets the "channel_id" field.
+func (u *UsageLogUpsert) SetChannelID(v int64) *UsageLogUpsert {
+	u.Set(usagelog.FieldChannelID, v)
+	return u
+}
+
+// UpdateChannelID sets the "channel_id" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateChannelID() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldChannelID)
+	return u
+}
+
+// AddChannelID adds v to the "channel_id" field.
+func (u *UsageLogUpsert) AddChannelID(v int64) *UsageLogUpsert {
+	u.Add(usagelog.FieldChannelID, v)
+	return u
+}
+
+// ClearChannelID clears the value of the "channel_id" field.
+func (u *UsageLogUpsert) ClearChannelID() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldChannelID)
+	return u
+}
+
+// SetModelMappingChain sets the "model_mapping_chain" field.
+func (u *UsageLogUpsert) SetModelMappingChain(v string) *UsageLogUpsert {
+	u.Set(usagelog.FieldModelMappingChain, v)
+	return u
+}
+
+// UpdateModelMappingChain sets the "model_mapping_chain" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateModelMappingChain() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldModelMappingChain)
+	return u
+}
+
+// ClearModelMappingChain clears the value of the "model_mapping_chain" field.
+func (u *UsageLogUpsert) ClearModelMappingChain() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldModelMappingChain)
+	return u
+}
+
+// SetBillingTier sets the "billing_tier" field.
+func (u *UsageLogUpsert) SetBillingTier(v string) *UsageLogUpsert {
+	u.Set(usagelog.FieldBillingTier, v)
+	return u
+}
+
+// UpdateBillingTier sets the "billing_tier" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateBillingTier() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldBillingTier)
+	return u
+}
+
+// ClearBillingTier clears the value of the "billing_tier" field.
+func (u *UsageLogUpsert) ClearBillingTier() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldBillingTier)
+	return u
+}
+
+// SetBillingMode sets the "billing_mode" field.
+func (u *UsageLogUpsert) SetBillingMode(v string) *UsageLogUpsert {
+	u.Set(usagelog.FieldBillingMode, v)
+	return u
+}
+
+// UpdateBillingMode sets the "billing_mode" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateBillingMode() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldBillingMode)
+	return u
+}
+
+// ClearBillingMode clears the value of the "billing_mode" field.
+func (u *UsageLogUpsert) ClearBillingMode() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldBillingMode)
 	return u
 }
 
@@ -1455,24 +1679,6 @@ func (u *UsageLogUpsert) ClearImageSize() *UsageLogUpsert {
 	return u
 }
 
-// SetMediaType sets the "media_type" field.
-func (u *UsageLogUpsert) SetMediaType(v string) *UsageLogUpsert {
-	u.Set(usagelog.FieldMediaType, v)
-	return u
-}
-
-// UpdateMediaType sets the "media_type" field to the value that was provided on create.
-func (u *UsageLogUpsert) UpdateMediaType() *UsageLogUpsert {
-	u.SetExcluded(usagelog.FieldMediaType)
-	return u
-}
-
-// ClearMediaType clears the value of the "media_type" field.
-func (u *UsageLogUpsert) ClearMediaType() *UsageLogUpsert {
-	u.SetNull(usagelog.FieldMediaType)
-	return u
-}
-
 // SetCacheTTLOverridden sets the "cache_ttl_overridden" field.
 func (u *UsageLogUpsert) SetCacheTTLOverridden(v bool) *UsageLogUpsert {
 	u.Set(usagelog.FieldCacheTTLOverridden, v)
@@ -1597,6 +1803,139 @@ func (u *UsageLogUpsertOne) SetModel(v string) *UsageLogUpsertOne {
 func (u *UsageLogUpsertOne) UpdateModel() *UsageLogUpsertOne {
 	return u.Update(func(s *UsageLogUpsert) {
 		s.UpdateModel()
+	})
+}
+
+// SetRequestedModel sets the "requested_model" field.
+func (u *UsageLogUpsertOne) SetRequestedModel(v string) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetRequestedModel(v)
+	})
+}
+
+// UpdateRequestedModel sets the "requested_model" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateRequestedModel() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateRequestedModel()
+	})
+}
+
+// ClearRequestedModel clears the value of the "requested_model" field.
+func (u *UsageLogUpsertOne) ClearRequestedModel() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearRequestedModel()
+	})
+}
+
+// SetUpstreamModel sets the "upstream_model" field.
+func (u *UsageLogUpsertOne) SetUpstreamModel(v string) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetUpstreamModel(v)
+	})
+}
+
+// UpdateUpstreamModel sets the "upstream_model" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateUpstreamModel() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateUpstreamModel()
+	})
+}
+
+// ClearUpstreamModel clears the value of the "upstream_model" field.
+func (u *UsageLogUpsertOne) ClearUpstreamModel() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearUpstreamModel()
+	})
+}
+
+// SetChannelID sets the "channel_id" field.
+func (u *UsageLogUpsertOne) SetChannelID(v int64) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetChannelID(v)
+	})
+}
+
+// AddChannelID adds v to the "channel_id" field.
+func (u *UsageLogUpsertOne) AddChannelID(v int64) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.AddChannelID(v)
+	})
+}
+
+// UpdateChannelID sets the "channel_id" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateChannelID() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateChannelID()
+	})
+}
+
+// ClearChannelID clears the value of the "channel_id" field.
+func (u *UsageLogUpsertOne) ClearChannelID() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearChannelID()
+	})
+}
+
+// SetModelMappingChain sets the "model_mapping_chain" field.
+func (u *UsageLogUpsertOne) SetModelMappingChain(v string) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetModelMappingChain(v)
+	})
+}
+
+// UpdateModelMappingChain sets the "model_mapping_chain" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateModelMappingChain() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateModelMappingChain()
+	})
+}
+
+// ClearModelMappingChain clears the value of the "model_mapping_chain" field.
+func (u *UsageLogUpsertOne) ClearModelMappingChain() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearModelMappingChain()
+	})
+}
+
+// SetBillingTier sets the "billing_tier" field.
+func (u *UsageLogUpsertOne) SetBillingTier(v string) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetBillingTier(v)
+	})
+}
+
+// UpdateBillingTier sets the "billing_tier" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateBillingTier() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateBillingTier()
+	})
+}
+
+// ClearBillingTier clears the value of the "billing_tier" field.
+func (u *UsageLogUpsertOne) ClearBillingTier() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearBillingTier()
+	})
+}
+
+// SetBillingMode sets the "billing_mode" field.
+func (u *UsageLogUpsertOne) SetBillingMode(v string) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetBillingMode(v)
+	})
+}
+
+// UpdateBillingMode sets the "billing_mode" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateBillingMode() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateBillingMode()
+	})
+}
+
+// ClearBillingMode clears the value of the "billing_mode" field.
+func (u *UsageLogUpsertOne) ClearBillingMode() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearBillingMode()
 	})
 }
 
@@ -2118,27 +2457,6 @@ func (u *UsageLogUpsertOne) ClearImageSize() *UsageLogUpsertOne {
 	})
 }
 
-// SetMediaType sets the "media_type" field.
-func (u *UsageLogUpsertOne) SetMediaType(v string) *UsageLogUpsertOne {
-	return u.Update(func(s *UsageLogUpsert) {
-		s.SetMediaType(v)
-	})
-}
-
-// UpdateMediaType sets the "media_type" field to the value that was provided on create.
-func (u *UsageLogUpsertOne) UpdateMediaType() *UsageLogUpsertOne {
-	return u.Update(func(s *UsageLogUpsert) {
-		s.UpdateMediaType()
-	})
-}
-
-// ClearMediaType clears the value of the "media_type" field.
-func (u *UsageLogUpsertOne) ClearMediaType() *UsageLogUpsertOne {
-	return u.Update(func(s *UsageLogUpsert) {
-		s.ClearMediaType()
-	})
-}
-
 // SetCacheTTLOverridden sets the "cache_ttl_overridden" field.
 func (u *UsageLogUpsertOne) SetCacheTTLOverridden(v bool) *UsageLogUpsertOne {
 	return u.Update(func(s *UsageLogUpsert) {
@@ -2431,6 +2749,139 @@ func (u *UsageLogUpsertBulk) SetModel(v string) *UsageLogUpsertBulk {
 func (u *UsageLogUpsertBulk) UpdateModel() *UsageLogUpsertBulk {
 	return u.Update(func(s *UsageLogUpsert) {
 		s.UpdateModel()
+	})
+}
+
+// SetRequestedModel sets the "requested_model" field.
+func (u *UsageLogUpsertBulk) SetRequestedModel(v string) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetRequestedModel(v)
+	})
+}
+
+// UpdateRequestedModel sets the "requested_model" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateRequestedModel() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateRequestedModel()
+	})
+}
+
+// ClearRequestedModel clears the value of the "requested_model" field.
+func (u *UsageLogUpsertBulk) ClearRequestedModel() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearRequestedModel()
+	})
+}
+
+// SetUpstreamModel sets the "upstream_model" field.
+func (u *UsageLogUpsertBulk) SetUpstreamModel(v string) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetUpstreamModel(v)
+	})
+}
+
+// UpdateUpstreamModel sets the "upstream_model" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateUpstreamModel() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateUpstreamModel()
+	})
+}
+
+// ClearUpstreamModel clears the value of the "upstream_model" field.
+func (u *UsageLogUpsertBulk) ClearUpstreamModel() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearUpstreamModel()
+	})
+}
+
+// SetChannelID sets the "channel_id" field.
+func (u *UsageLogUpsertBulk) SetChannelID(v int64) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetChannelID(v)
+	})
+}
+
+// AddChannelID adds v to the "channel_id" field.
+func (u *UsageLogUpsertBulk) AddChannelID(v int64) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.AddChannelID(v)
+	})
+}
+
+// UpdateChannelID sets the "channel_id" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateChannelID() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateChannelID()
+	})
+}
+
+// ClearChannelID clears the value of the "channel_id" field.
+func (u *UsageLogUpsertBulk) ClearChannelID() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearChannelID()
+	})
+}
+
+// SetModelMappingChain sets the "model_mapping_chain" field.
+func (u *UsageLogUpsertBulk) SetModelMappingChain(v string) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetModelMappingChain(v)
+	})
+}
+
+// UpdateModelMappingChain sets the "model_mapping_chain" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateModelMappingChain() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateModelMappingChain()
+	})
+}
+
+// ClearModelMappingChain clears the value of the "model_mapping_chain" field.
+func (u *UsageLogUpsertBulk) ClearModelMappingChain() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearModelMappingChain()
+	})
+}
+
+// SetBillingTier sets the "billing_tier" field.
+func (u *UsageLogUpsertBulk) SetBillingTier(v string) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetBillingTier(v)
+	})
+}
+
+// UpdateBillingTier sets the "billing_tier" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateBillingTier() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateBillingTier()
+	})
+}
+
+// ClearBillingTier clears the value of the "billing_tier" field.
+func (u *UsageLogUpsertBulk) ClearBillingTier() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearBillingTier()
+	})
+}
+
+// SetBillingMode sets the "billing_mode" field.
+func (u *UsageLogUpsertBulk) SetBillingMode(v string) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetBillingMode(v)
+	})
+}
+
+// UpdateBillingMode sets the "billing_mode" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateBillingMode() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateBillingMode()
+	})
+}
+
+// ClearBillingMode clears the value of the "billing_mode" field.
+func (u *UsageLogUpsertBulk) ClearBillingMode() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearBillingMode()
 	})
 }
 
@@ -2949,27 +3400,6 @@ func (u *UsageLogUpsertBulk) UpdateImageSize() *UsageLogUpsertBulk {
 func (u *UsageLogUpsertBulk) ClearImageSize() *UsageLogUpsertBulk {
 	return u.Update(func(s *UsageLogUpsert) {
 		s.ClearImageSize()
-	})
-}
-
-// SetMediaType sets the "media_type" field.
-func (u *UsageLogUpsertBulk) SetMediaType(v string) *UsageLogUpsertBulk {
-	return u.Update(func(s *UsageLogUpsert) {
-		s.SetMediaType(v)
-	})
-}
-
-// UpdateMediaType sets the "media_type" field to the value that was provided on create.
-func (u *UsageLogUpsertBulk) UpdateMediaType() *UsageLogUpsertBulk {
-	return u.Update(func(s *UsageLogUpsert) {
-		s.UpdateMediaType()
-	})
-}
-
-// ClearMediaType clears the value of the "media_type" field.
-func (u *UsageLogUpsertBulk) ClearMediaType() *UsageLogUpsertBulk {
-	return u.Update(func(s *UsageLogUpsert) {
-		s.ClearMediaType()
 	})
 }
 

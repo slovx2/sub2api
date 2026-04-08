@@ -166,6 +166,12 @@
             </span>
           </template>
 
+          <template #cell-endpoint="{ row }">
+            <span class="text-sm text-gray-600 dark:text-gray-300 block max-w-[320px] whitespace-normal break-all">
+              {{ formatUsageEndpoints(row) }}
+            </span>
+          </template>
+
           <template #cell-stream="{ row }">
             <span
               class="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium"
@@ -175,9 +181,16 @@
             </span>
           </template>
 
+          <template #cell-billing_mode="{ row }">
+            <span class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium"
+                  :class="getBillingModeBadgeClass(row.billing_mode)">
+              {{ getBillingModeLabel(row.billing_mode) }}
+            </span>
+          </template>
+
           <template #cell-tokens="{ row }">
-            <!-- 图片生成请求 -->
-            <div v-if="row.image_count > 0" class="flex items-center gap-1.5">
+            <!-- 图片生成请求（仅按次计费时显示图片格式） -->
+            <div v-if="row.image_count > 0 && row.billing_mode === 'image'" class="flex items-center gap-1.5">
               <svg
                 class="h-4 w-4 text-indigo-500"
                 fill="none"
@@ -451,7 +464,7 @@
           <div class="flex items-center justify-between gap-6">
             <span class="text-gray-400">{{ t('usage.rate') }}</span>
             <span class="font-semibold text-blue-400"
-              >{{ (tooltipData?.rate_multiplier || 1).toFixed(2) }}x</span
+              >{{ formatMultiplier(tooltipData?.rate_multiplier || 1) }}x</span
             >
           </div>
           <div class="flex items-center justify-between gap-6">
@@ -490,6 +503,8 @@ import Icon from '@/components/icons/Icon.vue'
 import type { UsageLog, ApiKey, UsageQueryParams, UsageStatsResponse } from '@/types'
 import type { Column } from '@/components/common/types'
 import { formatDateTime, formatReasoningEffort } from '@/utils/format'
+import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
+import { formatCacheTokens, formatMultiplier } from '@/utils/formatters'
 import { formatTokenPricePerMillion } from '@/utils/usagePricing'
 import { getUsageServiceTierLabel } from '@/utils/usageServiceTier'
 import { resolveUsageRequestType } from '@/utils/usageRequestType'
@@ -516,7 +531,9 @@ const columns = computed<Column[]>(() => [
   { key: 'api_key', label: t('usage.apiKeyFilter'), sortable: false },
   { key: 'model', label: t('usage.model'), sortable: true },
   { key: 'reasoning_effort', label: t('usage.reasoningEffort'), sortable: false },
+  { key: 'endpoint', label: t('usage.endpoint'), sortable: false },
   { key: 'stream', label: t('usage.type'), sortable: false },
+  { key: 'billing_mode', label: t('admin.usage.billingMode'), sortable: false },
   { key: 'tokens', label: t('usage.tokens'), sortable: false },
   { key: 'cost', label: t('usage.cost'), sortable: false },
   { key: 'first_token', label: t('usage.firstToken'), sortable: false },
@@ -577,7 +594,7 @@ const onDateRangeChange = (range: {
 
 const pagination = reactive({
   page: 1,
-  page_size: 20,
+  page_size: getPersistedPageSize(),
   total: 0,
   pages: 0
 })
@@ -607,12 +624,29 @@ const getRequestTypeBadgeClass = (log: UsageLog): string => {
   return 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200'
 }
 
+const getBillingModeLabel = (mode: string | null | undefined): string => {
+  if (mode === 'per_request') return t('admin.usage.billingModePerRequest')
+  if (mode === 'image') return t('admin.usage.billingModeImage')
+  return t('admin.usage.billingModeToken')
+}
+
+const getBillingModeBadgeClass = (mode: string | null | undefined): string => {
+  if (mode === 'per_request') return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200'
+  if (mode === 'image') return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200'
+  return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+}
+
 const getRequestTypeExportText = (log: UsageLog): string => {
   const requestType = resolveUsageRequestType(log)
   if (requestType === 'ws_v2') return 'WS'
   if (requestType === 'stream') return 'Stream'
   if (requestType === 'sync') return 'Sync'
   return 'Unknown'
+}
+
+const formatUsageEndpoints = (log: UsageLog): string => {
+  const inbound = log.inbound_endpoint?.trim()
+  return inbound || '-'
 }
 
 const formatTokens = (value: number): string => {
@@ -626,15 +660,6 @@ const formatTokens = (value: number): string => {
   return value.toLocaleString()
 }
 
-// Compact format for cache tokens in table cells
-const formatCacheTokens = (value: number): string => {
-  if (value >= 1_000_000) {
-    return `${(value / 1_000_000).toFixed(1)}M`
-  } else if (value >= 1_000) {
-    return `${(value / 1_000).toFixed(1)}K`
-  }
-  return value.toLocaleString()
-}
 
 const loadUsageLogs = async () => {
   if (abortController) {
@@ -789,7 +814,9 @@ const exportToCSV = async () => {
       'API Key Name',
       'Model',
       'Reasoning Effort',
+      'Inbound Endpoint',
       'Type',
+      'Billing Mode',
       'Input Tokens',
       'Output Tokens',
       'Cache Read Tokens',
@@ -806,7 +833,9 @@ const exportToCSV = async () => {
         log.api_key?.name || '',
         log.model,
         formatReasoningEffort(log.reasoning_effort),
+        log.inbound_endpoint || '',
         getRequestTypeExportText(log),
+        getBillingModeLabel(log.billing_mode),
         log.input_tokens,
         log.output_tokens,
         log.cache_read_tokens,

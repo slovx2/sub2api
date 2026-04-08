@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
@@ -154,10 +155,6 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 				group.FieldImagePrice1k,
 				group.FieldImagePrice2k,
 				group.FieldImagePrice4k,
-				group.FieldSoraImagePrice360,
-				group.FieldSoraImagePrice540,
-				group.FieldSoraVideoPricePerRequest,
-				group.FieldSoraVideoPricePerRequestHd,
 				group.FieldClaudeCodeOnly,
 				group.FieldFallbackGroupID,
 				group.FieldFallbackGroupIDOnInvalidRequest,
@@ -257,9 +254,12 @@ func (r *apiKeyRepository) Update(ctx context.Context, key *service.APIKey) erro
 }
 
 func (r *apiKeyRepository) Delete(ctx context.Context, id int64) error {
+	// 存在唯一键约束 生成tombstone key 用来释放原key，长度远小于 128，满足 schema 限制
+	tombstoneKey := fmt.Sprintf("__deleted__%d__%d", id, time.Now().UnixNano())
 	// 显式软删除：避免依赖 Hook 行为，确保 deleted_at 一定被设置。
 	affected, err := r.client.APIKey.Update().
 		Where(apikey.IDEQ(id), apikey.DeletedAtIsNil()).
+		SetKey(tombstoneKey).
 		SetDeletedAt(time.Now()).
 		Save(ctx)
 	if err != nil {
@@ -405,6 +405,16 @@ func (r *apiKeyRepository) ClearGroupIDByGroupID(ctx context.Context, groupID in
 	n, err := r.client.APIKey.Update().
 		Where(apikey.GroupIDEQ(groupID), apikey.DeletedAtIsNil()).
 		ClearGroupID().
+		Save(ctx)
+	return int64(n), err
+}
+
+// UpdateGroupIDByUserAndGroup 将用户下绑定 oldGroupID 的所有 Key 迁移到 newGroupID
+func (r *apiKeyRepository) UpdateGroupIDByUserAndGroup(ctx context.Context, userID, oldGroupID, newGroupID int64) (int64, error) {
+	client := clientFromContext(ctx, r.client)
+	n, err := client.APIKey.Update().
+		Where(apikey.UserIDEQ(userID), apikey.GroupIDEQ(oldGroupID), apikey.DeletedAtIsNil()).
+		SetGroupID(newGroupID).
 		Save(ctx)
 	return int64(n), err
 }
@@ -594,22 +604,20 @@ func userEntityToService(u *dbent.User) *service.User {
 		return nil
 	}
 	return &service.User{
-		ID:                    u.ID,
-		Email:                 u.Email,
-		Username:              u.Username,
-		Notes:                 u.Notes,
-		PasswordHash:          u.PasswordHash,
-		Role:                  u.Role,
-		Balance:               u.Balance,
-		Concurrency:           u.Concurrency,
-		Status:                u.Status,
-		SoraStorageQuotaBytes: u.SoraStorageQuotaBytes,
-		SoraStorageUsedBytes:  u.SoraStorageUsedBytes,
-		TotpSecretEncrypted:   u.TotpSecretEncrypted,
-		TotpEnabled:           u.TotpEnabled,
-		TotpEnabledAt:         u.TotpEnabledAt,
-		CreatedAt:             u.CreatedAt,
-		UpdatedAt:             u.UpdatedAt,
+		ID:                  u.ID,
+		Email:               u.Email,
+		Username:            u.Username,
+		Notes:               u.Notes,
+		PasswordHash:        u.PasswordHash,
+		Role:                u.Role,
+		Balance:             u.Balance,
+		Concurrency:         u.Concurrency,
+		Status:              u.Status,
+		TotpSecretEncrypted: u.TotpSecretEncrypted,
+		TotpEnabled:         u.TotpEnabled,
+		TotpEnabledAt:       u.TotpEnabledAt,
+		CreatedAt:           u.CreatedAt,
+		UpdatedAt:           u.UpdatedAt,
 	}
 }
 
@@ -633,11 +641,6 @@ func groupEntityToService(g *dbent.Group) *service.Group {
 		ImagePrice1K:                    g.ImagePrice1k,
 		ImagePrice2K:                    g.ImagePrice2k,
 		ImagePrice4K:                    g.ImagePrice4k,
-		SoraImagePrice360:               g.SoraImagePrice360,
-		SoraImagePrice540:               g.SoraImagePrice540,
-		SoraVideoPricePerRequest:        g.SoraVideoPricePerRequest,
-		SoraVideoPricePerRequestHD:      g.SoraVideoPricePerRequestHd,
-		SoraStorageQuotaBytes:           g.SoraStorageQuotaBytes,
 		DefaultValidityDays:             g.DefaultValidityDays,
 		ClaudeCodeOnly:                  g.ClaudeCodeOnly,
 		FallbackGroupID:                 g.FallbackGroupID,
@@ -648,6 +651,8 @@ func groupEntityToService(g *dbent.Group) *service.Group {
 		SupportedModelScopes:            g.SupportedModelScopes,
 		SortOrder:                       g.SortOrder,
 		AllowMessagesDispatch:           g.AllowMessagesDispatch,
+		RequireOAuthOnly:                g.RequireOauthOnly,
+		RequirePrivacySet:               g.RequirePrivacySet,
 		DefaultMappedModel:              g.DefaultMappedModel,
 		CreatedAt:                       g.CreatedAt,
 		UpdatedAt:                       g.UpdatedAt,

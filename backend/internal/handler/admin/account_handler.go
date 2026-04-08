@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -97,7 +98,7 @@ type CreateAccountRequest struct {
 	Name                    string         `json:"name" binding:"required"`
 	Notes                   *string        `json:"notes"`
 	Platform                string         `json:"platform" binding:"required"`
-	Type                    string         `json:"type" binding:"required,oneof=oauth setup-token apikey upstream"`
+	Type                    string         `json:"type" binding:"required,oneof=oauth setup-token apikey upstream bedrock"`
 	Credentials             map[string]any `json:"credentials" binding:"required"`
 	Extra                   map[string]any `json:"extra"`
 	ProxyID                 *int64         `json:"proxy_id"`
@@ -116,7 +117,7 @@ type CreateAccountRequest struct {
 type UpdateAccountRequest struct {
 	Name                    string         `json:"name"`
 	Notes                   *string        `json:"notes"`
-	Type                    string         `json:"type" binding:"omitempty,oneof=oauth setup-token apikey upstream"`
+	Type                    string         `json:"type" binding:"omitempty,oneof=oauth setup-token apikey upstream bedrock"`
 	Credentials             map[string]any `json:"credentials"`
 	Extra                   map[string]any `json:"extra"`
 	ProxyID                 *int64         `json:"proxy_id"`
@@ -172,6 +173,8 @@ type AccountWithConcurrency struct {
 	CurrentRPM        *int     `json:"current_rpm,omitempty"`         // 当前分钟 RPM 计数
 }
 
+const accountListGroupUngroupedQueryValue = "ungrouped"
+
 func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, account *service.Account) AccountWithConcurrency {
 	item := AccountWithConcurrency{
 		Account:            dto.AccountFromService(account),
@@ -224,6 +227,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 	accountType := c.Query("type")
 	status := c.Query("status")
 	search := c.Query("search")
+	privacyMode := strings.TrimSpace(c.Query("privacy_mode"))
 	// 标准化和验证 search 参数
 	search = strings.TrimSpace(search)
 	if len(search) > 100 {
@@ -233,10 +237,23 @@ func (h *AccountHandler) List(c *gin.Context) {
 
 	var groupID int64
 	if groupIDStr := c.Query("group"); groupIDStr != "" {
-		groupID, _ = strconv.ParseInt(groupIDStr, 10, 64)
+		if groupIDStr == accountListGroupUngroupedQueryValue {
+			groupID = service.AccountListGroupUngrouped
+		} else {
+			parsedGroupID, parseErr := strconv.ParseInt(groupIDStr, 10, 64)
+			if parseErr != nil {
+				response.ErrorFrom(c, infraerrors.BadRequest("INVALID_GROUP_FILTER", "invalid group filter"))
+				return
+			}
+			if parsedGroupID < 0 {
+				response.ErrorFrom(c, infraerrors.BadRequest("INVALID_GROUP_FILTER", "invalid group filter"))
+				return
+			}
+			groupID = parsedGroupID
+		}
 	}
 
-	accounts, total, err := h.adminService.ListAccounts(c.Request.Context(), page, pageSize, platform, accountType, status, search, groupID)
+	accounts, total, err := h.adminService.ListAccounts(c.Request.Context(), page, pageSize, platform, accountType, status, search, groupID, privacyMode)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -608,6 +625,10 @@ func (h *AccountHandler) Create(c *gin.Context) {
 		if execErr != nil {
 			return nil, execErr
 		}
+		// Antigravity OAuth: 新账号直接设置隐私
+		h.adminService.ForceAntigravityPrivacy(ctx, account)
+		// OpenAI OAuth: 新账号直接设置隐私
+		h.adminService.ForceOpenAIPrivacy(ctx, account)
 		return h.buildAccountResponseWithRuntime(ctx, account), nil
 	})
 	if err != nil {
@@ -854,6 +875,8 @@ func (h *AccountHandler) refreshSingleAccount(ctx context.Context, account *serv
 	if account.IsOpenAI() {
 		tokenInfo, err := h.openaiOAuthService.RefreshAccountToken(ctx, account)
 		if err != nil {
+			// 刷新失败但 access_token 可能仍有效，尝试设置隐私
+			h.adminService.EnsureOpenAIPrivacy(ctx, account)
 			return nil, "", err
 		}
 
@@ -904,6 +927,7 @@ func (h *AccountHandler) refreshSingleAccount(ctx context.Context, account *serv
 			if updateErr != nil {
 				return nil, "", fmt.Errorf("failed to update credentials: %w", updateErr)
 			}
+			h.adminService.EnsureAntigravityPrivacy(ctx, updatedAccount)
 			return updatedAccount, "missing_project_id_temporary", nil
 		}
 
@@ -955,6 +979,8 @@ func (h *AccountHandler) refreshSingleAccount(ctx context.Context, account *serv
 
 	// OpenAI OAuth: 刷新成功后检查并设置 privacy_mode
 	h.adminService.EnsureOpenAIPrivacy(ctx, updatedAccount)
+	// Antigravity OAuth: 刷新成功后检查并设置 privacy_mode
+	h.adminService.EnsureAntigravityPrivacy(ctx, updatedAccount)
 
 	return updatedAccount, "", nil
 }
@@ -1226,6 +1252,9 @@ func (h *AccountHandler) BatchCreate(c *gin.Context) {
 		success := 0
 		failed := 0
 		results := make([]gin.H, 0, len(req.Accounts))
+		// 收集需要异步设置隐私的 OAuth 账号
+		var antigravityPrivacyAccounts []*service.Account
+		var openaiPrivacyAccounts []*service.Account
 
 		for _, item := range req.Accounts {
 			if item.RateMultiplier != nil && *item.RateMultiplier < 0 {
@@ -1268,12 +1297,52 @@ func (h *AccountHandler) BatchCreate(c *gin.Context) {
 				})
 				continue
 			}
+			// 收集需要异步设置隐私的 OAuth 账号
+			if account.Type == service.AccountTypeOAuth {
+				switch account.Platform {
+				case service.PlatformAntigravity:
+					antigravityPrivacyAccounts = append(antigravityPrivacyAccounts, account)
+				case service.PlatformOpenAI:
+					openaiPrivacyAccounts = append(openaiPrivacyAccounts, account)
+				}
+			}
 			success++
 			results = append(results, gin.H{
 				"name":    item.Name,
 				"id":      account.ID,
 				"success": true,
 			})
+		}
+
+		// 异步设置隐私，避免批量创建时阻塞请求
+		adminSvc := h.adminService
+		if len(antigravityPrivacyAccounts) > 0 {
+			accounts := antigravityPrivacyAccounts
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						slog.Error("batch_create_antigravity_privacy_panic", "recover", r)
+					}
+				}()
+				bgCtx := context.Background()
+				for _, acc := range accounts {
+					adminSvc.ForceAntigravityPrivacy(bgCtx, acc)
+				}
+			}()
+		}
+		if len(openaiPrivacyAccounts) > 0 {
+			accounts := openaiPrivacyAccounts
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						slog.Error("batch_create_openai_privacy_panic", "recover", r)
+					}
+				}()
+				bgCtx := context.Background()
+				for _, acc := range accounts {
+					adminSvc.ForceOpenAIPrivacy(bgCtx, acc)
+				}
+			}()
 		}
 
 		return gin.H{
@@ -1584,7 +1653,7 @@ func (h *OAuthHandler) SetupTokenCookieAuth(c *gin.Context) {
 }
 
 // GetUsage handles getting account usage information
-// GET /api/v1/admin/accounts/:id/usage
+// GET /api/v1/admin/accounts/:id/usage?source=passive|active
 func (h *AccountHandler) GetUsage(c *gin.Context) {
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -1592,7 +1661,14 @@ func (h *AccountHandler) GetUsage(c *gin.Context) {
 		return
 	}
 
-	usage, err := h.accountUsageService.GetUsage(c.Request.Context(), accountID)
+	source := c.DefaultQuery("source", "active")
+
+	var usage *service.UsageInfo
+	if source == "passive" {
+		usage, err = h.accountUsageService.GetPassiveUsage(c.Request.Context(), accountID)
+	} else {
+		usage, err = h.accountUsageService.GetUsage(c.Request.Context(), accountID)
+	}
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -1806,13 +1882,12 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 
 	// Handle OpenAI accounts
 	if account.IsOpenAI() {
-		// For OAuth accounts: return default OpenAI models
-		if account.IsOAuth() {
+		// OpenAI 自动透传会绕过常规模型改写，测试/模型列表也应回落到默认模型集。
+		if account.IsOpenAIPassthroughEnabled() {
 			response.Success(c, openai.DefaultModels)
 			return
 		}
 
-		// For API Key accounts: check model_mapping
 		mapping := account.GetModelMapping()
 		if len(mapping) == 0 {
 			response.Success(c, openai.DefaultModels)
@@ -1888,12 +1963,6 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
-	// Handle Sora accounts
-	if account.Platform == service.PlatformSora {
-		response.Success(c, service.DefaultSoraModels(nil))
-		return
-	}
-
 	// Handle Claude/Anthropic accounts
 	// For OAuth and Setup-Token accounts: return default models
 	if account.IsOAuth() {
@@ -1933,6 +2002,51 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	}
 
 	response.Success(c, models)
+}
+
+// SetPrivacy handles setting privacy for a single OpenAI/Antigravity OAuth account
+// POST /api/v1/admin/accounts/:id/set-privacy
+func (h *AccountHandler) SetPrivacy(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	account, err := h.adminService.GetAccount(c.Request.Context(), accountID)
+	if err != nil {
+		response.NotFound(c, "Account not found")
+		return
+	}
+	if account.Type != service.AccountTypeOAuth {
+		response.BadRequest(c, "Only OAuth accounts support privacy setting")
+		return
+	}
+	var mode string
+	switch account.Platform {
+	case service.PlatformOpenAI:
+		mode = h.adminService.ForceOpenAIPrivacy(c.Request.Context(), account)
+	case service.PlatformAntigravity:
+		mode = h.adminService.ForceAntigravityPrivacy(c.Request.Context(), account)
+	default:
+		response.BadRequest(c, "Only OpenAI and Antigravity OAuth accounts support privacy setting")
+		return
+	}
+	if mode == "" {
+		response.BadRequest(c, "Cannot set privacy: missing access_token")
+		return
+	}
+	// 从 DB 重新读取以确保返回最新状态
+	updated, err := h.adminService.GetAccount(c.Request.Context(), accountID)
+	if err != nil {
+		// 隐私已设置成功但读取失败，回退到内存更新
+		if account.Extra == nil {
+			account.Extra = make(map[string]any)
+		}
+		account.Extra["privacy_mode"] = mode
+		response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+		return
+	}
+	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), updated))
 }
 
 // RefreshTier handles refreshing Google One tier for a single account
@@ -2003,7 +2117,7 @@ func (h *AccountHandler) BatchRefreshTier(c *gin.Context) {
 	accounts := make([]*service.Account, 0)
 
 	if len(req.AccountIDs) == 0 {
-		allAccounts, _, err := h.adminService.ListAccounts(ctx, 1, 10000, "gemini", "oauth", "", "", 0)
+		allAccounts, _, err := h.adminService.ListAccounts(ctx, 1, 10000, "gemini", "oauth", "", "", 0, "")
 		if err != nil {
 			response.ErrorFrom(c, err)
 			return

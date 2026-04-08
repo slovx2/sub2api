@@ -36,6 +36,7 @@ export async function list(
     status?: string
     group?: string
     search?: string
+    privacy_mode?: string
     lite?: string
   },
   options?: {
@@ -66,7 +67,9 @@ export async function listWithEtag(
     platform?: string
     type?: string
     status?: string
+    group?: string
     search?: string
+    privacy_mode?: string
     lite?: string
   },
   options?: {
@@ -223,8 +226,10 @@ export async function clearError(id: number): Promise<Account> {
  * @param id - Account ID
  * @returns Account usage info
  */
-export async function getUsage(id: number): Promise<AccountUsageInfo> {
-  const { data } = await apiClient.get<AccountUsageInfo>(`/admin/accounts/${id}/usage`)
+export async function getUsage(id: number, source?: 'passive' | 'active'): Promise<AccountUsageInfo> {
+  const { data } = await apiClient.get<AccountUsageInfo>(`/admin/accounts/${id}/usage`, {
+    params: source ? { source } : undefined
+  })
   return data
 }
 
@@ -547,35 +552,17 @@ export async function getAntigravityDefaultModelMapping(): Promise<Record<string
 export async function refreshOpenAIToken(
   refreshToken: string,
   proxyId?: number | null,
-  endpoint: string = '/admin/openai/refresh-token'
+  endpoint: string = '/admin/openai/refresh-token',
+  clientId?: string
 ): Promise<Record<string, unknown>> {
-  const payload: { refresh_token: string; proxy_id?: number } = {
+  const payload: { refresh_token: string; proxy_id?: number; client_id?: string } = {
     refresh_token: refreshToken
   }
   if (proxyId) {
     payload.proxy_id = proxyId
   }
-  const { data } = await apiClient.post<Record<string, unknown>>(endpoint, payload)
-  return data
-}
-
-/**
- * Validate Sora session token and exchange to access token
- * @param sessionToken - Sora session token
- * @param proxyId - Optional proxy ID
- * @param endpoint - API endpoint path
- * @returns Token information including access_token
- */
-export async function validateSoraSessionToken(
-  sessionToken: string,
-  proxyId?: number | null,
-  endpoint: string = '/admin/sora/st2at'
-): Promise<Record<string, unknown>> {
-  const payload: { session_token: string; proxy_id?: number } = {
-    session_token: sessionToken
-  }
-  if (proxyId) {
-    payload.proxy_id = proxyId
+  if (clientId) {
+    payload.client_id = clientId
   }
   const { data } = await apiClient.post<Record<string, unknown>>(endpoint, payload)
   return data
@@ -618,6 +605,16 @@ export async function batchRefresh(accountIds: number[]): Promise<BatchOperation
   return data
 }
 
+/**
+ * Set privacy for an Antigravity OAuth account
+ * @param id - Account ID
+ * @returns Updated account
+ */
+export async function setPrivacy(id: number): Promise<Account> {
+  const { data } = await apiClient.post<Account>(`/admin/accounts/${id}/set-privacy`)
+  return data
+}
+
 export const accountsAPI = {
   list,
   listWithEtag,
@@ -644,7 +641,6 @@ export const accountsAPI = {
   generateAuthUrl,
   exchangeCode,
   refreshOpenAIToken,
-  validateSoraSessionToken,
   batchCreate,
   batchUpdateCredentials,
   bulkUpdate,
@@ -654,7 +650,8 @@ export const accountsAPI = {
   importData,
   getAntigravityDefaultModelMapping,
   batchClearError,
-  batchRefresh
+  batchRefresh,
+  setPrivacy
 }
 
 export default accountsAPI

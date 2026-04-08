@@ -404,6 +404,167 @@ func TestFilterThinkingBlocksForRetry_EmptyContentGetsPlaceholder(t *testing.T) 
 	require.NotEmpty(t, content0["text"])
 }
 
+func TestFilterThinkingBlocksForRetry_StripsEmptyTextBlocks(t *testing.T) {
+	// Empty text blocks cause upstream 400: "text content blocks must be non-empty"
+	input := []byte(`{
+		"messages":[
+			{"role":"user","content":[{"type":"text","text":"hello"},{"type":"text","text":""}]},
+			{"role":"assistant","content":[{"type":"text","text":""}]}
+		]
+	}`)
+
+	out := FilterThinkingBlocksForRetry(input)
+
+	var req map[string]any
+	require.NoError(t, json.Unmarshal(out, &req))
+	msgs, ok := req["messages"].([]any)
+	require.True(t, ok)
+
+	// First message: empty text block stripped, "hello" preserved
+	msg0 := msgs[0].(map[string]any)
+	content0 := msg0["content"].([]any)
+	require.Len(t, content0, 1)
+	require.Equal(t, "hello", content0[0].(map[string]any)["text"])
+
+	// Second message: only had empty text block → gets placeholder
+	msg1 := msgs[1].(map[string]any)
+	content1 := msg1["content"].([]any)
+	require.Len(t, content1, 1)
+	block1 := content1[0].(map[string]any)
+	require.Equal(t, "text", block1["type"])
+	require.NotEmpty(t, block1["text"])
+}
+
+func TestFilterThinkingBlocksForRetry_StripsNestedEmptyTextInToolResult(t *testing.T) {
+	// Empty text blocks nested inside tool_result content should also be stripped
+	input := []byte(`{
+		"messages":[
+			{"role":"user","content":[
+				{"type":"tool_result","tool_use_id":"t1","content":[
+					{"type":"text","text":"valid result"},
+					{"type":"text","text":""}
+				]}
+			]}
+		]
+	}`)
+
+	out := FilterThinkingBlocksForRetry(input)
+
+	var req map[string]any
+	require.NoError(t, json.Unmarshal(out, &req))
+	msgs := req["messages"].([]any)
+	msg0 := msgs[0].(map[string]any)
+	content0 := msg0["content"].([]any)
+	require.Len(t, content0, 1)
+	toolResult := content0[0].(map[string]any)
+	require.Equal(t, "tool_result", toolResult["type"])
+	nestedContent := toolResult["content"].([]any)
+	require.Len(t, nestedContent, 1)
+	require.Equal(t, "valid result", nestedContent[0].(map[string]any)["text"])
+}
+
+func TestFilterThinkingBlocksForRetry_NestedAllEmptyGetsEmptySlice(t *testing.T) {
+	// If all nested content blocks in tool_result are empty text, content becomes empty slice
+	input := []byte(`{
+		"messages":[
+			{"role":"user","content":[
+				{"type":"tool_result","tool_use_id":"t1","content":[
+					{"type":"text","text":""}
+				]},
+				{"type":"text","text":"hello"}
+			]}
+		]
+	}`)
+
+	out := FilterThinkingBlocksForRetry(input)
+
+	var req map[string]any
+	require.NoError(t, json.Unmarshal(out, &req))
+	msgs := req["messages"].([]any)
+	msg0 := msgs[0].(map[string]any)
+	content0 := msg0["content"].([]any)
+	require.Len(t, content0, 2)
+	toolResult := content0[0].(map[string]any)
+	nestedContent := toolResult["content"].([]any)
+	require.Len(t, nestedContent, 0)
+}
+
+func TestStripEmptyTextBlocks(t *testing.T) {
+	t.Run("strips top-level empty text", func(t *testing.T) {
+		input := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"hello"},{"type":"text","text":""}]}]}`)
+		out := StripEmptyTextBlocks(input)
+		var req map[string]any
+		require.NoError(t, json.Unmarshal(out, &req))
+		msgs := req["messages"].([]any)
+		content := msgs[0].(map[string]any)["content"].([]any)
+		require.Len(t, content, 1)
+		require.Equal(t, "hello", content[0].(map[string]any)["text"])
+	})
+
+	t.Run("strips nested empty text in tool_result", func(t *testing.T) {
+		input := []byte(`{"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":[{"type":"text","text":"ok"},{"type":"text","text":""}]}]}]}`)
+		out := StripEmptyTextBlocks(input)
+		var req map[string]any
+		require.NoError(t, json.Unmarshal(out, &req))
+		msgs := req["messages"].([]any)
+		content := msgs[0].(map[string]any)["content"].([]any)
+		toolResult := content[0].(map[string]any)
+		nestedContent := toolResult["content"].([]any)
+		require.Len(t, nestedContent, 1)
+		require.Equal(t, "ok", nestedContent[0].(map[string]any)["text"])
+	})
+
+	t.Run("no-op when no empty text", func(t *testing.T) {
+		input := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}]}`)
+		out := StripEmptyTextBlocks(input)
+		require.Equal(t, input, out)
+	})
+
+	t.Run("preserves non-map blocks in content", func(t *testing.T) {
+		// tool_result content can be a string; non-map blocks should pass through unchanged
+		input := []byte(`{"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"string content"},{"type":"text","text":""}]}]}`)
+		out := StripEmptyTextBlocks(input)
+		var req map[string]any
+		require.NoError(t, json.Unmarshal(out, &req))
+		msgs := req["messages"].([]any)
+		content := msgs[0].(map[string]any)["content"].([]any)
+		require.Len(t, content, 1)
+		toolResult := content[0].(map[string]any)
+		require.Equal(t, "tool_result", toolResult["type"])
+		require.Equal(t, "string content", toolResult["content"])
+	})
+
+	t.Run("handles deeply nested tool_result", func(t *testing.T) {
+		// Recursive: tool_result containing another tool_result with empty text
+		input := []byte(`{"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":[{"type":"tool_result","tool_use_id":"t2","content":[{"type":"text","text":""},{"type":"text","text":"deep"}]}]}]}]}`)
+		out := StripEmptyTextBlocks(input)
+		var req map[string]any
+		require.NoError(t, json.Unmarshal(out, &req))
+		msgs := req["messages"].([]any)
+		content := msgs[0].(map[string]any)["content"].([]any)
+		outer := content[0].(map[string]any)
+		innerContent := outer["content"].([]any)
+		inner := innerContent[0].(map[string]any)
+		deepContent := inner["content"].([]any)
+		require.Len(t, deepContent, 1)
+		require.Equal(t, "deep", deepContent[0].(map[string]any)["text"])
+	})
+}
+
+func TestFilterThinkingBlocksForRetry_PreservesNonEmptyTextBlocks(t *testing.T) {
+	// Non-empty text blocks should pass through unchanged
+	input := []byte(`{
+		"messages":[
+			{"role":"user","content":[{"type":"text","text":"hello"},{"type":"text","text":"world"}]}
+		]
+	}`)
+
+	out := FilterThinkingBlocksForRetry(input)
+
+	// Fast path: no thinking content, no empty content, no empty text blocks → unchanged
+	require.Equal(t, input, out)
+}
+
 func TestFilterSignatureSensitiveBlocksForRetry_DowngradesTools(t *testing.T) {
 	input := []byte(`{
 		"thinking":{"type":"enabled","budget_tokens":1024},
@@ -969,6 +1130,76 @@ func BenchmarkParseGatewayRequest_Old_Large(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, _ = parseGatewayRequestOld(data, "")
+	}
+}
+
+func TestParseGatewayRequest_OutputEffort(t *testing.T) {
+	tests := []struct {
+		name       string
+		body       string
+		wantEffort string
+	}{
+		{
+			name:       "output_config.effort present",
+			body:       `{"model":"claude-opus-4-6","output_config":{"effort":"medium"},"messages":[]}`,
+			wantEffort: "medium",
+		},
+		{
+			name:       "output_config.effort max",
+			body:       `{"model":"claude-opus-4-6","output_config":{"effort":"max"},"messages":[]}`,
+			wantEffort: "max",
+		},
+		{
+			name:       "output_config without effort",
+			body:       `{"model":"claude-opus-4-6","output_config":{},"messages":[]}`,
+			wantEffort: "",
+		},
+		{
+			name:       "no output_config",
+			body:       `{"model":"claude-opus-4-6","messages":[]}`,
+			wantEffort: "",
+		},
+		{
+			name:       "effort with whitespace trimmed",
+			body:       `{"model":"claude-opus-4-6","output_config":{"effort":" high "},"messages":[]}`,
+			wantEffort: "high",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parsed, err := ParseGatewayRequest([]byte(tt.body), "")
+			require.NoError(t, err)
+			require.Equal(t, tt.wantEffort, parsed.OutputEffort)
+		})
+	}
+}
+
+func TestNormalizeClaudeOutputEffort(t *testing.T) {
+	tests := []struct {
+		input string
+		want  *string
+	}{
+		{"low", strPtr("low")},
+		{"medium", strPtr("medium")},
+		{"high", strPtr("high")},
+		{"max", strPtr("max")},
+		{"LOW", strPtr("low")},
+		{"Max", strPtr("max")},
+		{" medium ", strPtr("medium")},
+		{"", nil},
+		{"unknown", nil},
+		{"xhigh", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := NormalizeClaudeOutputEffort(tt.input)
+			if tt.want == nil {
+				require.Nil(t, got)
+			} else {
+				require.NotNil(t, got)
+				require.Equal(t, *tt.want, *got)
+			}
+		})
 	}
 }
 

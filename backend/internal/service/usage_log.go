@@ -98,11 +98,30 @@ type UsageLog struct {
 	AccountID int64
 	RequestID string
 	Model     string
+	// RequestedModel is the client-requested model name recorded for stable user/admin display.
+	// Empty should be treated as Model for backward compatibility with historical rows.
+	RequestedModel string
+	// UpstreamModel is the actual model sent to the upstream provider after mapping.
+	// Nil means no mapping was applied (requested model was used as-is).
+	UpstreamModel *string
+	// ChannelID 渠道 ID
+	ChannelID *int64
+	// ModelMappingChain 模型映射链，如 "a→b→c"
+	ModelMappingChain *string
+	// BillingTier 计费层级标签（per_request/image 模式）
+	BillingTier *string
+	// BillingMode 计费模式：token/image
+	BillingMode *string
 	// ServiceTier records the OpenAI service tier used for billing, e.g. "priority" / "flex".
 	ServiceTier *string
-	// ReasoningEffort is the request's reasoning effort level (OpenAI Responses API),
-	// e.g. "low" / "medium" / "high" / "xhigh". Nil means not provided / not applicable.
+	// ReasoningEffort is the request's reasoning effort level.
+	// OpenAI: "low" / "medium" / "high" / "xhigh"; Claude: "low" / "medium" / "high" / "max".
+	// Nil means not provided / not applicable.
 	ReasoningEffort *string
+	// InboundEndpoint is the client-facing API endpoint path, e.g. /v1/chat/completions.
+	InboundEndpoint *string
+	// UpstreamEndpoint is the normalized upstream endpoint path, e.g. /v1/responses.
+	UpstreamEndpoint *string
 
 	GroupID        *int64
 	SubscriptionID *int64
@@ -114,6 +133,9 @@ type UsageLog struct {
 
 	CacheCreation5mTokens int `gorm:"column:cache_creation_5m_tokens"`
 	CacheCreation1hTokens int `gorm:"column:cache_creation_1h_tokens"`
+
+	ImageOutputTokens int
+	ImageOutputCost   float64
 
 	InputCost         float64
 	OutputCost        float64

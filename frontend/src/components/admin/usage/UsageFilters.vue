@@ -133,23 +133,18 @@
           <Select v-model="filters.billing_type" :options="billingTypeOptions" @change="emitChange" />
         </div>
 
+        <!-- Billing Mode Filter -->
+        <div class="w-full sm:w-auto sm:min-w-[200px]">
+          <label class="input-label">{{ t('admin.usage.billingMode') }}</label>
+          <Select v-model="filters.billing_mode" :options="billingModeOptions" @change="emitChange" />
+        </div>
+
         <!-- Group Filter -->
         <div class="w-full sm:w-auto sm:min-w-[200px]">
           <label class="input-label">{{ t('admin.usage.group') }}</label>
           <Select v-model="filters.group_id" :options="groupOptions" searchable @change="emitChange" />
         </div>
 
-        <!-- Date Range Filter -->
-        <div class="w-full sm:w-auto [&_.date-picker-trigger]:w-full">
-          <label class="input-label">{{ t('usage.timeRange') }}</label>
-          <DateRangePicker
-            :start-date="startDate"
-            :end-date="endDate"
-            @update:startDate="updateStartDate"
-            @update:endDate="updateEndDate"
-            @change="emitChange"
-          />
-        </div>
       </div>
 
       <!-- Right: actions -->
@@ -177,7 +172,6 @@ import { ref, onMounted, onUnmounted, toRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
-import DateRangePicker from '@/components/common/DateRangePicker.vue'
 import type { SimpleApiKey, SimpleUser } from '@/api/admin/usage'
 
 type ModelValue = Record<string, any>
@@ -195,8 +189,6 @@ const props = withDefaults(defineProps<Props>(), {
 })
 const emit = defineEmits([
   'update:modelValue',
-  'update:startDate',
-  'update:endDate',
   'change',
   'refresh',
   'reset',
@@ -246,17 +238,14 @@ const billingTypeOptions = ref<SelectOption[]>([
   { value: 1, label: t('admin.usage.billingTypeSubscription') }
 ])
 
+const billingModeOptions = ref<SelectOption[]>([
+  { value: null, label: t('admin.usage.allBillingModes') },
+  { value: 'token', label: t('admin.usage.billingModeToken') },
+  { value: 'per_request', label: t('admin.usage.billingModePerRequest') },
+  { value: 'image', label: t('admin.usage.billingModeImage') }
+])
+
 const emitChange = () => emit('change')
-
-const updateStartDate = (value: string) => {
-  emit('update:startDate', value)
-  filters.value.start_date = value
-}
-
-const updateEndDate = (value: string) => {
-  emit('update:endDate', value)
-  filters.value.end_date = value
-}
 
 const debounceUserSearch = () => {
   if (userSearchTimeout) clearTimeout(userSearchTimeout)
@@ -441,7 +430,11 @@ onMounted(async () => {
     groupOptions.value.push(...gs.items.map((g: any) => ({ value: g.id, label: g.name })))
 
     const uniqueModels = new Set<string>()
-    ms.models?.forEach((s: any) => s.model && uniqueModels.add(s.model))
+    ms.models?.forEach((s: any) => {
+      if (s.model) {
+        uniqueModels.add(s.model)
+      }
+    })
     modelOptions.value.push(
       ...Array.from(uniqueModels)
         .sort()
