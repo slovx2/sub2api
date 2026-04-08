@@ -657,8 +657,6 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 	msg := "Access forbidden (403): account may be suspended or lack permissions"
 	if upstreamMsg != "" {
 		msg = "Access forbidden (403): " + upstreamMsg
-	} else if rawBody := strings.TrimSpace(truncateForLog(responseBody, 1024)); rawBody != "" {
-		msg = "Access forbidden (403): " + rawBody
 	}
 	s.handleAuthError(ctx, account, msg)
 	return true
