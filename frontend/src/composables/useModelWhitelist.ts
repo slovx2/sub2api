@@ -52,12 +52,16 @@ const geminiModels = [
   // Keep in sync with backend curated Gemini lists.
   // This list is intentionally conservative (models commonly available across OAuth/API key).
   'gemini-3.1-flash-image',
+  'gemini-3.1-flash-image-preview',
+  'gemini-3-pro-image-preview',
   'gemini-2.5-flash-image',
+  'gemini-3.1-flash-lite-preview',
   'gemini-2.0-flash',
   'gemini-2.5-flash',
   'gemini-2.5-pro',
   'gemini-3-flash-preview',
-  'gemini-3-pro-preview'
+  'gemini-3-pro-preview',
+  'gemini-3.1-pro-preview'
 ]
 
 // Antigravity 官方支持的模型（精确匹配）
