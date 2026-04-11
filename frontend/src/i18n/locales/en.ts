@@ -2682,11 +2682,22 @@ export default {
           'All model requests are forwarded directly to the Gemini API without model restrictions or mappings.',
         baseUrlHint: 'Leave default for official Gemini API',
         apiKeyHint: 'Your Gemini API Key (starts with AIza)',
+        baseUrlHintVertex: 'Leave default for the official Vertex AI express mode endpoint',
+        apiKeyHintVertex: 'Your Vertex AI API Key (usually starts with AQ)',
+        apiModeLabel: 'API Mode',
+        apiModeHint:
+          'AI Studio stays the default. When switched to Vertex AI, sub2api will call Vertex directly instead of using an upstream compatibility relay.',
+        apiMode: {
+          aiStudio: 'AI Studio',
+          vertex: 'Vertex AI'
+        },
         tier: {
           label: 'Account Tier',
           hint: 'Tip: The system will try to auto-detect the tier first; if auto-detection is unavailable or fails, your selected tier is used as a fallback (simulated quota).',
           aiStudioHint:
             'AI Studio quotas are per-model (Pro/Flash are limited independently). If billing is enabled, choose Pay-as-you-go.',
+          vertexHint:
+            'Vertex API keys use Vertex AI Express Mode. This tier is only used for local scheduling heuristics and does not change Google-side quota.',
           googleOne: {
             free: 'Google One Free',
             pro: 'Google One Pro',
@@ -2699,15 +2710,19 @@ export default {
           aiStudio: {
             free: 'Google AI Free',
             paid: 'Google AI Pay-as-you-go'
+          },
+          vertex: {
+            standard: 'Vertex AI Standard',
+            enterprise: 'Vertex AI Enterprise'
           }
         },
         accountType: {
           oauthTitle: 'OAuth (Gemini)',
           oauthDesc: 'Authorize with your Google account and choose an OAuth type.',
-          apiKeyTitle: 'API Key (AI Studio)',
-          apiKeyDesc: 'Fastest setup. Use an AIza API key.',
+          apiKeyTitle: 'API Key (AI Studio / Vertex AI)',
+          apiKeyDesc: 'Supports both AI Studio API keys and Vertex AI API keys.',
           apiKeyNote:
-            'Best for light testing. Free tier has strict rate limits and data may be used for training.',
+            'Choose AI Studio or Vertex AI when creating the account. The default remains AI Studio.',
           apiKeyLink: 'Get API Key',
           quotaLink: 'Quota guide'
         },
@@ -2790,6 +2805,11 @@ export default {
               paid: 'Billing enabled (pay-as-you-go)',
               limitsFree: 'RPD 50; RPM 2 (Pro) / 15 (Flash)',
               limitsPaid: 'RPD unlimited; RPM 1000 (Pro) / 2000 (Flash) (per model)'
+            },
+            vertex: {
+              channel: 'Vertex AI API Key (Express Mode)',
+              limitsStandard: 'Shared pool: follows Vertex project quota; local scheduler defaults to Standard',
+              limitsEnterprise: 'Shared pool: follows Vertex project quota; local scheduler defaults to Enterprise'
             },
             customOAuth: {
               channel: 'Custom OAuth Client (GCP)',

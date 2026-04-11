@@ -2815,11 +2815,21 @@ export default {
         modelPassthroughDesc: '所有模型请求将直接转发至 Gemini API，不进行模型限制或映射。',
         baseUrlHint: '留空使用官方 Gemini API',
         apiKeyHint: '您的 Gemini API Key（以 AIza 开头）',
+        baseUrlHintVertex: '留空使用官方 Vertex AI Express Mode 地址',
+        apiKeyHintVertex: '您的 Vertex AI API Key（通常以 AQ 开头）',
+        apiModeLabel: '接口类型',
+        apiModeHint: '默认使用 AI Studio。切到 Vertex AI 后，sub2api 会直接请求 Vertex，不经过上游兼容模式。',
+        apiMode: {
+          aiStudio: 'AI Studio',
+          vertex: 'Vertex AI'
+        },
         tier: {
           label: '账号等级',
           hint: '提示：系统会优先尝试自动识别账号等级；若自动识别不可用或失败，则使用你选择的等级作为回退（本地模拟配额）。',
           aiStudioHint:
             'AI Studio 的配额是按模型分别限流（Pro/Flash 独立）。若已绑卡（按量付费），请选 Pay-as-you-go。',
+          vertexHint:
+            'Vertex API key 走的是 Vertex AI Express Mode。这里的等级仅用于本地调度参考，不会改变 Google 侧真实额度。',
           googleOne: {
             free: 'Google One Free',
             pro: 'Google One Pro',
@@ -2832,14 +2842,18 @@ export default {
           aiStudio: {
             free: 'Google AI Free',
             paid: 'Google AI Pay-as-you-go'
+          },
+          vertex: {
+            standard: 'Vertex AI Standard',
+            enterprise: 'Vertex AI Enterprise'
           }
         },
         accountType: {
           oauthTitle: 'OAuth 授权（Gemini）',
           oauthDesc: '使用 Google 账号授权，并选择 OAuth 子类型。',
-          apiKeyTitle: 'API 密钥（AI Studio）',
-          apiKeyDesc: '最快接入方式，使用 AIza API Key。',
-          apiKeyNote: '适合轻量测试。免费层限流严格，数据可能用于训练。',
+          apiKeyTitle: 'API 密钥（AI Studio / Vertex AI）',
+          apiKeyDesc: '支持 AI Studio API Key，也支持 Vertex AI API Key。',
+          apiKeyNote: '创建时可再选择 AI Studio 或 Vertex AI。默认仍是 AI Studio。',
           apiKeyLink: '获取 API Key',
           quotaLink: '配额说明'
         },
@@ -2922,6 +2936,11 @@ export default {
               paid: '已绑卡（按量付费）',
               limitsFree: 'RPD 50；RPM 2（Pro）/ 15（Flash）',
               limitsPaid: 'RPD 不限；RPM 1000（Pro）/ 2000（Flash）（按模型配额）'
+            },
+            vertex: {
+              channel: 'Vertex AI API Key（Express Mode）',
+              limitsStandard: '共享池：按 Vertex 项目配额生效；默认按 Standard 级别做本地调度',
+              limitsEnterprise: '共享池：按 Vertex 项目配额生效；默认按 Enterprise 级别做本地调度'
             },
             customOAuth: {
               channel: 'Custom OAuth Client（GCP）',

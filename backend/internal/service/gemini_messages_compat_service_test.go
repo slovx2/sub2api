@@ -308,6 +308,45 @@ func TestGeminiMessagesCompatServiceForward_NormalizesWebSearchToolForAIStudio(t
 	require.False(t, hasFuncDecl)
 }
 
+func TestBuildGeminiAPIKeyUpstreamURL_VertexExpressMode(t *testing.T) {
+	account := &Account{
+		Type:     AccountTypeAPIKey,
+		Platform: PlatformGemini,
+		Credentials: map[string]any{
+			"api_key":  "test-key",
+			"api_mode": "vertex",
+		},
+	}
+
+	fullURL, err := buildGeminiAPIKeyUpstreamURL(
+		account,
+		func(raw string) (string, error) { return raw, nil },
+		"gemini-2.5-flash",
+		"streamGenerateContent",
+		true,
+	)
+	require.NoError(t, err)
+	require.Equal(
+		t,
+		"https://aiplatform.googleapis.com/v1beta1/publishers/google/models/gemini-2.5-flash:streamGenerateContent?alt=sse",
+		fullURL,
+	)
+}
+
+func TestBuildGeminiVertexModelsFallback(t *testing.T) {
+	res, handled, err := buildGeminiVertexModelsFallback("/v1beta/models")
+	require.NoError(t, err)
+	require.True(t, handled)
+	require.Equal(t, http.StatusOK, res.StatusCode)
+	require.Contains(t, string(res.Body), "\"models\"")
+
+	res, handled, err = buildGeminiVertexModelsFallback("/v1beta/models/gemini-2.5-flash")
+	require.NoError(t, err)
+	require.True(t, handled)
+	require.Equal(t, http.StatusOK, res.StatusCode)
+	require.Contains(t, string(res.Body), "\"models/gemini-2.5-flash\"")
+}
+
 func TestConvertClaudeMessagesToGeminiGenerateContent_AddsThoughtSignatureForToolUse(t *testing.T) {
 	claudeReq := map[string]any{
 		"model":      "claude-haiku-4-5-20251001",

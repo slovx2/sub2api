@@ -849,6 +849,14 @@
 
       <!-- API Key input (only for apikey type, excluding Antigravity which has its own fields) -->
       <div v-if="form.type === 'apikey' && form.platform !== 'antigravity'" class="space-y-4">
+        <div v-if="form.platform === 'gemini'">
+          <label class="input-label">{{ t('admin.accounts.gemini.apiModeLabel') }}</label>
+          <select v-model="geminiApiMode" class="input">
+            <option value="ai_studio">{{ t('admin.accounts.gemini.apiMode.aiStudio') }}</option>
+            <option value="vertex">{{ t('admin.accounts.gemini.apiMode.vertex') }}</option>
+          </select>
+          <p class="input-hint">{{ t('admin.accounts.gemini.apiModeHint') }}</p>
+        </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
@@ -859,7 +867,9 @@
               form.platform === 'openai'
                 ? 'https://api.openai.com'
                 : form.platform === 'gemini'
-                  ? 'https://generativelanguage.googleapis.com'
+                  ? geminiApiMode === 'vertex'
+                    ? 'https://aiplatform.googleapis.com'
+                    : 'https://generativelanguage.googleapis.com'
                   : 'https://api.anthropic.com'
             "
           />
@@ -876,7 +886,9 @@
               form.platform === 'openai'
                 ? 'sk-proj-...'
                 : form.platform === 'gemini'
-                  ? 'AIza...'
+                  ? geminiApiMode === 'vertex'
+                    ? 'AQ...'
+                    : 'AIza...'
                   : 'sk-ant-...'
             "
           />
@@ -886,11 +898,21 @@
         <!-- Gemini API Key tier selection -->
         <div v-if="form.platform === 'gemini'">
           <label class="input-label">{{ t('admin.accounts.gemini.tier.label') }}</label>
-          <select v-model="geminiTierAIStudio" class="input">
+          <select v-if="geminiApiMode === 'vertex'" v-model="geminiTierVertex" class="input">
+            <option value="gcp_standard">{{ t('admin.accounts.gemini.tier.vertex.standard') }}</option>
+            <option value="gcp_enterprise">{{ t('admin.accounts.gemini.tier.vertex.enterprise') }}</option>
+          </select>
+          <select v-else v-model="geminiTierAIStudio" class="input">
             <option value="aistudio_free">{{ t('admin.accounts.gemini.tier.aiStudio.free') }}</option>
             <option value="aistudio_paid">{{ t('admin.accounts.gemini.tier.aiStudio.paid') }}</option>
           </select>
-          <p class="input-hint">{{ t('admin.accounts.gemini.tier.aiStudioHint') }}</p>
+          <p class="input-hint">
+            {{
+              geminiApiMode === 'vertex'
+                ? t('admin.accounts.gemini.tier.vertexHint')
+                : t('admin.accounts.gemini.tier.aiStudioHint')
+            }}
+          </p>
         </div>
 
         <!-- Model Restriction Section (Antigravity 已在上层条件排除) -->
@@ -2872,13 +2894,21 @@ const oauthStepTitle = computed(() => {
 // Platform-specific hints for API Key type
 const baseUrlHint = computed(() => {
   if (form.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
-  if (form.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
+  if (form.platform === 'gemini') {
+    return geminiApiMode.value === 'vertex'
+      ? t('admin.accounts.gemini.baseUrlHintVertex')
+      : t('admin.accounts.gemini.baseUrlHint')
+  }
   return t('admin.accounts.baseUrlHint')
 })
 
 const apiKeyHint = computed(() => {
   if (form.platform === 'openai') return t('admin.accounts.openai.apiKeyHint')
-  if (form.platform === 'gemini') return t('admin.accounts.gemini.apiKeyHint')
+  if (form.platform === 'gemini') {
+    return geminiApiMode.value === 'vertex'
+      ? t('admin.accounts.gemini.apiKeyHintVertex')
+      : t('admin.accounts.gemini.apiKeyHint')
+  }
   return t('admin.accounts.apiKeyHint')
 })
 
@@ -3006,6 +3036,7 @@ const getAntigravityModelMappingKey = createStableObjectKeyResolver<ModelMapping
 const getTempUnschedRuleKey = createStableObjectKeyResolver<TempUnschedRuleForm>('create-temp-unsched-rule')
 const geminiOAuthType = ref<'code_assist' | 'google_one' | 'ai_studio'>('google_one')
 const geminiAIStudioOAuthEnabled = ref(false)
+const geminiApiMode = ref<'ai_studio' | 'vertex'>('ai_studio')
 
 function buildAntigravityExtra(): Record<string, unknown> | undefined {
   const extra: Record<string, unknown> = {}
@@ -3054,10 +3085,13 @@ const customBaseUrl = ref('')
 const geminiTierGoogleOne = ref<'google_one_free' | 'google_ai_pro' | 'google_ai_ultra'>('google_one_free')
 const geminiTierGcp = ref<'gcp_standard' | 'gcp_enterprise'>('gcp_standard')
 const geminiTierAIStudio = ref<'aistudio_free' | 'aistudio_paid'>('aistudio_free')
+const geminiTierVertex = ref<'gcp_standard' | 'gcp_enterprise'>('gcp_standard')
 
 const geminiSelectedTier = computed(() => {
   if (form.platform !== 'gemini') return ''
-  if (accountCategory.value === 'apikey') return geminiTierAIStudio.value
+  if (accountCategory.value === 'apikey') {
+    return geminiApiMode.value === 'vertex' ? geminiTierVertex.value : geminiTierAIStudio.value
+  }
   switch (geminiOAuthType.value) {
     case 'google_one':
       return geminiTierGoogleOne.value
@@ -3267,7 +3301,9 @@ watch(
       (newPlatform === 'openai')
         ? 'https://api.openai.com'
         : newPlatform === 'gemini'
-          ? 'https://generativelanguage.googleapis.com'
+          ? (geminiApiMode.value === 'vertex'
+              ? 'https://aiplatform.googleapis.com'
+              : 'https://generativelanguage.googleapis.com')
           : 'https://api.anthropic.com'
     // Clear model-related settings
     allowedModels.value = []
@@ -3314,6 +3350,19 @@ watch(
 
     geminiOAuth.resetState()
     antigravityOAuth.resetState()
+  }
+)
+
+watch(
+  geminiApiMode,
+  (newMode) => {
+    if (form.platform !== 'gemini' || accountCategory.value !== 'apikey') return
+    const aiStudioURL = 'https://generativelanguage.googleapis.com'
+    const vertexURL = 'https://aiplatform.googleapis.com'
+    const current = apiKeyBaseUrl.value.trim()
+    if (!current || current === aiStudioURL || current === vertexURL) {
+      apiKeyBaseUrl.value = newMode === 'vertex' ? vertexURL : aiStudioURL
+    }
   }
 )
 
@@ -3719,6 +3768,8 @@ const resetForm = () => {
   geminiTierGoogleOne.value = 'google_one_free'
   geminiTierGcp.value = 'gcp_standard'
   geminiTierAIStudio.value = 'aistudio_free'
+  geminiApiMode.value = 'ai_studio'
+  geminiTierVertex.value = 'gcp_standard'
   oauth.resetState()
   openaiOAuth.resetState()
   geminiOAuth.resetState()
@@ -3950,7 +4001,9 @@ const handleSubmit = async () => {
     form.platform === 'openai'
       ? 'https://api.openai.com'
       : form.platform === 'gemini'
-        ? 'https://generativelanguage.googleapis.com'
+        ? geminiApiMode.value === 'vertex'
+          ? 'https://aiplatform.googleapis.com'
+          : 'https://generativelanguage.googleapis.com'
         : 'https://api.anthropic.com'
 
   // Build credentials with optional model mapping
@@ -3959,7 +4012,8 @@ const handleSubmit = async () => {
     api_key: apiKeyValue.value.trim()
   }
   if (form.platform === 'gemini') {
-    credentials.tier_id = geminiTierAIStudio.value
+    credentials.api_mode = geminiApiMode.value
+    credentials.tier_id = geminiApiMode.value === 'vertex' ? geminiTierVertex.value : geminiTierAIStudio.value
   }
 
   // Add model mapping if configured（OpenAI 开启自动透传时不应用）
