@@ -55,6 +55,11 @@ const isGoogleOne = computed(() => {
   return creds?.oauth_type === 'google_one'
 })
 
+const geminiApiMode = computed(() => {
+  const creds = props.account.credentials as GeminiCredentials | undefined
+  return (creds?.api_mode || '').toString().trim().toLowerCase() || 'ai_studio'
+})
+
 // 是否应该显示配额信息
 const shouldShowQuota = computed(() => {
   return props.account.platform === 'gemini'
@@ -88,8 +93,14 @@ const tierLabel = computed(() => {
     return 'Google One'
   }
 
-  // API Key: 显示 AI Studio
   const tier = (creds?.tier_id || '').toString().trim().toLowerCase()
+  if (props.account.type === 'apikey' && geminiApiMode.value === 'vertex') {
+    if (tier === 'gcp_enterprise') return 'Vertex AI Enterprise'
+    if (tier === 'gcp_standard') return 'Vertex AI Standard'
+    return 'Vertex AI'
+  }
+
+  // API Key: 显示 AI Studio
   if (tier === 'aistudio_paid') return 'AI Studio Pay-as-you-go'
   if (tier === 'aistudio_free') return 'AI Studio Free Tier'
   return 'AI Studio'
@@ -121,8 +132,13 @@ const tierBadgeClass = computed(() => {
     return 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
   }
 
-  // AI Studio 默认样式：蓝色
   const tier = (creds?.tier_id || '').toString().trim().toLowerCase()
+  if (props.account.type === 'apikey' && geminiApiMode.value === 'vertex') {
+    if (tier === 'gcp_enterprise') return 'bg-purple-100 text-purple-600 dark:bg-purple-900/40 dark:text-purple-300'
+    return 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300'
+  }
+
+  // AI Studio 默认样式：蓝色
   if (tier === 'aistudio_paid') return 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300'
   if (tier === 'aistudio_free') return 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
   return 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300'
