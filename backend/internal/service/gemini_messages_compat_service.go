@@ -2746,33 +2746,17 @@ func (s *GeminiMessagesCompatService) handleGeminiUpstreamError(ctx context.Cont
 
 	oauthType := account.GeminiOAuthType()
 	tierID := account.GeminiTierID()
-	projectID := strings.TrimSpace(account.GetCredential("project_id"))
-	isCodeAssist := account.IsGeminiCodeAssist()
 
 	resetAt := ParseGeminiRateLimitResetTime(body)
+	if isGeminiDailyQuota429(body) {
+		resetAt = nil
+	}
 	if resetAt == nil {
-		// 根据账号类型使用不同的默认重置时间
-		var ra time.Time
-		if isCodeAssist {
-			// Code Assist: fallback cooldown by tier
-			cooldown := geminiCooldownForTier(tierID)
-			if s.rateLimitService != nil {
-				cooldown = s.rateLimitService.GeminiCooldown(ctx, account)
-			}
-			ra = time.Now().Add(cooldown)
-			logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini 429] Account %d (Code Assist, tier=%s, project=%s) rate limited, cooldown=%v", account.ID, tierID, projectID, time.Until(ra).Truncate(time.Second))
-		} else {
-			// API Key / AI Studio OAuth: PST 午夜
-			if ts := nextGeminiDailyResetUnix(); ts != nil {
-				ra = time.Unix(*ts, 0)
-				logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini 429] Account %d (API Key/AI Studio, type=%s) rate limited, reset at PST midnight (%v)", account.ID, account.Type, ra)
-			} else {
-				// 兜底：5 分钟
-				ra = time.Now().Add(5 * time.Minute)
-				logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini 429] Account %d rate limited, fallback to 5min", account.ID)
-			}
-		}
+		cooldown := gemini429Cooldown(s.cfg)
+		ra := time.Now().Add(cooldown)
 		_ = s.accountRepo.SetRateLimited(ctx, account.ID, ra)
+		logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini 429] Account %d rate limited, fallback cooldown=%v (oauth_type=%s, tier=%s)",
+			account.ID, cooldown, oauthType, tierID)
 		return
 	}
 
@@ -2825,12 +2809,24 @@ func ParseGeminiRateLimitResetTime(body []byte) *int64 {
 	return nil
 }
 
+func isGeminiDailyQuota429(body []byte) bool {
+	errMsg := gjson.GetBytes(body, "error.message").String()
+	return looksLikeGeminiDailyQuota(errMsg)
+}
+
 func looksLikeGeminiDailyQuota(message string) bool {
 	m := strings.ToLower(message)
 	if strings.Contains(m, "per day") || strings.Contains(m, "requests per day") || strings.Contains(m, "quota") && strings.Contains(m, "per day") {
 		return true
 	}
 	return false
+}
+
+func gemini429Cooldown(cfg *config.Config) time.Duration {
+	if cfg != nil && cfg.RateLimit.Gemini429CooldownMinutes > 0 {
+		return time.Duration(cfg.RateLimit.Gemini429CooldownMinutes) * time.Minute
+	}
+	return time.Minute
 }
 
 func nextGeminiDailyResetUnix() *int64 {

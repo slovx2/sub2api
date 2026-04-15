@@ -158,6 +158,33 @@ func TestLoadDefaultOpenAIWSConfig(t *testing.T) {
 	}
 }
 
+func TestLoadDefaultGemini429CooldownConfig(t *testing.T) {
+	resetViperWithJWTSecret(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if cfg.RateLimit.Gemini429CooldownMinutes != 1 {
+		t.Fatalf("RateLimit.Gemini429CooldownMinutes = %d, want 1", cfg.RateLimit.Gemini429CooldownMinutes)
+	}
+}
+
+func TestLoadGemini429CooldownConfigFromEnv(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	t.Setenv("RATE_LIMIT_GEMINI_429_COOLDOWN_MINUTES", "3")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if cfg.RateLimit.Gemini429CooldownMinutes != 3 {
+		t.Fatalf("RateLimit.Gemini429CooldownMinutes = %d, want 3", cfg.RateLimit.Gemini429CooldownMinutes)
+	}
+}
+
 func TestLoadOpenAIWSStickyTTLCompatibility(t *testing.T) {
 	resetViperWithJWTSecret(t)
 	t.Setenv("GATEWAY_OPENAI_WS_STICKY_RESPONSE_ID_TTL_SECONDS", "0")
@@ -1356,6 +1383,11 @@ func TestValidateConfig_OpenAIWSRules(t *testing.T) {
 				c.Gateway.OpenAIWS.MaxIdlePerAccount = 3
 			},
 			wantErr: "gateway.openai_ws.max_idle_per_account must be <= max_conns_per_account",
+		},
+		{
+			name:    "gemini_429_cooldown_minutes 必须为正数",
+			mutate:  func(c *Config) { c.RateLimit.Gemini429CooldownMinutes = 0 },
+			wantErr: "rate_limit.gemini_429_cooldown_minutes",
 		},
 		{
 			name:    "dial_timeout_seconds 必须为正数",

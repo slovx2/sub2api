@@ -768,6 +768,9 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 			}
 		case PlatformGemini, PlatformAntigravity:
 			// 尝试解析 Gemini 格式（用于其他平台）
+			if account.Platform == PlatformGemini && isGeminiDailyQuota429(responseBody) {
+				break
+			}
 			if resetAt := ParseGeminiRateLimitResetTime(responseBody); resetAt != nil {
 				resetTime := time.Unix(*resetAt, 0)
 				if err := s.accountRepo.SetRateLimited(ctx, account.ID, resetTime); err != nil {
@@ -789,9 +792,13 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 			return
 		}
 
-		// 其他平台：没有重置时间，使用默认5分钟
-		resetAt := time.Now().Add(5 * time.Minute)
-		slog.Warn("rate_limit_no_reset_time", "account_id", account.ID, "platform", account.Platform, "using_default", "5m")
+		// Gemini 429 使用专用冷却窗口，避免按日配额文案直接挂到很久以后。
+		cooldown := 5 * time.Minute
+		if account.Platform == PlatformGemini {
+			cooldown = gemini429Cooldown(s.cfg)
+		}
+		resetAt := time.Now().Add(cooldown)
+		slog.Warn("rate_limit_no_reset_time", "account_id", account.ID, "platform", account.Platform, "using_default", cooldown.String())
 		if err := s.accountRepo.SetRateLimited(ctx, account.ID, resetAt); err != nil {
 			slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
 		}
