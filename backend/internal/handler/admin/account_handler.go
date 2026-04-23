@@ -228,6 +228,8 @@ func (h *AccountHandler) List(c *gin.Context) {
 	status := c.Query("status")
 	search := c.Query("search")
 	privacyMode := strings.TrimSpace(c.Query("privacy_mode"))
+	sortBy := c.DefaultQuery("sort_by", "name")
+	sortOrder := c.DefaultQuery("sort_order", "asc")
 	// 标准化和验证 search 参数
 	search = strings.TrimSpace(search)
 	if len(search) > 100 {
@@ -253,7 +255,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 		}
 	}
 
-	accounts, total, err := h.adminService.ListAccounts(c.Request.Context(), page, pageSize, platform, accountType, status, search, groupID, privacyMode)
+	accounts, total, err := h.adminService.ListAccounts(c.Request.Context(), page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -1498,6 +1500,12 @@ func (h *AccountHandler) BulkUpdate(c *gin.Context) {
 			c.JSON(409, gin.H{
 				"error":   "mixed_channel_warning",
 				"message": mixedErr.Error(),
+				"details": gin.H{
+					"group_id":         mixedErr.GroupID,
+					"group_name":       mixedErr.GroupName,
+					"current_platform": mixedErr.CurrentPlatform,
+					"other_platform":   mixedErr.OtherPlatform,
+				},
 			})
 			return
 		}
@@ -2117,7 +2125,7 @@ func (h *AccountHandler) BatchRefreshTier(c *gin.Context) {
 	accounts := make([]*service.Account, 0)
 
 	if len(req.AccountIDs) == 0 {
-		allAccounts, _, err := h.adminService.ListAccounts(ctx, 1, 10000, "gemini", "oauth", "", "", 0, "")
+		allAccounts, _, err := h.adminService.ListAccounts(ctx, 1, 10000, "gemini", "oauth", "", "", 0, "", "name", "asc")
 		if err != nil {
 			response.ErrorFrom(c, err)
 			return

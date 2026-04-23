@@ -2176,13 +2176,13 @@ interface DefaultSubscriptionGroupOption {
   [key: string]: unknown
 }
 
-type SettingsForm = SystemSettings & {
-  smtp_password: string
-  turnstile_secret_key: string
-  linuxdo_connect_client_secret: string
+type SettingsForm = Record<string, any> & SystemSettings & {
+ smtp_password: string
+ turnstile_secret_key: string
+ linuxdo_connect_client_secret: string
 }
 
-const form = reactive<SettingsForm>({
+const form = reactive({
   registration_enabled: true,
   email_verify_enabled: false,
   registration_email_suffix_whitelist: [],
@@ -2249,7 +2249,7 @@ const form = reactive<SettingsForm>({
   // Gateway forwarding behavior
   enable_fingerprint_unification: true,
   enable_metadata_passthrough: false
-})
+} as unknown as SettingsForm)
 
 const defaultSubscriptionGroupOptions = computed<DefaultSubscriptionGroupOption[]>(() =>
   subscriptionGroups.value.map((group) => ({

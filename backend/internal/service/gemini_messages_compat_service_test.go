@@ -164,6 +164,35 @@ func TestConvertClaudeToolsToGeminiTools_CustomType(t *testing.T) {
 	}
 }
 
+func TestConvertClaudeToolsToGeminiTools_PreservesWebSearchAlongsideFunctions(t *testing.T) {
+	tools := []any{
+		map[string]any{
+			"name":         "get_weather",
+			"description":  "Get weather info",
+			"input_schema": map[string]any{"type": "object"},
+		},
+		map[string]any{
+			"type": "web_search_20250305",
+			"name": "web_search",
+		},
+	}
+
+	result := convertClaudeToolsToGeminiTools(tools)
+	require.Len(t, result, 2)
+
+	functionDecl, ok := result[0].(map[string]any)
+	require.True(t, ok)
+	funcDecls, ok := functionDecl["functionDeclarations"].([]any)
+	require.True(t, ok)
+	require.Len(t, funcDecls, 1)
+
+	searchDecl, ok := result[1].(map[string]any)
+	require.True(t, ok)
+	googleSearch, ok := searchDecl["googleSearch"].(map[string]any)
+	require.True(t, ok)
+	require.Empty(t, googleSearch)
+}
+
 func TestGeminiHandleNativeNonStreamingResponse_DebugDisabledDoesNotEmitHeaderLogs(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	logSink, restore := captureStructuredLog(t)
@@ -232,44 +261,53 @@ func TestGeminiMessagesCompatServiceForward_PreservesRequestedModelAndMappedUpst
 	require.Contains(t, httpStub.lastReq.URL.String(), "/models/claude-sonnet-4-20250514:")
 }
 
-func TestBuildGeminiAPIKeyUpstreamURL_VertexExpressMode(t *testing.T) {
-	account := &Account{
-		Type:     AccountTypeAPIKey,
-		Platform: PlatformGemini,
-		Credentials: map[string]any{
-			"api_key":  "test-key",
-			"api_mode": "vertex",
+func TestGeminiMessagesCompatServiceForward_NormalizesWebSearchToolForAIStudio(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	httpStub := &geminiCompatHTTPUpstreamStub{
+		response: &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"x-request-id": []string{"gemini-req-2"}},
+			Body:       io.NopCloser(strings.NewReader(`{"candidates":[{"content":{"parts":[{"text":"hello"}]}}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":5}}`)),
 		},
 	}
+	svc := &GeminiMessagesCompatService{httpUpstream: httpStub, cfg: &config.Config{}}
+	account := &Account{
+		ID:   1,
+		Type: AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key": "test-key",
+		},
+	}
+	body := []byte(`{"model":"claude-sonnet-4","max_tokens":16,"messages":[{"role":"user","content":"hello"}],"tools":[{"name":"get_weather","description":"Get weather info","input_schema":{"type":"object"}},{"type":"web_search_20250305","name":"web_search"}]}`)
 
-	fullURL, err := buildGeminiAPIKeyUpstreamURL(
-		account,
-		func(raw string) (string, error) { return raw, nil },
-		"gemini-2.5-flash",
-		"streamGenerateContent",
-		true,
-	)
+	result, err := svc.Forward(context.Background(), c, account, body)
 	require.NoError(t, err)
-	require.Equal(
-		t,
-		"https://aiplatform.googleapis.com/v1beta1/publishers/google/models/gemini-2.5-flash:streamGenerateContent?alt=sse",
-		fullURL,
-	)
+	require.NotNil(t, result)
+	require.NotNil(t, httpStub.lastReq)
+
+	postedBody, err := io.ReadAll(httpStub.lastReq.Body)
+	require.NoError(t, err)
+
+	var posted map[string]any
+	require.NoError(t, json.Unmarshal(postedBody, &posted))
+	tools, ok := posted["tools"].([]any)
+	require.True(t, ok)
+	require.Len(t, tools, 2)
+
+	searchTool, ok := tools[1].(map[string]any)
+	require.True(t, ok)
+	_, hasSnake := searchTool["google_search"]
+	_, hasCamel := searchTool["googleSearch"]
+	require.True(t, hasSnake)
+	require.False(t, hasCamel)
+	_, hasFuncDecl := searchTool["functionDeclarations"]
+	require.False(t, hasFuncDecl)
 }
 
-func TestBuildGeminiVertexModelsFallback(t *testing.T) {
-	res, handled, err := buildGeminiVertexModelsFallback("/v1beta/models")
-	require.NoError(t, err)
-	require.True(t, handled)
-	require.Equal(t, http.StatusOK, res.StatusCode)
-	require.Contains(t, string(res.Body), "\"models\"")
-
-	res, handled, err = buildGeminiVertexModelsFallback("/v1beta/models/gemini-2.5-flash")
-	require.NoError(t, err)
-	require.True(t, handled)
-	require.Equal(t, http.StatusOK, res.StatusCode)
-	require.Contains(t, string(res.Body), "\"models/gemini-2.5-flash\"")
-}
 func TestConvertClaudeMessagesToGeminiGenerateContent_AddsThoughtSignatureForToolUse(t *testing.T) {
 	claudeReq := map[string]any{
 		"model":      "claude-haiku-4-5-20251001",

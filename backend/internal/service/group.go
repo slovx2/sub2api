@@ -3,7 +3,11 @@ package service
 import (
 	"strings"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
+
+type OpenAIMessagesDispatchModelConfig = domain.OpenAIMessagesDispatchModelConfig
 
 type Group struct {
 	ID             int64
@@ -49,10 +53,11 @@ type Group struct {
 	SortOrder int
 
 	// OpenAI Messages 调度配置（仅 openai 平台使用）
-	AllowMessagesDispatch bool
-	RequireOAuthOnly      bool // 仅允许非 apikey 类型账号关联（OpenAI/Antigravity/Anthropic/Gemini）
-	RequirePrivacySet     bool // 调度时仅允许 privacy 已成功设置的账号（OpenAI/Antigravity/Anthropic/Gemini）
-	DefaultMappedModel    string
+	AllowMessagesDispatch       bool
+	RequireOAuthOnly            bool // 仅允许非 apikey 类型账号关联（OpenAI/Antigravity/Anthropic/Gemini）
+	RequirePrivacySet           bool // 调度时仅允许 privacy 已成功设置的账号（OpenAI/Antigravity/Anthropic/Gemini）
+	DefaultMappedModel          string
+	MessagesDispatchModelConfig OpenAIMessagesDispatchModelConfig
 
 	CreatedAt time.Time
 	UpdatedAt time.Time
@@ -69,10 +74,6 @@ func (g *Group) IsActive() bool {
 
 func (g *Group) IsSubscriptionType() bool {
 	return g.SubscriptionType == SubscriptionTypeSubscription
-}
-
-func (g *Group) IsFreeSubscription() bool {
-	return g.IsSubscriptionType() && g.RateMultiplier == 0
 }
 
 func (g *Group) HasDailyLimit() bool {

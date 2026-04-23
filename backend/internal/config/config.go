@@ -28,7 +28,7 @@ const (
 
 // DefaultCSPPolicy is the default Content-Security-Policy with nonce support
 // __CSP_NONCE__ will be replaced with actual nonce at request time by the SecurityHeaders middleware
-const DefaultCSPPolicy = "default-src 'self'; script-src 'self' __CSP_NONCE__ https://challenges.cloudflare.com https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https:; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+const DefaultCSPPolicy = "default-src 'self'; script-src 'self' __CSP_NONCE__ https://challenges.cloudflare.com https://static.cloudflareinsights.com https://*.stripe.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https:; frame-src https://challenges.cloudflare.com https://*.stripe.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 
 // UMQ（用户消息队列）模式常量
 const (
@@ -52,6 +52,11 @@ const (
 	ConnectionPoolIsolationAccountProxy = "account_proxy"
 )
 
+// DefaultUpstreamResponseReadMaxBytes 上游非流式响应体的默认读取上限。
+// 128 MB 可容纳 2-3 张 4K PNG（base64 膨胀 33%，单张 4K PNG 最坏约 67MB base64）。
+// 可通过 gateway.upstream_response_read_max_bytes 配置项覆盖。
+const DefaultUpstreamResponseReadMaxBytes int64 = 128 * 1024 * 1024
+
 type Config struct {
 	Server                  ServerConfig                  `mapstructure:"server"`
 	Log                     LogConfig                     `mapstructure:"log"`
@@ -65,6 +70,8 @@ type Config struct {
 	JWT                     JWTConfig                     `mapstructure:"jwt"`
 	Totp                    TotpConfig                    `mapstructure:"totp"`
 	LinuxDo                 LinuxDoConnectConfig          `mapstructure:"linuxdo_connect"`
+	WeChat                  WeChatConnectConfig           `mapstructure:"wechat_connect"`
+	OIDC                    OIDCConnectConfig             `mapstructure:"oidc_connect"`
 	Default                 DefaultConfig                 `mapstructure:"default"`
 	RateLimit               RateLimitConfig               `mapstructure:"rate_limit"`
 	Pricing                 PricingConfig                 `mapstructure:"pricing"`
@@ -182,6 +189,274 @@ type LinuxDoConnectConfig struct {
 	UserInfoEmailPath    string `mapstructure:"userinfo_email_path"`
 	UserInfoIDPath       string `mapstructure:"userinfo_id_path"`
 	UserInfoUsernamePath string `mapstructure:"userinfo_username_path"`
+}
+
+type WeChatConnectConfig struct {
+	Enabled             bool   `mapstructure:"enabled"`
+	AppID               string `mapstructure:"app_id"`
+	AppSecret           string `mapstructure:"app_secret"`
+	OpenAppID           string `mapstructure:"open_app_id"`
+	OpenAppSecret       string `mapstructure:"open_app_secret"`
+	MPAppID             string `mapstructure:"mp_app_id"`
+	MPAppSecret         string `mapstructure:"mp_app_secret"`
+	MobileAppID         string `mapstructure:"mobile_app_id"`
+	MobileAppSecret     string `mapstructure:"mobile_app_secret"`
+	OpenEnabled         bool   `mapstructure:"open_enabled"`
+	MPEnabled           bool   `mapstructure:"mp_enabled"`
+	MobileEnabled       bool   `mapstructure:"mobile_enabled"`
+	Mode                string `mapstructure:"mode"`
+	Scopes              string `mapstructure:"scopes"`
+	RedirectURL         string `mapstructure:"redirect_url"`
+	FrontendRedirectURL string `mapstructure:"frontend_redirect_url"`
+}
+
+type OIDCConnectConfig struct {
+	Enabled                 bool   `mapstructure:"enabled"`
+	ProviderName            string `mapstructure:"provider_name"` // 显示名: "Keycloak" 等
+	ClientID                string `mapstructure:"client_id"`
+	ClientSecret            string `mapstructure:"client_secret"`
+	IssuerURL               string `mapstructure:"issuer_url"`
+	DiscoveryURL            string `mapstructure:"discovery_url"`
+	AuthorizeURL            string `mapstructure:"authorize_url"`
+	TokenURL                string `mapstructure:"token_url"`
+	UserInfoURL             string `mapstructure:"userinfo_url"`
+	JWKSURL                 string `mapstructure:"jwks_url"`
+	Scopes                  string `mapstructure:"scopes"`                // 默认 "openid email profile"
+	RedirectURL             string `mapstructure:"redirect_url"`          // 后端回调地址（需在提供方后台登记）
+	FrontendRedirectURL     string `mapstructure:"frontend_redirect_url"` // 前端接收 token 的路由（默认：/auth/oidc/callback）
+	TokenAuthMethod         string `mapstructure:"token_auth_method"`     // client_secret_post / client_secret_basic / none
+	UsePKCE                 bool   `mapstructure:"use_pkce"`
+	ValidateIDToken         bool   `mapstructure:"validate_id_token"`
+	UsePKCEExplicit         bool   `mapstructure:"-" yaml:"-"`
+	ValidateIDTokenExplicit bool   `mapstructure:"-" yaml:"-"`
+	AllowedSigningAlgs      string `mapstructure:"allowed_signing_algs"`   // 默认 "RS256,ES256,PS256"
+	ClockSkewSeconds        int    `mapstructure:"clock_skew_seconds"`     // 默认 120
+	RequireEmailVerified    bool   `mapstructure:"require_email_verified"` // 默认 false
+
+	// 可选：用于从 userinfo JSON 中提取字段的 gjson 路径。
+	// 为空时，服务端会尝试一组常见字段名。
+	UserInfoEmailPath    string `mapstructure:"userinfo_email_path"`
+	UserInfoIDPath       string `mapstructure:"userinfo_id_path"`
+	UserInfoUsernamePath string `mapstructure:"userinfo_username_path"`
+}
+
+const (
+	defaultWeChatConnectMode             = "open"
+	defaultWeChatConnectScopes           = "snsapi_login"
+	defaultWeChatConnectFrontendRedirect = "/auth/wechat/callback"
+)
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func normalizeWeChatConnectMode(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "mp":
+		return "mp"
+	case "mobile":
+		return "mobile"
+	default:
+		return defaultWeChatConnectMode
+	}
+}
+
+func normalizeWeChatConnectStoredMode(openEnabled, mpEnabled, mobileEnabled bool, mode string) string {
+	mode = normalizeWeChatConnectMode(mode)
+	switch mode {
+	case "open":
+		if openEnabled {
+			return "open"
+		}
+	case "mp":
+		if mpEnabled {
+			return "mp"
+		}
+	case "mobile":
+		if mobileEnabled {
+			return "mobile"
+		}
+	}
+	switch {
+	case openEnabled:
+		return "open"
+	case mpEnabled:
+		return "mp"
+	case mobileEnabled:
+		return "mobile"
+	default:
+		return mode
+	}
+}
+
+func defaultWeChatConnectScopesForMode(mode string) string {
+	switch normalizeWeChatConnectMode(mode) {
+	case "mp":
+		return "snsapi_userinfo"
+	case "mobile":
+		return ""
+	default:
+		return defaultWeChatConnectScopes
+	}
+}
+
+func normalizeWeChatConnectScopes(raw, mode string) string {
+	switch normalizeWeChatConnectMode(mode) {
+	case "mp":
+		switch strings.TrimSpace(raw) {
+		case "snsapi_base":
+			return "snsapi_base"
+		case "snsapi_userinfo":
+			return "snsapi_userinfo"
+		default:
+			return defaultWeChatConnectScopesForMode(mode)
+		}
+	case "mobile":
+		return ""
+	default:
+		return defaultWeChatConnectScopes
+	}
+}
+
+func shouldApplyLegacyWeChatEnv(configKey, envKey string) bool {
+	if viper.InConfig(configKey) {
+		return false
+	}
+	_, hasNewEnv := os.LookupEnv(envKey)
+	return !hasNewEnv
+}
+
+func hasExplicitConfigOrEnv(configKey, envKey string) bool {
+	if viper.InConfig(configKey) {
+		return true
+	}
+	_, ok := os.LookupEnv(envKey)
+	return ok
+}
+
+func applyLegacyWeChatConnectEnvCompatibility(cfg *WeChatConnectConfig) {
+	if cfg == nil {
+		return
+	}
+
+	legacyOpenAppID := ""
+	if shouldApplyLegacyWeChatEnv("wechat_connect.open_app_id", "WECHAT_CONNECT_OPEN_APP_ID") &&
+		shouldApplyLegacyWeChatEnv("wechat_connect.app_id", "WECHAT_CONNECT_APP_ID") {
+		legacyOpenAppID = strings.TrimSpace(os.Getenv("WECHAT_OAUTH_OPEN_APP_ID"))
+		if legacyOpenAppID != "" {
+			cfg.OpenAppID = legacyOpenAppID
+		}
+	}
+
+	legacyOpenAppSecret := ""
+	if shouldApplyLegacyWeChatEnv("wechat_connect.open_app_secret", "WECHAT_CONNECT_OPEN_APP_SECRET") &&
+		shouldApplyLegacyWeChatEnv("wechat_connect.app_secret", "WECHAT_CONNECT_APP_SECRET") {
+		legacyOpenAppSecret = strings.TrimSpace(os.Getenv("WECHAT_OAUTH_OPEN_APP_SECRET"))
+		if legacyOpenAppSecret != "" {
+			cfg.OpenAppSecret = legacyOpenAppSecret
+		}
+	}
+
+	legacyMPAppID := ""
+	if shouldApplyLegacyWeChatEnv("wechat_connect.mp_app_id", "WECHAT_CONNECT_MP_APP_ID") &&
+		shouldApplyLegacyWeChatEnv("wechat_connect.app_id", "WECHAT_CONNECT_APP_ID") {
+		legacyMPAppID = strings.TrimSpace(os.Getenv("WECHAT_OAUTH_MP_APP_ID"))
+		if legacyMPAppID != "" {
+			cfg.MPAppID = legacyMPAppID
+		}
+	}
+
+	legacyMPAppSecret := ""
+	if shouldApplyLegacyWeChatEnv("wechat_connect.mp_app_secret", "WECHAT_CONNECT_MP_APP_SECRET") &&
+		shouldApplyLegacyWeChatEnv("wechat_connect.app_secret", "WECHAT_CONNECT_APP_SECRET") {
+		legacyMPAppSecret = strings.TrimSpace(os.Getenv("WECHAT_OAUTH_MP_APP_SECRET"))
+		if legacyMPAppSecret != "" {
+			cfg.MPAppSecret = legacyMPAppSecret
+		}
+	}
+
+	if shouldApplyLegacyWeChatEnv("wechat_connect.frontend_redirect_url", "WECHAT_CONNECT_FRONTEND_REDIRECT_URL") {
+		if legacyFrontend := strings.TrimSpace(os.Getenv("WECHAT_OAUTH_FRONTEND_REDIRECT_URL")); legacyFrontend != "" {
+			cfg.FrontendRedirectURL = legacyFrontend
+		}
+	}
+
+	hasLegacyOpen := legacyOpenAppID != "" && legacyOpenAppSecret != ""
+	hasLegacyMP := legacyMPAppID != "" && legacyMPAppSecret != ""
+
+	if shouldApplyLegacyWeChatEnv("wechat_connect.enabled", "WECHAT_CONNECT_ENABLED") && (hasLegacyOpen || hasLegacyMP) {
+		cfg.Enabled = true
+	}
+	if shouldApplyLegacyWeChatEnv("wechat_connect.open_enabled", "WECHAT_CONNECT_OPEN_ENABLED") && hasLegacyOpen {
+		cfg.OpenEnabled = true
+	}
+	if shouldApplyLegacyWeChatEnv("wechat_connect.mp_enabled", "WECHAT_CONNECT_MP_ENABLED") && hasLegacyMP {
+		cfg.MPEnabled = true
+	}
+	if shouldApplyLegacyWeChatEnv("wechat_connect.mode", "WECHAT_CONNECT_MODE") {
+		switch {
+		case hasLegacyMP && !hasLegacyOpen:
+			cfg.Mode = "mp"
+		case hasLegacyOpen:
+			cfg.Mode = "open"
+		}
+	}
+	if shouldApplyLegacyWeChatEnv("wechat_connect.scopes", "WECHAT_CONNECT_SCOPES") {
+		switch {
+		case hasLegacyMP && !hasLegacyOpen:
+			cfg.Scopes = defaultWeChatConnectScopesForMode("mp")
+		case hasLegacyOpen:
+			cfg.Scopes = defaultWeChatConnectScopesForMode("open")
+		}
+	}
+}
+
+func normalizeWeChatConnectConfig(cfg *WeChatConnectConfig) {
+	if cfg == nil {
+		return
+	}
+
+	cfg.AppID = strings.TrimSpace(cfg.AppID)
+	cfg.AppSecret = strings.TrimSpace(cfg.AppSecret)
+	cfg.OpenAppID = strings.TrimSpace(cfg.OpenAppID)
+	cfg.OpenAppSecret = strings.TrimSpace(cfg.OpenAppSecret)
+	cfg.MPAppID = strings.TrimSpace(cfg.MPAppID)
+	cfg.MPAppSecret = strings.TrimSpace(cfg.MPAppSecret)
+	cfg.MobileAppID = strings.TrimSpace(cfg.MobileAppID)
+	cfg.MobileAppSecret = strings.TrimSpace(cfg.MobileAppSecret)
+	cfg.Mode = normalizeWeChatConnectMode(cfg.Mode)
+	cfg.RedirectURL = strings.TrimSpace(cfg.RedirectURL)
+	cfg.FrontendRedirectURL = strings.TrimSpace(cfg.FrontendRedirectURL)
+
+	cfg.AppID = firstNonEmptyString(cfg.AppID, cfg.OpenAppID, cfg.MPAppID, cfg.MobileAppID)
+	cfg.AppSecret = firstNonEmptyString(cfg.AppSecret, cfg.OpenAppSecret, cfg.MPAppSecret, cfg.MobileAppSecret)
+	cfg.OpenAppID = firstNonEmptyString(cfg.OpenAppID, cfg.AppID)
+	cfg.OpenAppSecret = firstNonEmptyString(cfg.OpenAppSecret, cfg.AppSecret)
+	cfg.MPAppID = firstNonEmptyString(cfg.MPAppID, cfg.AppID)
+	cfg.MPAppSecret = firstNonEmptyString(cfg.MPAppSecret, cfg.AppSecret)
+	cfg.MobileAppID = firstNonEmptyString(cfg.MobileAppID, cfg.AppID)
+	cfg.MobileAppSecret = firstNonEmptyString(cfg.MobileAppSecret, cfg.AppSecret)
+
+	if !cfg.OpenEnabled && !cfg.MPEnabled && !cfg.MobileEnabled && cfg.Enabled {
+		switch cfg.Mode {
+		case "mp":
+			cfg.MPEnabled = true
+		case "mobile":
+			cfg.MobileEnabled = true
+		default:
+			cfg.OpenEnabled = true
+		}
+	}
+	cfg.Mode = normalizeWeChatConnectStoredMode(cfg.OpenEnabled, cfg.MPEnabled, cfg.MobileEnabled, cfg.Mode)
+	cfg.Scopes = normalizeWeChatConnectScopes(cfg.Scopes, cfg.Mode)
+	if cfg.FrontendRedirectURL == "" {
+		cfg.FrontendRedirectURL = defaultWeChatConnectFrontendRedirect
+	}
 }
 
 // TokenRefreshConfig OAuth token自动刷新配置
@@ -318,6 +593,12 @@ type GatewayConfig struct {
 	// ForceCodexCLI: 强制将 OpenAI `/v1/responses` 请求按 Codex CLI 处理。
 	// 用于网关未透传/改写 User-Agent 时的兼容兜底（默认关闭，避免影响其他客户端）。
 	ForceCodexCLI bool `mapstructure:"force_codex_cli"`
+	// ForcedCodexInstructionsTemplateFile: 服务端强制附加到 Codex 顶层 instructions 的模板文件路径。
+	// 模板渲染后会直接覆盖最终 instructions；若需要保留客户端 system 转换结果，请在模板中显式引用 {{ .ExistingInstructions }}。
+	ForcedCodexInstructionsTemplateFile string `mapstructure:"forced_codex_instructions_template_file"`
+	// ForcedCodexInstructionsTemplate: 启动时从模板文件读取并缓存的模板内容。
+	// 该字段不直接参与配置反序列化，仅用于请求热路径避免重复读盘。
+	ForcedCodexInstructionsTemplate string `mapstructure:"-"`
 	// OpenAIPassthroughAllowTimeoutHeaders: OpenAI 透传模式是否放行客户端超时头
 	// 关闭（默认）可避免 x-stainless-timeout 等头导致上游提前断流。
 	OpenAIPassthroughAllowTimeoutHeaders bool `mapstructure:"openai_passthrough_allow_timeout_headers"`
@@ -620,6 +901,10 @@ type GatewaySchedulingConfig struct {
 
 	// 负载计算
 	LoadBatchEnabled bool `mapstructure:"load_batch_enabled"`
+	// 快照桶读取时的 MGET 分块大小
+	SnapshotMGetChunkSize int `mapstructure:"snapshot_mget_chunk_size"`
+	// 快照重建时的缓存写入分块大小
+	SnapshotWriteChunkSize int `mapstructure:"snapshot_write_chunk_size"`
 
 	// 过期槽位清理周期（0 表示禁用）
 	SlotCleanupInterval time.Duration `mapstructure:"slot_cleanup_interval"`
@@ -969,6 +1254,27 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 	cfg.LinuxDo.UserInfoEmailPath = strings.TrimSpace(cfg.LinuxDo.UserInfoEmailPath)
 	cfg.LinuxDo.UserInfoIDPath = strings.TrimSpace(cfg.LinuxDo.UserInfoIDPath)
 	cfg.LinuxDo.UserInfoUsernamePath = strings.TrimSpace(cfg.LinuxDo.UserInfoUsernamePath)
+	applyLegacyWeChatConnectEnvCompatibility(&cfg.WeChat)
+	normalizeWeChatConnectConfig(&cfg.WeChat)
+	cfg.OIDC.ProviderName = strings.TrimSpace(cfg.OIDC.ProviderName)
+	cfg.OIDC.ClientID = strings.TrimSpace(cfg.OIDC.ClientID)
+	cfg.OIDC.ClientSecret = strings.TrimSpace(cfg.OIDC.ClientSecret)
+	cfg.OIDC.IssuerURL = strings.TrimSpace(cfg.OIDC.IssuerURL)
+	cfg.OIDC.DiscoveryURL = strings.TrimSpace(cfg.OIDC.DiscoveryURL)
+	cfg.OIDC.AuthorizeURL = strings.TrimSpace(cfg.OIDC.AuthorizeURL)
+	cfg.OIDC.TokenURL = strings.TrimSpace(cfg.OIDC.TokenURL)
+	cfg.OIDC.UserInfoURL = strings.TrimSpace(cfg.OIDC.UserInfoURL)
+	cfg.OIDC.JWKSURL = strings.TrimSpace(cfg.OIDC.JWKSURL)
+	cfg.OIDC.Scopes = strings.TrimSpace(cfg.OIDC.Scopes)
+	cfg.OIDC.RedirectURL = strings.TrimSpace(cfg.OIDC.RedirectURL)
+	cfg.OIDC.FrontendRedirectURL = strings.TrimSpace(cfg.OIDC.FrontendRedirectURL)
+	cfg.OIDC.TokenAuthMethod = strings.ToLower(strings.TrimSpace(cfg.OIDC.TokenAuthMethod))
+	cfg.OIDC.AllowedSigningAlgs = strings.TrimSpace(cfg.OIDC.AllowedSigningAlgs)
+	cfg.OIDC.UserInfoEmailPath = strings.TrimSpace(cfg.OIDC.UserInfoEmailPath)
+	cfg.OIDC.UserInfoIDPath = strings.TrimSpace(cfg.OIDC.UserInfoIDPath)
+	cfg.OIDC.UserInfoUsernamePath = strings.TrimSpace(cfg.OIDC.UserInfoUsernamePath)
+	cfg.OIDC.UsePKCEExplicit = hasExplicitConfigOrEnv("oidc_connect.use_pkce", "OIDC_CONNECT_USE_PKCE")
+	cfg.OIDC.ValidateIDTokenExplicit = hasExplicitConfigOrEnv("oidc_connect.validate_id_token", "OIDC_CONNECT_VALIDATE_ID_TOKEN")
 	cfg.Dashboard.KeyPrefix = strings.TrimSpace(cfg.Dashboard.KeyPrefix)
 	cfg.CORS.AllowedOrigins = normalizeStringSlice(cfg.CORS.AllowedOrigins)
 	cfg.Security.ResponseHeaders.AdditionalAllowed = normalizeStringSlice(cfg.Security.ResponseHeaders.AdditionalAllowed)
@@ -980,6 +1286,14 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 	cfg.Log.Environment = strings.TrimSpace(cfg.Log.Environment)
 	cfg.Log.StacktraceLevel = strings.ToLower(strings.TrimSpace(cfg.Log.StacktraceLevel))
 	cfg.Log.Output.FilePath = strings.TrimSpace(cfg.Log.Output.FilePath)
+	cfg.Gateway.ForcedCodexInstructionsTemplateFile = strings.TrimSpace(cfg.Gateway.ForcedCodexInstructionsTemplateFile)
+	if cfg.Gateway.ForcedCodexInstructionsTemplateFile != "" {
+		content, err := os.ReadFile(cfg.Gateway.ForcedCodexInstructionsTemplateFile)
+		if err != nil {
+			return nil, fmt.Errorf("read forced codex instructions template %q: %w", cfg.Gateway.ForcedCodexInstructionsTemplateFile, err)
+		}
+		cfg.Gateway.ForcedCodexInstructionsTemplate = string(content)
+	}
 
 	// 兼容旧键 gateway.openai_ws.sticky_previous_response_ttl_seconds。
 	// 新键未配置（<=0）时回退旧键；新键优先。
@@ -1139,6 +1453,48 @@ func setDefaults() {
 	viper.SetDefault("linuxdo_connect.userinfo_email_path", "")
 	viper.SetDefault("linuxdo_connect.userinfo_id_path", "")
 	viper.SetDefault("linuxdo_connect.userinfo_username_path", "")
+
+	// WeChat Connect OAuth 登录
+	viper.SetDefault("wechat_connect.enabled", false)
+	viper.SetDefault("wechat_connect.app_id", "")
+	viper.SetDefault("wechat_connect.app_secret", "")
+	viper.SetDefault("wechat_connect.open_app_id", "")
+	viper.SetDefault("wechat_connect.open_app_secret", "")
+	viper.SetDefault("wechat_connect.mp_app_id", "")
+	viper.SetDefault("wechat_connect.mp_app_secret", "")
+	viper.SetDefault("wechat_connect.mobile_app_id", "")
+	viper.SetDefault("wechat_connect.mobile_app_secret", "")
+	viper.SetDefault("wechat_connect.open_enabled", false)
+	viper.SetDefault("wechat_connect.mp_enabled", false)
+	viper.SetDefault("wechat_connect.mobile_enabled", false)
+	viper.SetDefault("wechat_connect.mode", defaultWeChatConnectMode)
+	viper.SetDefault("wechat_connect.scopes", defaultWeChatConnectScopes)
+	viper.SetDefault("wechat_connect.redirect_url", "")
+	viper.SetDefault("wechat_connect.frontend_redirect_url", defaultWeChatConnectFrontendRedirect)
+
+	// Generic OIDC OAuth 登录
+	viper.SetDefault("oidc_connect.enabled", false)
+	viper.SetDefault("oidc_connect.provider_name", "OIDC")
+	viper.SetDefault("oidc_connect.client_id", "")
+	viper.SetDefault("oidc_connect.client_secret", "")
+	viper.SetDefault("oidc_connect.issuer_url", "")
+	viper.SetDefault("oidc_connect.discovery_url", "")
+	viper.SetDefault("oidc_connect.authorize_url", "")
+	viper.SetDefault("oidc_connect.token_url", "")
+	viper.SetDefault("oidc_connect.userinfo_url", "")
+	viper.SetDefault("oidc_connect.jwks_url", "")
+	viper.SetDefault("oidc_connect.scopes", "openid email profile")
+	viper.SetDefault("oidc_connect.redirect_url", "")
+	viper.SetDefault("oidc_connect.frontend_redirect_url", "/auth/oidc/callback")
+	viper.SetDefault("oidc_connect.token_auth_method", "client_secret_post")
+	viper.SetDefault("oidc_connect.use_pkce", true)
+	viper.SetDefault("oidc_connect.validate_id_token", true)
+	viper.SetDefault("oidc_connect.allowed_signing_algs", "RS256,ES256,PS256")
+	viper.SetDefault("oidc_connect.clock_skew_seconds", 120)
+	viper.SetDefault("oidc_connect.require_email_verified", false)
+	viper.SetDefault("oidc_connect.userinfo_email_path", "")
+	viper.SetDefault("oidc_connect.userinfo_id_path", "")
+	viper.SetDefault("oidc_connect.userinfo_username_path", "")
 
 	// Database
 	viper.SetDefault("database.host", "localhost")
@@ -1322,7 +1678,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.antigravity_fallback_cooldown_minutes", 1)
 	viper.SetDefault("gateway.antigravity_extra_retries", 10)
 	viper.SetDefault("gateway.max_body_size", int64(256*1024*1024))
-	viper.SetDefault("gateway.upstream_response_read_max_bytes", int64(8*1024*1024))
+	viper.SetDefault("gateway.upstream_response_read_max_bytes", DefaultUpstreamResponseReadMaxBytes)
 	viper.SetDefault("gateway.proxy_probe_response_read_max_bytes", int64(1024*1024))
 	viper.SetDefault("gateway.gemini_debug_response_headers", false)
 	viper.SetDefault("gateway.connection_pool_isolation", ConnectionPoolIsolationAccountProxy)
@@ -1343,6 +1699,8 @@ func setDefaults() {
 	viper.SetDefault("gateway.scheduling.fallback_max_waiting", 100)
 	viper.SetDefault("gateway.scheduling.fallback_selection_mode", "last_used")
 	viper.SetDefault("gateway.scheduling.load_batch_enabled", true)
+	viper.SetDefault("gateway.scheduling.snapshot_mget_chunk_size", 128)
+	viper.SetDefault("gateway.scheduling.snapshot_write_chunk_size", 256)
 	viper.SetDefault("gateway.scheduling.slot_cleanup_interval", 30*time.Second)
 	viper.SetDefault("gateway.scheduling.db_fallback_enabled", true)
 	viper.SetDefault("gateway.scheduling.db_fallback_timeout_seconds", 0)
@@ -1542,9 +1900,6 @@ func (c *Config) Validate() error {
 		default:
 			return fmt.Errorf("linuxdo_connect.token_auth_method must be one of: client_secret_post/client_secret_basic/none")
 		}
-		if method == "none" && !c.LinuxDo.UsePKCE {
-			return fmt.Errorf("linuxdo_connect.use_pkce must be true when linuxdo_connect.token_auth_method=none")
-		}
 		if (method == "" || method == "client_secret_post" || method == "client_secret_basic") &&
 			strings.TrimSpace(c.LinuxDo.ClientSecret) == "" {
 			return fmt.Errorf("linuxdo_connect.client_secret is required when linuxdo_connect.enabled=true and token_auth_method is client_secret_post/client_secret_basic")
@@ -1574,6 +1929,123 @@ func (c *Config) Validate() error {
 		warnIfInsecureURL("linuxdo_connect.userinfo_url", c.LinuxDo.UserInfoURL)
 		warnIfInsecureURL("linuxdo_connect.redirect_url", c.LinuxDo.RedirectURL)
 		warnIfInsecureURL("linuxdo_connect.frontend_redirect_url", c.LinuxDo.FrontendRedirectURL)
+	}
+	if c.WeChat.Enabled {
+		weChat := c.WeChat
+		normalizeWeChatConnectConfig(&weChat)
+
+		if weChat.OpenEnabled {
+			if strings.TrimSpace(weChat.OpenAppID) == "" {
+				return fmt.Errorf("wechat_connect.open_app_id is required when wechat_connect.open_enabled=true")
+			}
+			if strings.TrimSpace(weChat.OpenAppSecret) == "" {
+				return fmt.Errorf("wechat_connect.open_app_secret is required when wechat_connect.open_enabled=true")
+			}
+		}
+		if weChat.MPEnabled {
+			if strings.TrimSpace(weChat.MPAppID) == "" {
+				return fmt.Errorf("wechat_connect.mp_app_id is required when wechat_connect.mp_enabled=true")
+			}
+			if strings.TrimSpace(weChat.MPAppSecret) == "" {
+				return fmt.Errorf("wechat_connect.mp_app_secret is required when wechat_connect.mp_enabled=true")
+			}
+		}
+		if weChat.MobileEnabled {
+			if strings.TrimSpace(weChat.MobileAppID) == "" {
+				return fmt.Errorf("wechat_connect.mobile_app_id is required when wechat_connect.mobile_enabled=true")
+			}
+			if strings.TrimSpace(weChat.MobileAppSecret) == "" {
+				return fmt.Errorf("wechat_connect.mobile_app_secret is required when wechat_connect.mobile_enabled=true")
+			}
+		}
+		if v := strings.TrimSpace(weChat.RedirectURL); v != "" {
+			if err := ValidateAbsoluteHTTPURL(v); err != nil {
+				return fmt.Errorf("wechat_connect.redirect_url invalid: %w", err)
+			}
+			warnIfInsecureURL("wechat_connect.redirect_url", v)
+		}
+		if err := ValidateFrontendRedirectURL(weChat.FrontendRedirectURL); err != nil {
+			return fmt.Errorf("wechat_connect.frontend_redirect_url invalid: %w", err)
+		}
+		warnIfInsecureURL("wechat_connect.frontend_redirect_url", weChat.FrontendRedirectURL)
+	}
+	if c.OIDC.Enabled {
+		if strings.TrimSpace(c.OIDC.ClientID) == "" {
+			return fmt.Errorf("oidc_connect.client_id is required when oidc_connect.enabled=true")
+		}
+		if strings.TrimSpace(c.OIDC.IssuerURL) == "" {
+			return fmt.Errorf("oidc_connect.issuer_url is required when oidc_connect.enabled=true")
+		}
+		if strings.TrimSpace(c.OIDC.RedirectURL) == "" {
+			return fmt.Errorf("oidc_connect.redirect_url is required when oidc_connect.enabled=true")
+		}
+		if strings.TrimSpace(c.OIDC.FrontendRedirectURL) == "" {
+			return fmt.Errorf("oidc_connect.frontend_redirect_url is required when oidc_connect.enabled=true")
+		}
+		if !scopeContainsOpenID(c.OIDC.Scopes) {
+			return fmt.Errorf("oidc_connect.scopes must contain openid")
+		}
+
+		method := strings.ToLower(strings.TrimSpace(c.OIDC.TokenAuthMethod))
+		switch method {
+		case "", "client_secret_post", "client_secret_basic", "none":
+		default:
+			return fmt.Errorf("oidc_connect.token_auth_method must be one of: client_secret_post/client_secret_basic/none")
+		}
+		if (method == "" || method == "client_secret_post" || method == "client_secret_basic") &&
+			strings.TrimSpace(c.OIDC.ClientSecret) == "" {
+			return fmt.Errorf("oidc_connect.client_secret is required when oidc_connect.enabled=true and token_auth_method is client_secret_post/client_secret_basic")
+		}
+		if c.OIDC.ClockSkewSeconds < 0 || c.OIDC.ClockSkewSeconds > 600 {
+			return fmt.Errorf("oidc_connect.clock_skew_seconds must be between 0 and 600")
+		}
+		if c.OIDC.ValidateIDToken && strings.TrimSpace(c.OIDC.AllowedSigningAlgs) == "" {
+			return fmt.Errorf("oidc_connect.allowed_signing_algs is required when oidc_connect.validate_id_token=true")
+		}
+
+		if err := ValidateAbsoluteHTTPURL(c.OIDC.IssuerURL); err != nil {
+			return fmt.Errorf("oidc_connect.issuer_url invalid: %w", err)
+		}
+		if v := strings.TrimSpace(c.OIDC.DiscoveryURL); v != "" {
+			if err := ValidateAbsoluteHTTPURL(v); err != nil {
+				return fmt.Errorf("oidc_connect.discovery_url invalid: %w", err)
+			}
+		}
+		if v := strings.TrimSpace(c.OIDC.AuthorizeURL); v != "" {
+			if err := ValidateAbsoluteHTTPURL(v); err != nil {
+				return fmt.Errorf("oidc_connect.authorize_url invalid: %w", err)
+			}
+		}
+		if v := strings.TrimSpace(c.OIDC.TokenURL); v != "" {
+			if err := ValidateAbsoluteHTTPURL(v); err != nil {
+				return fmt.Errorf("oidc_connect.token_url invalid: %w", err)
+			}
+		}
+		if v := strings.TrimSpace(c.OIDC.UserInfoURL); v != "" {
+			if err := ValidateAbsoluteHTTPURL(v); err != nil {
+				return fmt.Errorf("oidc_connect.userinfo_url invalid: %w", err)
+			}
+		}
+		if v := strings.TrimSpace(c.OIDC.JWKSURL); v != "" {
+			if err := ValidateAbsoluteHTTPURL(v); err != nil {
+				return fmt.Errorf("oidc_connect.jwks_url invalid: %w", err)
+			}
+		}
+		if err := ValidateAbsoluteHTTPURL(c.OIDC.RedirectURL); err != nil {
+			return fmt.Errorf("oidc_connect.redirect_url invalid: %w", err)
+		}
+		if err := ValidateFrontendRedirectURL(c.OIDC.FrontendRedirectURL); err != nil {
+			return fmt.Errorf("oidc_connect.frontend_redirect_url invalid: %w", err)
+		}
+
+		warnIfInsecureURL("oidc_connect.issuer_url", c.OIDC.IssuerURL)
+		warnIfInsecureURL("oidc_connect.discovery_url", c.OIDC.DiscoveryURL)
+		warnIfInsecureURL("oidc_connect.authorize_url", c.OIDC.AuthorizeURL)
+		warnIfInsecureURL("oidc_connect.token_url", c.OIDC.TokenURL)
+		warnIfInsecureURL("oidc_connect.userinfo_url", c.OIDC.UserInfoURL)
+		warnIfInsecureURL("oidc_connect.jwks_url", c.OIDC.JWKSURL)
+		warnIfInsecureURL("oidc_connect.redirect_url", c.OIDC.RedirectURL)
+		warnIfInsecureURL("oidc_connect.frontend_redirect_url", c.OIDC.FrontendRedirectURL)
 	}
 	if c.Billing.CircuitBreaker.Enabled {
 		if c.Billing.CircuitBreaker.FailureThreshold <= 0 {
@@ -2007,6 +2479,12 @@ func (c *Config) Validate() error {
 	if c.Gateway.Scheduling.FallbackMaxWaiting <= 0 {
 		return fmt.Errorf("gateway.scheduling.fallback_max_waiting must be positive")
 	}
+	if c.Gateway.Scheduling.SnapshotMGetChunkSize <= 0 {
+		return fmt.Errorf("gateway.scheduling.snapshot_mget_chunk_size must be positive")
+	}
+	if c.Gateway.Scheduling.SnapshotWriteChunkSize <= 0 {
+		return fmt.Errorf("gateway.scheduling.snapshot_write_chunk_size must be positive")
+	}
 	if c.Gateway.Scheduling.SlotCleanupInterval < 0 {
 		return fmt.Errorf("gateway.scheduling.slot_cleanup_interval must be non-negative")
 	}
@@ -2188,6 +2666,15 @@ func ValidateFrontendRedirectURL(raw string) error {
 		return fmt.Errorf("must not include fragment")
 	}
 	return nil
+}
+
+func scopeContainsOpenID(scopes string) bool {
+	for _, scope := range strings.Fields(strings.ToLower(strings.TrimSpace(scopes))) {
+		if scope == "openid" {
+			return true
+		}
+	}
+	return false
 }
 
 // isHTTPScheme 检查是否为 HTTP 或 HTTPS 协议

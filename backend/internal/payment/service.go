@@ -28,10 +28,14 @@ type Service struct {
 	cfg          *Config
 	repo         OrderRepository
 	provider     Provider
-	adminService baseservice.AdminService
+	adminService balanceAdminService
 }
 
-func NewService(cfg *Config, repo OrderRepository, provider Provider, adminService baseservice.AdminService) *Service {
+type balanceAdminService interface {
+	UpdateUserBalance(ctx context.Context, userID int64, balance float64, operation string, notes string) (*baseservice.User, error)
+}
+
+func NewService(cfg *Config, repo OrderRepository, provider Provider, adminService balanceAdminService) *Service {
 	return &Service{
 		cfg:          cfg,
 		repo:         repo,
