@@ -312,6 +312,40 @@ func TestShouldInferIngressFunctionCallOutputPreviousResponseID(t *testing.T) {
 	}
 }
 
+func TestDiffOpenAIWSUniqueIDs(t *testing.T) {
+	t.Parallel()
+
+	t.Run("exact_match", func(t *testing.T) {
+		match, missing, extra := diffOpenAIWSUniqueIDs(
+			[]string{"call_a", "call_b"},
+			[]string{"call_a", "call_b"},
+		)
+		require.True(t, match)
+		require.Empty(t, missing)
+		require.Empty(t, extra)
+	})
+
+	t.Run("missing_and_extra_keep_first_seen_order", func(t *testing.T) {
+		match, missing, extra := diffOpenAIWSUniqueIDs(
+			[]string{"call_a", "call_b", "call_c"},
+			[]string{"call_a", "call_x", "call_x", "call_c", "call_y"},
+		)
+		require.False(t, match)
+		require.Equal(t, []string{"call_b"}, missing)
+		require.Equal(t, []string{"call_x", "call_y"}, extra)
+	})
+
+	t.Run("ignores_empty_and_duplicate_expected", func(t *testing.T) {
+		match, missing, extra := diffOpenAIWSUniqueIDs(
+			[]string{"", "call_a", "call_a"},
+			[]string{"call_a"},
+		)
+		require.True(t, match)
+		require.Empty(t, missing)
+		require.Empty(t, extra)
+	})
+}
+
 func TestOpenAIWSInputIsPrefixExtended(t *testing.T) {
 	t.Parallel()
 

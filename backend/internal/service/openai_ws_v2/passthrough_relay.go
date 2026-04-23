@@ -61,8 +61,39 @@ type RelayOptions struct {
 	FirstMessageType     coderws.MessageType
 	OnUsageParseFailure  func(eventType string, usageRaw string)
 	OnTurnComplete       func(turn RelayTurnResult)
+	OnClientFrame        func(frame RelayClientFrameEvent)
+	OnUpstreamEvent      func(event RelayUpstreamEvent)
 	OnTrace              func(event RelayTraceEvent)
 	Now                  func() time.Time
+}
+
+type RelayClientFrameEvent struct {
+	Index                     int
+	MessageType               string
+	PayloadBytes              int
+	EventType                 string
+	Model                     string
+	ServiceTier               string
+	PreviousResponseID        string
+	PreviousResponseIDKind    string
+	PromptCacheKeyPresent     bool
+	HasFunctionCallOutput     bool
+	FunctionCallOutputCallIDs []string
+	InputTypes                []string
+}
+
+type RelayUpstreamEvent struct {
+	Index        int
+	MessageType  string
+	PayloadBytes int
+	EventType    string
+	ResponseID   string
+	Terminal     bool
+	HasToolCalls bool
+	CallIDs      []string
+	ErrorCode    string
+	ErrorType    string
+	ErrorMessage string
 }
 
 type RelayTraceEvent struct {
@@ -139,6 +170,8 @@ func Relay(
 	startAt := nowFn()
 	state := &relayState{requestModel: result.RequestModel}
 	onTrace := options.OnTrace
+	onClientFrame := options.OnClientFrame
+	onUpstreamEvent := options.OnUpstreamEvent
 
 	relayCtx, relayCancel := context.WithCancel(ctx)
 	defer relayCancel()
@@ -168,6 +201,7 @@ func Relay(
 		PayloadBytes: len(firstClientMessage),
 		MessageType:  relayMessageTypeString(firstMessageType),
 	})
+	emitClientFrame(onClientFrame, buildRelayClientFrameEvent(1, firstMessageType, firstClientMessage))
 
 	if err := writeUpstream(firstMessageType, firstClientMessage); err != nil {
 		result.Duration = nowFn().Sub(startAt)
@@ -191,7 +225,7 @@ func Relay(
 
 	exitCh := make(chan relayExitSignal, 3)
 	dropDownstreamWrites := atomic.Bool{}
-	go runClientToUpstream(relayCtx, clientConn, writeUpstream, markActivity, clientToUpstreamFrames, onTrace, exitCh)
+	go runClientToUpstream(relayCtx, clientConn, writeUpstream, markActivity, clientToUpstreamFrames, onClientFrame, onTrace, exitCh)
 	go runUpstreamToClient(
 		relayCtx,
 		upstreamConn,
@@ -201,6 +235,7 @@ func Relay(
 		state,
 		options.OnUsageParseFailure,
 		options.OnTurnComplete,
+		onUpstreamEvent,
 		&dropDownstreamWrites,
 		upstreamToClientFrames,
 		droppedDownstreamFrames,
@@ -324,9 +359,11 @@ func runClientToUpstream(
 	writeUpstream func(msgType coderws.MessageType, payload []byte) error,
 	markActivity func(),
 	forwardedFrames *atomic.Int64,
+	onClientFrame func(frame RelayClientFrameEvent),
 	onTrace func(event RelayTraceEvent),
 	exitCh chan<- relayExitSignal,
 ) {
+	frameIndex := 1
 	for {
 		msgType, payload, err := clientConn.ReadFrame(ctx)
 		if err != nil {
@@ -339,7 +376,9 @@ func runClientToUpstream(
 			exitCh <- relayExitSignal{stage: "read_client", err: err, graceful: isDisconnectError(err)}
 			return
 		}
+		frameIndex++
 		markActivity()
+		emitClientFrame(onClientFrame, buildRelayClientFrameEvent(frameIndex, msgType, payload))
 		if err := writeUpstream(msgType, payload); err != nil {
 			emitRelayTrace(onTrace, RelayTraceEvent{
 				Stage:        "write_upstream_failed",
@@ -367,6 +406,7 @@ func runUpstreamToClient(
 	state *relayState,
 	onUsageParseFailure func(eventType string, usageRaw string),
 	onTurnComplete func(turn RelayTurnResult),
+	onUpstreamEvent func(event RelayUpstreamEvent),
 	dropDownstreamWrites *atomic.Bool,
 	forwardedFrames *atomic.Int64,
 	droppedFrames *atomic.Int64,
@@ -375,6 +415,7 @@ func runUpstreamToClient(
 	exitCh chan<- relayExitSignal,
 ) {
 	wroteDownstream := false
+	eventIndex := 0
 	for {
 		msgType, payload, err := upstreamConn.ReadFrame(ctx)
 		if err != nil {
@@ -394,13 +435,21 @@ func runUpstreamToClient(
 			return
 		}
 		markActivity()
+		eventIndex++
 		observedEvent := observedUpstreamEvent{}
+		upstreamEvent := RelayUpstreamEvent{
+			Index:        eventIndex,
+			MessageType:  relayMessageTypeString(msgType),
+			PayloadBytes: len(payload),
+		}
 		switch msgType {
 		case coderws.MessageText:
 			observedEvent = observeUpstreamMessage(state, payload, startAt, nowFn, onUsageParseFailure)
+			upstreamEvent = buildRelayUpstreamEvent(eventIndex, msgType, payload, observedEvent)
 		case coderws.MessageBinary:
 			// binary frame 直接透传，不进入 JSON 观测路径（避免无效解析开销）。
 		}
+		emitUpstreamEvent(onUpstreamEvent, upstreamEvent)
 		emitTurnComplete(onTurnComplete, state, observedEvent)
 		if dropDownstreamWrites != nil && dropDownstreamWrites.Load() {
 			if droppedFrames != nil {
@@ -487,6 +536,20 @@ func emitRelayTrace(onTrace func(event RelayTraceEvent), event RelayTraceEvent) 
 		return
 	}
 	onTrace(event)
+}
+
+func emitClientFrame(onClientFrame func(frame RelayClientFrameEvent), frame RelayClientFrameEvent) {
+	if onClientFrame == nil {
+		return
+	}
+	onClientFrame(frame)
+}
+
+func emitUpstreamEvent(onUpstreamEvent func(event RelayUpstreamEvent), event RelayUpstreamEvent) {
+	if onUpstreamEvent == nil {
+		return
+	}
+	onUpstreamEvent(event)
 }
 
 func relayMessageTypeString(msgType coderws.MessageType) string {
@@ -583,6 +646,78 @@ func observeUpstreamMessage(
 		}
 	}
 	return observed
+}
+
+func buildRelayClientFrameEvent(index int, msgType coderws.MessageType, payload []byte) RelayClientFrameEvent {
+	event := RelayClientFrameEvent{
+		Index:        index,
+		MessageType:  relayMessageTypeString(msgType),
+		PayloadBytes: len(payload),
+	}
+	if msgType != coderws.MessageText || len(payload) == 0 || !gjson.ValidBytes(payload) {
+		return event
+	}
+
+	values := gjson.GetManyBytes(
+		payload,
+		"type",
+		"model",
+		"service_tier",
+		"previous_response_id",
+		"prompt_cache_key",
+	)
+	event.EventType = strings.TrimSpace(values[0].String())
+	event.Model = strings.TrimSpace(values[1].String())
+	event.ServiceTier = strings.TrimSpace(values[2].String())
+	event.PreviousResponseID = strings.TrimSpace(values[3].String())
+	event.PreviousResponseIDKind = classifyPreviousResponseIDKind(event.PreviousResponseID)
+	event.PromptCacheKeyPresent = strings.TrimSpace(values[4].String()) != ""
+	event.HasFunctionCallOutput = gjson.GetBytes(payload, `input.#(type=="function_call_output")`).Exists()
+	event.FunctionCallOutputCallIDs = collectClientFunctionCallOutputCallIDs(payload, 8)
+	event.InputTypes = collectJSONArrayObjectTypes(gjson.GetBytes(payload, "input"), 8)
+	return event
+}
+
+func buildRelayUpstreamEvent(
+	index int,
+	msgType coderws.MessageType,
+	payload []byte,
+	observed observedUpstreamEvent,
+) RelayUpstreamEvent {
+	event := RelayUpstreamEvent{
+		Index:        index,
+		MessageType:  relayMessageTypeString(msgType),
+		PayloadBytes: len(payload),
+		EventType:    strings.TrimSpace(observed.eventType),
+		ResponseID:   strings.TrimSpace(observed.responseID),
+		Terminal:     observed.terminal,
+	}
+	if msgType != coderws.MessageText || len(payload) == 0 || !gjson.ValidBytes(payload) {
+		return event
+	}
+	if event.EventType == "" {
+		event.EventType = strings.TrimSpace(gjson.GetBytes(payload, "type").String())
+	}
+	if event.ResponseID == "" {
+		event.ResponseID = strings.TrimSpace(gjson.GetBytes(payload, "response.id").String())
+		if event.ResponseID == "" {
+			event.ResponseID = strings.TrimSpace(gjson.GetBytes(payload, "response_id").String())
+		}
+		if event.ResponseID == "" && event.Terminal {
+			event.ResponseID = strings.TrimSpace(gjson.GetBytes(payload, "id").String())
+		}
+	}
+	event.ErrorCode = strings.TrimSpace(gjson.GetBytes(payload, "error.code").String())
+	event.ErrorType = strings.TrimSpace(gjson.GetBytes(payload, "error.type").String())
+	event.ErrorMessage = strings.TrimSpace(gjson.GetBytes(payload, "error.message").String())
+	event.CallIDs = collectJSONFieldStringValues(gjson.ParseBytes(payload), "call_id", 8)
+	event.HasToolCalls = len(event.CallIDs) > 0 ||
+		strings.Contains(event.EventType, "function_call") ||
+		strings.Contains(event.EventType, "tool_call") ||
+		strings.Contains(string(payload), `"function_call"`) ||
+		strings.Contains(string(payload), `"tool_call"`) ||
+		strings.Contains(string(payload), `"tool_calls"`)
+	return event
 }
 
 func emitTurnComplete(
@@ -759,6 +894,126 @@ func shouldParseUsage(eventType string) bool {
 	default:
 		return false
 	}
+}
+
+func collectClientFunctionCallOutputCallIDs(payload []byte, limit int) []string {
+	if limit <= 0 || len(payload) == 0 {
+		return nil
+	}
+	input := gjson.GetBytes(payload, "input")
+	if !input.Exists() {
+		return nil
+	}
+	callIDs := make([]string, 0, minInt(limit, 4))
+	seen := make(map[string]struct{}, minInt(limit, 4))
+	input.ForEach(func(_, value gjson.Result) bool {
+		if value.Type != gjson.JSON {
+			return true
+		}
+		if strings.TrimSpace(gjson.Get(value.Raw, "type").String()) != "function_call_output" {
+			return true
+		}
+		callID := strings.TrimSpace(gjson.Get(value.Raw, "call_id").String())
+		if callID == "" {
+			return true
+		}
+		if _, exists := seen[callID]; exists {
+			return true
+		}
+		seen[callID] = struct{}{}
+		callIDs = append(callIDs, callID)
+		return len(callIDs) < limit
+	})
+	return callIDs
+}
+
+func collectJSONArrayObjectTypes(result gjson.Result, limit int) []string {
+	if limit <= 0 || !result.Exists() {
+		return nil
+	}
+	types := make([]string, 0, minInt(limit, 4))
+	seen := make(map[string]struct{}, minInt(limit, 4))
+	result.ForEach(func(_, value gjson.Result) bool {
+		if value.Type != gjson.JSON {
+			return true
+		}
+		itemType := strings.TrimSpace(gjson.Get(value.Raw, "type").String())
+		if itemType == "" {
+			return true
+		}
+		if _, exists := seen[itemType]; exists {
+			return true
+		}
+		seen[itemType] = struct{}{}
+		types = append(types, itemType)
+		return len(types) < limit
+	})
+	return types
+}
+
+func collectJSONFieldStringValues(root gjson.Result, field string, limit int) []string {
+	if limit <= 0 || field == "" || !root.Exists() {
+		return nil
+	}
+	values := make([]string, 0, minInt(limit, 4))
+	seen := make(map[string]struct{}, minInt(limit, 4))
+	var walk func(result gjson.Result)
+	walk = func(result gjson.Result) {
+		if len(values) >= limit || result.Type != gjson.JSON {
+			return
+		}
+		result.ForEach(func(key, value gjson.Result) bool {
+			if len(values) >= limit {
+				return false
+			}
+			if key.Type == gjson.String && key.String() == field {
+				text := strings.TrimSpace(value.String())
+				if text != "" {
+					if _, exists := seen[text]; !exists {
+						seen[text] = struct{}{}
+						values = append(values, text)
+						if len(values) >= limit {
+							return false
+						}
+					}
+				}
+			}
+			if value.Type == gjson.JSON {
+				walk(value)
+			}
+			return true
+		})
+	}
+	walk(root)
+	return values
+}
+
+func classifyPreviousResponseIDKind(previousResponseID string) string {
+	trimmed := strings.TrimSpace(previousResponseID)
+	if trimmed == "" {
+		return "none"
+	}
+	switch {
+	case strings.HasPrefix(trimmed, "resp_"):
+		return "response"
+	case strings.HasPrefix(trimmed, "msg_"):
+		return "message"
+	default:
+		return "other"
+	}
+}
+
+func minInt(a, b int) int {
+	if a <= 0 {
+		return b
+	}
+	if b <= 0 {
+		return a
+	}
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func isTokenEvent(eventType string) bool {

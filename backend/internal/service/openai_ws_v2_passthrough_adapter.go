@@ -202,6 +202,49 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 					hooks.AfterTurn(turnNo, turnResult, nil)
 				}
 			},
+			OnClientFrame: func(frame openaiwsv2.RelayClientFrameEvent) {
+				logOpenAIWSV2Passthrough(
+					"relay_client_frame account_id=%d frame=%d msg_type=%s event=%s model=%s service_tier=%s previous_response_id=%s previous_response_id_kind=%s has_prompt_cache_key=%v has_function_call_output=%v function_call_output_call_ids=%s input_types=%s payload_bytes=%d",
+					account.ID,
+					frame.Index,
+					truncateOpenAIWSLogValue(frame.MessageType, openAIWSLogValueMaxLen),
+					truncateOpenAIWSLogValue(frame.EventType, openAIWSLogValueMaxLen),
+					truncateOpenAIWSLogValue(frame.Model, openAIWSLogValueMaxLen),
+					truncateOpenAIWSLogValue(frame.ServiceTier, openAIWSLogValueMaxLen),
+					truncateOpenAIWSLogValue(frame.PreviousResponseID, openAIWSIDValueMaxLen),
+					normalizeOpenAIWSLogValue(frame.PreviousResponseIDKind),
+					frame.PromptCacheKeyPresent,
+					frame.HasFunctionCallOutput,
+					truncateOpenAIWSLogValue(strings.Join(frame.FunctionCallOutputCallIDs, ","), openAIWSLogValueMaxLen),
+					truncateOpenAIWSLogValue(strings.Join(frame.InputTypes, ","), openAIWSLogValueMaxLen),
+					frame.PayloadBytes,
+				)
+			},
+			OnUpstreamEvent: func(event openaiwsv2.RelayUpstreamEvent) {
+				if !shouldLogOpenAIWSEvent(event.Index, event.EventType) &&
+					!event.Terminal &&
+					!event.HasToolCalls &&
+					event.ErrorCode == "" &&
+					event.ErrorType == "" &&
+					event.ErrorMessage == "" {
+					return
+				}
+				logOpenAIWSV2Passthrough(
+					"relay_upstream_event account_id=%d event_idx=%d msg_type=%s event=%s response_id=%s terminal=%v has_tool_calls=%v call_ids=%s err_code=%s err_type=%s err_message=%s payload_bytes=%d",
+					account.ID,
+					event.Index,
+					truncateOpenAIWSLogValue(event.MessageType, openAIWSLogValueMaxLen),
+					truncateOpenAIWSLogValue(event.EventType, openAIWSLogValueMaxLen),
+					truncateOpenAIWSLogValue(event.ResponseID, openAIWSIDValueMaxLen),
+					event.Terminal,
+					event.HasToolCalls,
+					truncateOpenAIWSLogValue(strings.Join(event.CallIDs, ","), openAIWSLogValueMaxLen),
+					truncateOpenAIWSLogValue(event.ErrorCode, openAIWSLogValueMaxLen),
+					truncateOpenAIWSLogValue(event.ErrorType, openAIWSLogValueMaxLen),
+					truncateOpenAIWSLogValue(event.ErrorMessage, openAIWSLogValueMaxLen),
+					event.PayloadBytes,
+				)
+			},
 			OnTrace: func(event openaiwsv2.RelayTraceEvent) {
 				logOpenAIWSV2Passthrough(
 					"relay_trace account_id=%d stage=%s direction=%s msg_type=%s bytes=%d graceful=%v wrote_downstream=%v err=%s",

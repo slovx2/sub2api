@@ -49,6 +49,7 @@ func TestRunClientToUpstream_ErrorPaths(t *testing.T) {
 			func() {},
 			nil,
 			nil,
+			nil,
 			exitCh,
 		)
 		sig := <-exitCh
@@ -67,6 +68,7 @@ func TestRunClientToUpstream_ErrorPaths(t *testing.T) {
 			}, true),
 			func(_ coderws.MessageType, _ []byte) error { return errors.New("boom") },
 			func() {},
+			nil,
 			nil,
 			nil,
 			exitCh,
@@ -90,6 +92,7 @@ func TestRunClientToUpstream_ErrorPaths(t *testing.T) {
 			func(_ coderws.MessageType, _ []byte) error { return nil },
 			func() {},
 			forwarded,
+			nil,
 			func(event RelayTraceEvent) {
 				traces = append(traces, event)
 			},
@@ -120,6 +123,7 @@ func TestRunUpstreamToClient_ErrorAndDropPaths(t *testing.T) {
 			&relayState{},
 			nil,
 			nil,
+			nil,
 			drop,
 			nil,
 			nil,
@@ -147,6 +151,7 @@ func TestRunUpstreamToClient_ErrorAndDropPaths(t *testing.T) {
 			time.Now(),
 			time.Now,
 			&relayState{},
+			nil,
 			nil,
 			nil,
 			drop,
@@ -179,6 +184,7 @@ func TestRunUpstreamToClient_ErrorAndDropPaths(t *testing.T) {
 			time.Now(),
 			time.Now,
 			&relayState{},
+			nil,
 			nil,
 			nil,
 			drop,
@@ -262,6 +268,17 @@ func TestHelperFunctionsCoverage(t *testing.T) {
 	require.Equal(t, 0, n)
 	_, ok = parseUsageIntField(gjson.Result{}, true)
 	require.False(t, ok)
+
+	require.Equal(t, "none", classifyPreviousResponseIDKind(""))
+	require.Equal(t, "response", classifyPreviousResponseIDKind("resp_123"))
+	require.Equal(t, "message", classifyPreviousResponseIDKind("msg_123"))
+	require.Equal(t, "other", classifyPreviousResponseIDKind("foo_123"))
+
+	require.Equal(t, []string{"call_a"}, collectClientFunctionCallOutputCallIDs([]byte(`{"input":[{"type":"function_call_output","call_id":"call_a"},{"type":"input_text","text":"x"}]}`), 8))
+	require.Equal(t, []string{"function_call_output", "input_text"}, collectJSONArrayObjectTypes(gjson.Get(`{"input":[{"type":"function_call_output"},{"type":"input_text"},{"type":"input_text"}]}`, "input"), 8))
+	require.Equal(t, []string{"call_a", "call_b"}, collectJSONFieldStringValues(gjson.Parse(`{"call_id":"call_a","nested":{"call_id":"call_b","dup":"x"},"items":[{"call_id":"call_a"}]}`), "call_id", 8))
+	require.Equal(t, 2, minInt(2, 5))
+	require.Equal(t, 5, minInt(0, 5))
 }
 
 func TestParseUsageAndEnrichCoverage(t *testing.T) {
