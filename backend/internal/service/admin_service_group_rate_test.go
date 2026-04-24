@@ -12,6 +12,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func ptrFloat(v float64) *float64 {
+	return &v
+}
+
 // userGroupRateRepoStubForGroupRate implements UserGroupRateRepository for group rate tests.
 type userGroupRateRepoStubForGroupRate struct {
 	getByGroupIDData map[int64][]UserGroupRateEntry
