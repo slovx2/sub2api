@@ -1802,6 +1802,81 @@
 
         </div><!-- /Tab: General -->
 
+        <!-- Tab: Features -->
+        <div v-show="activeTab === 'features'" class="space-y-6">
+          <div class="card">
+            <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t('admin.settings.features.channelMonitor.title') }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t('admin.settings.features.channelMonitor.description') }}
+              </p>
+            </div>
+            <div class="space-y-5 p-6">
+              <div class="flex items-center justify-between">
+                <div>
+                  <label class="font-medium text-gray-900 dark:text-white">
+                    {{ t('admin.settings.features.channelMonitor.enabled') }}
+                  </label>
+                  <p class="text-sm text-gray-500 dark:text-gray-400">
+                    {{ t('admin.settings.features.channelMonitor.enabledHint') }}
+                  </p>
+                </div>
+                <Toggle v-model="form.channel_monitor_enabled" />
+              </div>
+
+              <div v-if="form.channel_monitor_enabled">
+                <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.features.channelMonitor.defaultInterval') }}
+                </label>
+                <input
+                  v-model.number="form.channel_monitor_default_interval_seconds"
+                  type="number"
+                  min="15"
+                  max="3600"
+                  step="15"
+                  class="input max-w-xs"
+                />
+                <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.features.channelMonitor.defaultIntervalHint') }}
+                </p>
+                <router-link
+                  to="/admin/channels/monitor"
+                  class="mt-3 inline-flex items-center gap-1 text-sm text-primary-600 hover:underline dark:text-primary-400"
+                >
+                  {{ t('admin.settings.features.channelMonitor.configureLink') }}
+                  <span aria-hidden="true">→</span>
+                </router-link>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t('admin.settings.features.availableChannels.title') }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t('admin.settings.features.availableChannels.description') }}
+              </p>
+            </div>
+            <div class="space-y-5 p-6">
+              <div class="flex items-center justify-between">
+                <div>
+                  <label class="font-medium text-gray-900 dark:text-white">
+                    {{ t('admin.settings.features.availableChannels.enabled') }}
+                  </label>
+                  <p class="text-sm text-gray-500 dark:text-gray-400">
+                    {{ t('admin.settings.features.availableChannels.enabledHint') }}
+                  </p>
+                </div>
+                <Toggle v-model="form.available_channels_enabled" />
+              </div>
+            </div>
+          </div>
+        </div><!-- /Tab: Features -->
+
         <!-- Tab: Email -->
         <div v-show="activeTab === 'email'" class="space-y-6">
         <!-- Email disabled hint - show when email_verify_enabled is off -->
@@ -2091,10 +2166,11 @@ const { t } = useI18n()
 const appStore = useAppStore()
 const adminSettingsStore = useAdminSettingsStore()
 
-type SettingsTab = 'general' | 'security' | 'users' | 'gateway' | 'email' | 'backup'
+type SettingsTab = 'general' | 'features' | 'security' | 'users' | 'gateway' | 'email' | 'backup'
 const activeTab = ref<SettingsTab>('general')
 const settingsTabs = [
   { key: 'general'  as SettingsTab, icon: 'home'   as const },
+  { key: 'features' as SettingsTab, icon: 'bolt'   as const },
   { key: 'security' as SettingsTab, icon: 'shield' as const },
   { key: 'users'    as SettingsTab, icon: 'user'   as const },
   { key: 'gateway'  as SettingsTab, icon: 'server' as const },
@@ -2193,6 +2269,7 @@ const form = reactive({
   totp_encryption_key_configured: false,
   default_balance: 0,
   default_concurrency: 1,
+  default_user_rpm_limit: 0,
   default_subscriptions: [],
   site_name: 'Sub2API',
   site_logo: '',
@@ -2248,7 +2325,16 @@ const form = reactive({
   allow_ungrouped_key_scheduling: false,
   // Gateway forwarding behavior
   enable_fingerprint_unification: true,
-  enable_metadata_passthrough: false
+  enable_metadata_passthrough: false,
+  enable_cch_signing: false,
+  balance_low_notify_enabled: false,
+  balance_low_notify_threshold: 0,
+  balance_low_notify_recharge_url: '',
+  account_quota_notify_enabled: false,
+  account_quota_notify_emails: [] as Array<{ email: string; enabled: boolean }>,
+  channel_monitor_enabled: true,
+  channel_monitor_default_interval_seconds: 60,
+  available_channels_enabled: false
 } as unknown as SettingsForm)
 
 const defaultSubscriptionGroupOptions = computed<DefaultSubscriptionGroupOption[]>(() =>
@@ -2516,6 +2602,7 @@ async function saveSettings() {
       totp_enabled: form.totp_enabled,
       default_balance: form.default_balance,
       default_concurrency: form.default_concurrency,
+      default_user_rpm_limit: form.default_user_rpm_limit,
       default_subscriptions: normalizedDefaultSubscriptions,
       site_name: form.site_name,
       site_logo: form.site_logo,
@@ -2556,7 +2643,16 @@ async function saveSettings() {
       max_claude_code_version: form.max_claude_code_version,
       allow_ungrouped_key_scheduling: form.allow_ungrouped_key_scheduling,
       enable_fingerprint_unification: form.enable_fingerprint_unification,
-      enable_metadata_passthrough: form.enable_metadata_passthrough
+      enable_metadata_passthrough: form.enable_metadata_passthrough,
+      enable_cch_signing: form.enable_cch_signing,
+      balance_low_notify_enabled: form.balance_low_notify_enabled,
+      balance_low_notify_threshold: Number(form.balance_low_notify_threshold) || 0,
+      balance_low_notify_recharge_url: form.balance_low_notify_recharge_url,
+      account_quota_notify_enabled: form.account_quota_notify_enabled,
+      account_quota_notify_emails: form.account_quota_notify_emails,
+      channel_monitor_enabled: form.channel_monitor_enabled,
+      channel_monitor_default_interval_seconds: Number(form.channel_monitor_default_interval_seconds) || 60,
+      available_channels_enabled: form.available_channels_enabled
     }
     const updated = await adminAPI.settings.updateSettings(payload)
     Object.assign(form, updated)

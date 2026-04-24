@@ -155,6 +155,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		CustomEndpoints:                        dto.ParseCustomEndpoints(settings.CustomEndpoints),
 		DefaultConcurrency:                     settings.DefaultConcurrency,
 		DefaultBalance:                         settings.DefaultBalance,
+		DefaultUserRPMLimit:                    settings.DefaultUserRPMLimit,
 		DefaultSubscriptions:                   defaultSubscriptions,
 		EnableModelFallback:                    settings.EnableModelFallback,
 		FallbackModelAnthropic:                 settings.FallbackModelAnthropic,
@@ -185,6 +186,9 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		BalanceLowNotifyRechargeURL:            settings.BalanceLowNotifyRechargeURL,
 		AccountQuotaNotifyEnabled:              settings.AccountQuotaNotifyEnabled,
 		AccountQuotaNotifyEmails:               dto.NotifyEmailEntriesFromService(settings.AccountQuotaNotifyEmails),
+		ChannelMonitorEnabled:                  settings.ChannelMonitorEnabled,
+		ChannelMonitorDefaultIntervalSeconds:   settings.ChannelMonitorDefaultIntervalSeconds,
+		AvailableChannelsEnabled:               settings.AvailableChannelsEnabled,
 	}
 	response.Success(c, systemSettingsResponseData(payload, authSourceDefaults))
 }
@@ -238,6 +242,7 @@ type UpdateSettingsRequest struct {
 	// 默认配置
 	DefaultConcurrency   int                              `json:"default_concurrency"`
 	DefaultBalance       float64                          `json:"default_balance"`
+	DefaultUserRPMLimit  int                              `json:"default_user_rpm_limit"`
 	DefaultSubscriptions []dto.DefaultSubscriptionSetting `json:"default_subscriptions"`
 
 	// Model fallback configuration
@@ -269,6 +274,19 @@ type UpdateSettingsRequest struct {
 	// Gateway forwarding behavior
 	EnableFingerprintUnification *bool `json:"enable_fingerprint_unification"`
 	EnableMetadataPassthrough    *bool `json:"enable_metadata_passthrough"`
+	EnableCCHSigning             *bool `json:"enable_cch_signing"`
+
+	// 余额提醒
+	BalanceLowNotifyEnabled     *bool                   `json:"balance_low_notify_enabled"`
+	BalanceLowNotifyThreshold   *float64                `json:"balance_low_notify_threshold"`
+	BalanceLowNotifyRechargeURL *string                 `json:"balance_low_notify_recharge_url"`
+	AccountQuotaNotifyEnabled   *bool                   `json:"account_quota_notify_enabled"`
+	AccountQuotaNotifyEmails    *[]dto.NotifyEmailEntry `json:"account_quota_notify_emails"`
+
+	// 功能开关
+	ChannelMonitorEnabled                *bool `json:"channel_monitor_enabled"`
+	ChannelMonitorDefaultIntervalSeconds *int  `json:"channel_monitor_default_interval_seconds"`
+	AvailableChannelsEnabled             *bool `json:"available_channels_enabled"`
 }
 
 // UpdateSettings 更新系统设置
@@ -624,6 +642,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		CustomEndpoints:                  customEndpointsJSON,
 		DefaultConcurrency:               req.DefaultConcurrency,
 		DefaultBalance:                   req.DefaultBalance,
+		DefaultUserRPMLimit:              req.DefaultUserRPMLimit,
 		DefaultSubscriptions:             defaultSubscriptions,
 		EnableModelFallback:              req.EnableModelFallback,
 		FallbackModelAnthropic:           req.FallbackModelAnthropic,
@@ -671,6 +690,60 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 				return *req.EnableMetadataPassthrough
 			}
 			return previousSettings.EnableMetadataPassthrough
+		}(),
+		EnableCCHSigning: func() bool {
+			if req.EnableCCHSigning != nil {
+				return *req.EnableCCHSigning
+			}
+			return previousSettings.EnableCCHSigning
+		}(),
+		BalanceLowNotifyEnabled: func() bool {
+			if req.BalanceLowNotifyEnabled != nil {
+				return *req.BalanceLowNotifyEnabled
+			}
+			return previousSettings.BalanceLowNotifyEnabled
+		}(),
+		BalanceLowNotifyThreshold: func() float64 {
+			if req.BalanceLowNotifyThreshold != nil {
+				return *req.BalanceLowNotifyThreshold
+			}
+			return previousSettings.BalanceLowNotifyThreshold
+		}(),
+		BalanceLowNotifyRechargeURL: func() string {
+			if req.BalanceLowNotifyRechargeURL != nil {
+				return *req.BalanceLowNotifyRechargeURL
+			}
+			return previousSettings.BalanceLowNotifyRechargeURL
+		}(),
+		AccountQuotaNotifyEnabled: func() bool {
+			if req.AccountQuotaNotifyEnabled != nil {
+				return *req.AccountQuotaNotifyEnabled
+			}
+			return previousSettings.AccountQuotaNotifyEnabled
+		}(),
+		AccountQuotaNotifyEmails: func() []service.NotifyEmailEntry {
+			if req.AccountQuotaNotifyEmails != nil {
+				return dto.NotifyEmailEntriesToService(*req.AccountQuotaNotifyEmails)
+			}
+			return previousSettings.AccountQuotaNotifyEmails
+		}(),
+		ChannelMonitorEnabled: func() bool {
+			if req.ChannelMonitorEnabled != nil {
+				return *req.ChannelMonitorEnabled
+			}
+			return previousSettings.ChannelMonitorEnabled
+		}(),
+		ChannelMonitorDefaultIntervalSeconds: func() int {
+			if req.ChannelMonitorDefaultIntervalSeconds != nil {
+				return *req.ChannelMonitorDefaultIntervalSeconds
+			}
+			return previousSettings.ChannelMonitorDefaultIntervalSeconds
+		}(),
+		AvailableChannelsEnabled: func() bool {
+			if req.AvailableChannelsEnabled != nil {
+				return *req.AvailableChannelsEnabled
+			}
+			return previousSettings.AvailableChannelsEnabled
 		}(),
 	}
 
@@ -733,6 +806,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		CustomEndpoints:                      dto.ParseCustomEndpoints(updatedSettings.CustomEndpoints),
 		DefaultConcurrency:                   updatedSettings.DefaultConcurrency,
 		DefaultBalance:                       updatedSettings.DefaultBalance,
+		DefaultUserRPMLimit:                  updatedSettings.DefaultUserRPMLimit,
 		DefaultSubscriptions:                 updatedDefaultSubscriptions,
 		EnableModelFallback:                  updatedSettings.EnableModelFallback,
 		FallbackModelAnthropic:               updatedSettings.FallbackModelAnthropic,
@@ -751,6 +825,15 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		BackendModeEnabled:                   updatedSettings.BackendModeEnabled,
 		EnableFingerprintUnification:         updatedSettings.EnableFingerprintUnification,
 		EnableMetadataPassthrough:            updatedSettings.EnableMetadataPassthrough,
+		EnableCCHSigning:                     updatedSettings.EnableCCHSigning,
+		BalanceLowNotifyEnabled:              updatedSettings.BalanceLowNotifyEnabled,
+		BalanceLowNotifyThreshold:            updatedSettings.BalanceLowNotifyThreshold,
+		BalanceLowNotifyRechargeURL:          updatedSettings.BalanceLowNotifyRechargeURL,
+		AccountQuotaNotifyEnabled:            updatedSettings.AccountQuotaNotifyEnabled,
+		AccountQuotaNotifyEmails:             dto.NotifyEmailEntriesFromService(updatedSettings.AccountQuotaNotifyEmails),
+		ChannelMonitorEnabled:                updatedSettings.ChannelMonitorEnabled,
+		ChannelMonitorDefaultIntervalSeconds: updatedSettings.ChannelMonitorDefaultIntervalSeconds,
+		AvailableChannelsEnabled:             updatedSettings.AvailableChannelsEnabled,
 	})
 }
 
@@ -866,6 +949,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.DefaultBalance != after.DefaultBalance {
 		changed = append(changed, "default_balance")
 	}
+	if before.DefaultUserRPMLimit != after.DefaultUserRPMLimit {
+		changed = append(changed, "default_user_rpm_limit")
+	}
 	if !equalDefaultSubscriptions(before.DefaultSubscriptions, after.DefaultSubscriptions) {
 		changed = append(changed, "default_subscriptions")
 	}
@@ -928,6 +1014,30 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.EnableMetadataPassthrough != after.EnableMetadataPassthrough {
 		changed = append(changed, "enable_metadata_passthrough")
+	}
+	if before.EnableCCHSigning != after.EnableCCHSigning {
+		changed = append(changed, "enable_cch_signing")
+	}
+	if before.BalanceLowNotifyEnabled != after.BalanceLowNotifyEnabled {
+		changed = append(changed, "balance_low_notify_enabled")
+	}
+	if before.BalanceLowNotifyThreshold != after.BalanceLowNotifyThreshold {
+		changed = append(changed, "balance_low_notify_threshold")
+	}
+	if before.BalanceLowNotifyRechargeURL != after.BalanceLowNotifyRechargeURL {
+		changed = append(changed, "balance_low_notify_recharge_url")
+	}
+	if before.AccountQuotaNotifyEnabled != after.AccountQuotaNotifyEnabled {
+		changed = append(changed, "account_quota_notify_enabled")
+	}
+	if before.ChannelMonitorEnabled != after.ChannelMonitorEnabled {
+		changed = append(changed, "channel_monitor_enabled")
+	}
+	if before.ChannelMonitorDefaultIntervalSeconds != after.ChannelMonitorDefaultIntervalSeconds {
+		changed = append(changed, "channel_monitor_default_interval_seconds")
+	}
+	if before.AvailableChannelsEnabled != after.AvailableChannelsEnabled {
+		changed = append(changed, "available_channels_enabled")
 	}
 	return changed
 }

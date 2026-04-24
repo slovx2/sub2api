@@ -166,6 +166,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/available-channels',
+    name: 'UserAvailableChannels',
+    component: () => import('@/views/user/AvailableChannelsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Available Channels',
+      titleKey: 'availableChannels.title',
+      descriptionKey: 'availableChannels.description'
+    }
+  },
+  {
     path: '/recharge',
     name: 'Recharge',
     component: () => import('@/views/user/RechargeView.vue'),
@@ -185,6 +197,18 @@ const routes: RouteRecordRaw[] = [
       requiresAdmin: false,
       title: '充值订单详情',
       description: '查看充值订单状态'
+    }
+  },
+  {
+    path: '/monitor',
+    name: 'ChannelStatus',
+    component: () => import('@/views/user/ChannelStatusView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Channel Status',
+      titleKey: 'nav.channelStatus',
+      descriptionKey: 'channelStatus.description'
     }
   },
   {
@@ -297,6 +321,18 @@ const routes: RouteRecordRaw[] = [
       requiresAdmin: true,
       title: 'Channel Management',
       titleKey: 'admin.channels.title',
+      descriptionKey: 'admin.channels.description'
+    }
+  },
+  {
+    path: '/admin/channels/monitor',
+    name: 'AdminChannelMonitor',
+    component: () => import('@/views/admin/ChannelMonitorView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Channel Monitor',
+      titleKey: 'nav.channelMonitor',
       descriptionKey: 'admin.channels.description'
     }
   },

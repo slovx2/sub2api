@@ -265,8 +265,9 @@ func ProvideOpsCleanupService(
 	db *sql.DB,
 	redisClient *redis.Client,
 	cfg *config.Config,
+	channelMonitorSvc *ChannelMonitorService,
 ) *OpsCleanupService {
-	svc := NewOpsCleanupService(opsRepo, db, redisClient, cfg)
+	svc := NewOpsCleanupService(opsRepo, db, redisClient, cfg, channelMonitorSvc)
 	svc.Start()
 	return svc
 }
@@ -467,9 +468,25 @@ var ProviderSet = wire.NewSet(
 	NewChannelService,
 	NewModelPricingResolver,
 	ProvideBalanceNotifyService,
+	ProvideChannelMonitorService,
+	ProvideChannelMonitorRunner,
+	NewChannelMonitorRequestTemplateService,
 )
 
 // ProvideBalanceNotifyService creates BalanceNotifyService
 func ProvideBalanceNotifyService(emailService *EmailService, settingRepo SettingRepository, accountRepo AccountRepository) *BalanceNotifyService {
 	return NewBalanceNotifyService(emailService, settingRepo, accountRepo)
+}
+
+// ProvideChannelMonitorService 创建渠道监控服务。
+func ProvideChannelMonitorService(repo ChannelMonitorRepository, encryptor SecretEncryptor) *ChannelMonitorService {
+	return NewChannelMonitorService(repo, encryptor)
+}
+
+// ProvideChannelMonitorRunner 创建并启动渠道监控调度器。
+func ProvideChannelMonitorRunner(svc *ChannelMonitorService, settingService *SettingService) *ChannelMonitorRunner {
+	runner := NewChannelMonitorRunner(svc, settingService)
+	svc.SetScheduler(runner)
+	runner.Start()
+	return runner
 }
