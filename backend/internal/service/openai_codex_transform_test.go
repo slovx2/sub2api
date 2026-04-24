@@ -46,7 +46,7 @@ func TestApplyCodexOAuthTransform_ToolContinuationPreservesNativeMessageAndReaso
 	reqBody := map[string]any{
 		"model": "gpt-5.2",
 		"input": []any{
-			map[string]any{"type": "message", "id": "msg_0", "role": "user", "content": "hi"},
+			map[string]any{"type": "message", "id": "msg_0", "call_id": "call_bad", "role": "user", "content": "hi"},
 			map[string]any{"type": "item_reference", "id": "rs_123"},
 		},
 		"tool_choice": "auto",
@@ -61,6 +61,8 @@ func TestApplyCodexOAuthTransform_ToolContinuationPreservesNativeMessageAndReaso
 	first, ok := input[0].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, "msg_0", first["id"])
+	_, hasCallID := first["call_id"]
+	require.False(t, hasCallID)
 
 	second, ok := input[1].(map[string]any)
 	require.True(t, ok)

@@ -658,12 +658,14 @@ func filterCodexInput(input []any, preserveReferences bool) []any {
 			}
 		}
 
+		if !isCodexToolCallItemType(typ) {
+			ensureCopy()
+			delete(newItem, "call_id")
+		}
+
 		if !preserveReferences {
 			ensureCopy()
 			delete(newItem, "id")
-			if !isCodexToolCallItemType(typ) {
-				delete(newItem, "call_id")
-			}
 		}
 
 		filtered = append(filtered, newItem)
