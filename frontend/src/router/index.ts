@@ -208,6 +208,28 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/recharge',
+    name: 'LegacyRecharge',
+    component: () => import('@/views/user/RechargeView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Balance Recharge',
+      titleKey: 'nav.legacyRecharge'
+    }
+  },
+  {
+    path: '/recharge/orders/:id',
+    name: 'LegacyRechargeOrderDetail',
+    component: () => import('@/views/user/RechargeOrderDetailView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Recharge Order',
+      titleKey: 'nav.legacyRecharge'
+    }
+  },
+  {
     path: '/affiliate',
     name: 'Affiliate',
     component: () => import('@/views/user/AffiliateView.vue'),
