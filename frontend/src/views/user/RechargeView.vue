@@ -1,4 +1,5 @@
 <template>
+  <AppLayout>
   <div class="space-y-6">
     <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div>
@@ -99,12 +100,14 @@
       </section>
     </div>
   </div>
+  </AppLayout>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { legacyPaymentAPI, type LegacyPaymentChannel, type LegacyPaymentConfig, type LegacyPaymentOrder } from '@/api/legacyPayment'
+import AppLayout from '@/components/layout/AppLayout.vue'
 import { useAppStore } from '@/stores/app'
 
 const route = useRoute()
