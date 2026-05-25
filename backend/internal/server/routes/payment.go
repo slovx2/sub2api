@@ -1,65 +1,107 @@
 package routes
 
 import (
-	"database/sql"
-	"log"
-	"strings"
-
-	"github.com/Wei-Shaw/sub2api/internal/payment"
+	"github.com/Wei-Shaw/sub2api/internal/handler"
+	"github.com/Wei-Shaw/sub2api/internal/handler/admin"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
 
-func RegisterPaymentRoutes(v1 *gin.RouterGroup, db *sql.DB, adminService service.AdminService, jwtAuth middleware.JWTAuthMiddleware) {
-	if db == nil || adminService == nil {
-		log.Printf("payment routes disabled: missing dependencies")
-		return
-	}
-
-	cfg, err := payment.LoadConfig()
-	if err != nil {
-		log.Printf("payment config load failed: %v", err)
-		cfg = payment.DefaultConfig()
-		cfg.Enabled = false
-	}
-	if cfg == nil {
-		cfg = payment.DefaultConfig()
-	}
-	log.Printf(
-		"payment config loaded: enabled=%t min=%d max=%d step=%d public_base_url=%t merchant_id=%d private_key_len=%d public_key_len=%d",
-		cfg.Enabled,
-		cfg.MinAmount,
-		cfg.MaxAmount,
-		cfg.Step,
-		strings.TrimSpace(cfg.PublicBaseURL) != "",
-		cfg.PluginsWorld.MerchantID,
-		len(strings.TrimSpace(cfg.PluginsWorld.MerchantPrivateKey)),
-		len(strings.TrimSpace(cfg.PluginsWorld.PlatformPublicKey)),
-	)
-	provider, err := payment.NewPluginsWorldProvider(cfg)
-	if err != nil {
-		log.Printf("payment provider init failed: %v", err)
-		cfg.Enabled = false
-		provider, _ = payment.NewPluginsWorldProvider(cfg)
-	}
-
-	paymentService := payment.NewService(cfg, payment.NewOrderRepository(db), provider, adminService)
-	handler := payment.NewHandler(paymentService)
-
-	payments := v1.Group("/payments")
+// RegisterPaymentRoutes registers all payment-related routes:
+// user-facing endpoints, webhook endpoints, and admin endpoints.
+func RegisterPaymentRoutes(
+	v1 *gin.RouterGroup,
+	paymentHandler *handler.PaymentHandler,
+	webhookHandler *handler.PaymentWebhookHandler,
+	adminPaymentHandler *admin.PaymentHandler,
+	jwtAuth middleware.JWTAuthMiddleware,
+	adminAuth middleware.AdminAuthMiddleware,
+	settingService *service.SettingService,
+) {
+	// --- User-facing payment endpoints (authenticated) ---
+	authenticated := v1.Group("/payment")
+	authenticated.Use(gin.HandlerFunc(jwtAuth))
+	authenticated.Use(middleware.BackendModeUserGuard(settingService))
 	{
-		payments.GET("/config", handler.GetConfig)
-		payments.GET("/notify", handler.Notify)
-		payments.GET("/return", handler.Return)
+		authenticated.GET("/config", paymentHandler.GetPaymentConfig)
+		authenticated.GET("/checkout-info", paymentHandler.GetCheckoutInfo)
+		authenticated.GET("/plans", paymentHandler.GetPlans)
+		authenticated.GET("/channels", paymentHandler.GetChannels)
+		authenticated.GET("/limits", paymentHandler.GetLimits)
+
+		orders := authenticated.Group("/orders")
+		{
+			orders.POST("", paymentHandler.CreateOrder)
+			orders.POST("/verify", paymentHandler.VerifyOrder)
+			orders.GET("/my", paymentHandler.GetMyOrders)
+			orders.GET("/:id", paymentHandler.GetOrder)
+			orders.POST("/:id/cancel", paymentHandler.CancelOrder)
+			orders.POST("/:id/refund-request", paymentHandler.RequestRefund)
+			orders.GET("/refund-eligible-providers", paymentHandler.GetRefundEligibleProviders)
+		}
 	}
 
-	secured := v1.Group("/payments")
-	secured.Use(gin.HandlerFunc(jwtAuth))
+	// --- Public payment endpoints (no auth) ---
+	// Signed resume-token recovery is the preferred public lookup path.
+	// The legacy anonymous out_trade_no verify endpoint remains available as a
+	// persisted-state compatibility path for staggered upgrades.
+	public := v1.Group("/payment/public")
 	{
-		secured.POST("/orders", handler.CreateOrder)
-		secured.GET("/orders", handler.ListOrders)
-		secured.GET("/orders/:id", handler.GetOrder)
+		public.POST("/orders/verify", paymentHandler.VerifyOrderPublic)
+		public.POST("/orders/resolve", paymentHandler.ResolveOrderPublicByResumeToken)
+	}
+
+	// --- Webhook endpoints (no auth) ---
+	webhook := v1.Group("/payment/webhook")
+	{
+		// EasyPay sends GET callbacks with query params
+		webhook.GET("/easypay", webhookHandler.EasyPayNotify)
+		webhook.POST("/easypay", webhookHandler.EasyPayNotify)
+		webhook.POST("/alipay", webhookHandler.AlipayNotify)
+		webhook.POST("/wxpay", webhookHandler.WxpayNotify)
+		webhook.POST("/stripe", webhookHandler.StripeWebhook)
+		webhook.POST("/airwallex", webhookHandler.AirwallexWebhook)
+	}
+
+	// --- Admin payment endpoints (admin auth) ---
+	adminGroup := v1.Group("/admin/payment")
+	adminGroup.Use(gin.HandlerFunc(adminAuth))
+	{
+		// Dashboard
+		adminGroup.GET("/dashboard", adminPaymentHandler.GetDashboard)
+
+		// Config
+		adminGroup.GET("/config", adminPaymentHandler.GetConfig)
+		adminGroup.PUT("/config", adminPaymentHandler.UpdateConfig)
+
+		// Orders
+		adminOrders := adminGroup.Group("/orders")
+		{
+			adminOrders.GET("", adminPaymentHandler.ListOrders)
+			adminOrders.GET("/:id", adminPaymentHandler.GetOrderDetail)
+			adminOrders.POST("/:id/cancel", adminPaymentHandler.CancelOrder)
+			adminOrders.POST("/:id/retry", adminPaymentHandler.RetryFulfillment)
+			adminOrders.POST("/:id/refund", adminPaymentHandler.ProcessRefund)
+		}
+
+		// Subscription Plans
+		plans := adminGroup.Group("/plans")
+		{
+			plans.GET("", adminPaymentHandler.ListPlans)
+			plans.POST("", adminPaymentHandler.CreatePlan)
+			plans.PUT("/:id", adminPaymentHandler.UpdatePlan)
+			plans.DELETE("/:id", adminPaymentHandler.DeletePlan)
+		}
+
+		// Provider Instances
+		providers := adminGroup.Group("/providers")
+		{
+			providers.GET("", adminPaymentHandler.ListProviders)
+			providers.POST("", adminPaymentHandler.CreateProvider)
+			providers.PUT("/:id", adminPaymentHandler.UpdateProvider)
+			providers.DELETE("/:id", adminPaymentHandler.DeleteProvider)
+		}
 	}
 }

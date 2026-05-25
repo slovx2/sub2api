@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sort"
-	"strings"
 	"testing"
 	"time"
 
@@ -69,6 +68,7 @@ func TestAPIContracts(t *testing.T) {
 					"linuxdo_bound": false,
 					"oidc_bound": false,
 					"wechat_bound": false,
+					"dingtalk_bound": false,
 					"identities": {
 						"email": {
 							"provider": "email",
@@ -105,6 +105,14 @@ func TestAPIContracts(t *testing.T) {
 							"can_bind": true,
 							"can_unbind": false,
 							"bind_start_path": "/api/v1/auth/oauth/wechat/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
+						},
+						"dingtalk": {
+							"provider": "dingtalk",
+							"bound": false,
+							"bound_count": 0,
+							"can_bind": true,
+							"can_unbind": false,
+							"bind_start_path": "/api/v1/auth/oauth/dingtalk/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
 						}
 					},
 					"identity_bindings": {
@@ -143,6 +151,14 @@ func TestAPIContracts(t *testing.T) {
 							"can_bind": true,
 							"can_unbind": false,
 							"bind_start_path": "/api/v1/auth/oauth/wechat/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
+						},
+						"dingtalk": {
+							"provider": "dingtalk",
+							"bound": false,
+							"bound_count": 0,
+							"can_bind": true,
+							"can_unbind": false,
+							"bind_start_path": "/api/v1/auth/oauth/dingtalk/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
 						}
 					},
 					"auth_bindings": {
@@ -181,6 +197,14 @@ func TestAPIContracts(t *testing.T) {
 							"can_bind": true,
 							"can_unbind": false,
 							"bind_start_path": "/api/v1/auth/oauth/wechat/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
+						},
+						"dingtalk": {
+							"provider": "dingtalk",
+							"bound": false,
+							"bound_count": 0,
+							"can_bind": true,
+							"can_unbind": false,
+							"bind_start_path": "/api/v1/auth/oauth/dingtalk/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
 						}
 					},
 					"run_mode": "standard"
@@ -555,6 +579,10 @@ func TestAPIContracts(t *testing.T) {
 							"first_token_ms": 50,
 							"image_count": 0,
 							"image_size": null,
+							"image_input_size": null,
+							"image_output_size": null,
+							"image_size_source": null,
+							"image_size_breakdown": null,
 							"media_type": null,
 							"cache_ttl_overridden": false,
 							"created_at": "2025-01-02T03:04:05Z",
@@ -673,6 +701,22 @@ func TestAPIContracts(t *testing.T) {
 						"linuxdo_connect_client_id": "",
 						"linuxdo_connect_client_secret_configured": false,
 						"linuxdo_connect_redirect_url": "",
+						"dingtalk_connect_enabled": false,
+						"dingtalk_connect_bypass_registration": false,
+						"dingtalk_connect_client_id": "",
+						"dingtalk_connect_client_secret_configured": false,
+						"dingtalk_connect_redirect_url": "",
+						"dingtalk_connect_internal_corp_id": "",
+						"dingtalk_connect_corp_restriction_policy": "",
+						"dingtalk_connect_sync_corp_email": false,
+						"dingtalk_connect_sync_corp_email_attr_key": "dingtalk_email",
+						"dingtalk_connect_sync_corp_email_attr_name": "钉钉企业邮箱",
+						"dingtalk_connect_sync_dept": false,
+						"dingtalk_connect_sync_dept_attr_key": "dingtalk_department",
+						"dingtalk_connect_sync_dept_attr_name": "钉钉部门",
+						"dingtalk_connect_sync_display_name": false,
+						"dingtalk_connect_sync_display_name_attr_key": "dingtalk_name",
+						"dingtalk_connect_sync_display_name_attr_name": "钉钉姓名",
 						"oidc_connect_enabled": false,
 						"oidc_connect_provider_name": "OIDC",
 						"oidc_connect_client_id": "",
@@ -713,6 +757,7 @@ func TestAPIContracts(t *testing.T) {
 						"site_logo": "",
 						"site_subtitle": "Subtitle",
 						"api_base_url": "https://api.example.com",
+						"api_key_acl_trust_forwarded_ip": false,
 					"contact_info": "support",
 					"doc_url": "https://docs.example.com",
 					"auth_source_default_email_balance": 0,
@@ -745,6 +790,11 @@ func TestAPIContracts(t *testing.T) {
 					"auth_source_default_wechat_subscriptions": [],
 					"auth_source_default_wechat_grant_on_signup": false,
 					"auth_source_default_wechat_grant_on_first_bind": false,
+					"auth_source_default_dingtalk_balance": 0,
+					"auth_source_default_dingtalk_concurrency": 5,
+					"auth_source_default_dingtalk_subscriptions": [],
+					"auth_source_default_dingtalk_grant_on_signup": false,
+					"auth_source_default_dingtalk_grant_on_first_bind": false,
 					"force_email_on_third_party_signup": false,
 					"default_concurrency": 5,
 					"default_balance": 1.25,
@@ -774,6 +824,8 @@ func TestAPIContracts(t *testing.T) {
 					"backend_mode_enabled": false,
 					"enable_cch_signing": false,
 					"enable_anthropic_cache_ttl_1h_injection": false,
+					"rewrite_message_cache_control": false,
+					"antigravity_user_agent_version": "",
 					"enable_fingerprint_unification": true,
 					"enable_metadata_passthrough": false,
 					"web_search_emulation_enabled": false,
@@ -782,15 +834,9 @@ func TestAPIContracts(t *testing.T) {
 					"payment_visible_method_alipay_enabled": true,
 					"payment_visible_method_wxpay_enabled": false,
 					"openai_advanced_scheduler_enabled": true,
+					"openai_codex_user_agent":           "",
 					"openai_fast_policy_settings": {
-						"rules": [
-							{
-								"service_tier": "priority",
-								"action": "filter",
-								"scope": "all",
-								"fallback_action": "pass"
-							}
-						]
+						"rules": []
 					},
 					"custom_menu_items": [],
 					"custom_endpoints": [],
@@ -814,8 +860,10 @@ func TestAPIContracts(t *testing.T) {
 					"payment_cancel_rate_limit_window": 0,
 					"payment_cancel_rate_limit_unit": "",
 					"payment_cancel_rate_limit_window_mode": "",
+					"payment_alipay_force_qrcode": false,
 					"balance_low_notify_enabled": false,
 					"account_quota_notify_enabled": false,
+					"subscription_expiry_notify_enabled": true,
 					"balance_low_notify_threshold": 0,
 					"balance_low_notify_recharge_url": "",
 					"account_quota_notify_emails": [],
@@ -916,6 +964,22 @@ func TestAPIContracts(t *testing.T) {
 					"linuxdo_connect_client_id": "",
 					"linuxdo_connect_client_secret_configured": false,
 					"linuxdo_connect_redirect_url": "",
+					"dingtalk_connect_enabled": false,
+					"dingtalk_connect_bypass_registration": false,
+					"dingtalk_connect_client_id": "",
+					"dingtalk_connect_client_secret_configured": false,
+					"dingtalk_connect_redirect_url": "",
+					"dingtalk_connect_internal_corp_id": "",
+					"dingtalk_connect_corp_restriction_policy": "",
+					"dingtalk_connect_sync_corp_email": false,
+					"dingtalk_connect_sync_corp_email_attr_key": "dingtalk_email",
+					"dingtalk_connect_sync_corp_email_attr_name": "钉钉企业邮箱",
+					"dingtalk_connect_sync_dept": false,
+					"dingtalk_connect_sync_dept_attr_key": "dingtalk_department",
+					"dingtalk_connect_sync_dept_attr_name": "钉钉部门",
+					"dingtalk_connect_sync_display_name": false,
+					"dingtalk_connect_sync_display_name_attr_key": "dingtalk_name",
+					"dingtalk_connect_sync_display_name_attr_name": "钉钉姓名",
 					"oidc_connect_enabled": true,
 					"oidc_connect_provider_name": "ConfigOIDC",
 					"oidc_connect_client_id": "oidc-config-client",
@@ -952,6 +1016,7 @@ func TestAPIContracts(t *testing.T) {
 					"site_logo": "",
 					"site_subtitle": "Subscription to API Conversion Platform",
 					"api_base_url": "",
+					"api_key_acl_trust_forwarded_ip": false,
 					"contact_info": "",
 					"doc_url": "",
 					"home_content": "",
@@ -989,21 +1054,17 @@ func TestAPIContracts(t *testing.T) {
 					"enable_metadata_passthrough": false,
 					"enable_cch_signing": false,
 					"enable_anthropic_cache_ttl_1h_injection": false,
+					"rewrite_message_cache_control": false,
+					"antigravity_user_agent_version": "",
 					"web_search_emulation_enabled": false,
 					"payment_visible_method_alipay_source": "",
 					"payment_visible_method_wxpay_source": "",
 					"payment_visible_method_alipay_enabled": false,
 					"payment_visible_method_wxpay_enabled": false,
 					"openai_advanced_scheduler_enabled": false,
+					"openai_codex_user_agent":           "",
 					"openai_fast_policy_settings": {
-						"rules": [
-							{
-								"service_tier": "priority",
-								"action": "filter",
-								"scope": "all",
-								"fallback_action": "pass"
-							}
-						]
+						"rules": []
 					},
 					"payment_enabled": false,
 					"payment_min_amount": 0,
@@ -1025,8 +1086,10 @@ func TestAPIContracts(t *testing.T) {
 					"payment_cancel_rate_limit_window": 0,
 					"payment_cancel_rate_limit_unit": "",
 					"payment_cancel_rate_limit_window_mode": "",
+					"payment_alipay_force_qrcode": false,
 					"balance_low_notify_enabled": false,
 					"account_quota_notify_enabled": false,
+					"subscription_expiry_notify_enabled": true,
 					"balance_low_notify_threshold": 0,
 					"balance_low_notify_recharge_url": "",
 					"account_quota_notify_emails": [],
@@ -1081,45 +1144,12 @@ func TestAPIContracts(t *testing.T) {
 					"auth_source_default_wechat_subscriptions": [],
 					"auth_source_default_wechat_grant_on_signup": false,
 					"auth_source_default_wechat_grant_on_first_bind": false,
+					"auth_source_default_dingtalk_balance": 0,
+					"auth_source_default_dingtalk_concurrency": 5,
+					"auth_source_default_dingtalk_subscriptions": [],
+					"auth_source_default_dingtalk_grant_on_signup": false,
+					"auth_source_default_dingtalk_grant_on_first_bind": false,
 					"force_email_on_third_party_signup": false
-				}
-			}`,
-		},
-		{
-			name: "POST /api/v1/admin/accounts/lookup",
-			setup: func(t *testing.T, deps *contractDeps) {
-				t.Helper()
-				deps.accountRepo.lookupAccounts = []service.Account{
-					{
-						ID:       101,
-						Name:     "Alice Account",
-						Platform: "antigravity",
-						Credentials: map[string]any{
-							"email": "alice@example.com",
-						},
-					},
-				}
-			},
-			method: http.MethodPost,
-			path:   "/api/v1/admin/accounts/lookup",
-			body:   `{"platform":"antigravity","emails":["Alice@Example.com","bob@example.com"]}`,
-			headers: map[string]string{
-				"Content-Type": "application/json",
-			},
-			wantStatus: http.StatusOK,
-			wantJSON: `{
-				"code": 0,
-				"message": "success",
-				"data": {
-					"matched": [
-						{
-							"email": "alice@example.com",
-							"account_id": 101,
-							"platform": "antigravity",
-							"name": "Alice Account"
-						}
-					],
-					"missing": ["bob@example.com"]
 				}
 			}`,
 		},
@@ -1173,7 +1203,6 @@ type contractDeps struct {
 	usageRepo   *stubUsageLogRepo
 	settingRepo *stubSettingRepo
 	redeemRepo  *stubRedeemCodeRepo
-	accountRepo *stubAccountRepo
 }
 
 func newContractDeps(t *testing.T) *contractDeps {
@@ -1229,11 +1258,11 @@ func newContractDeps(t *testing.T) *contractDeps {
 	settingRepo := newStubSettingRepo()
 	settingService := service.NewSettingService(settingRepo, cfg)
 
-	adminService := service.NewAdminService(userRepo, groupRepo, &accountRepo, proxyRepo, apiKeyRepo, redeemRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
-	authHandler := handler.NewAuthHandler(cfg, nil, userService, settingService, nil, redeemService, nil)
+	adminService := service.NewAdminService(userRepo, groupRepo, &accountRepo, proxyRepo, apiKeyRepo, redeemRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	authHandler := handler.NewAuthHandler(cfg, nil, userService, settingService, nil, redeemService, nil, nil)
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService)
 	usageHandler := handler.NewUsageHandler(usageService, apiKeyService)
-	adminSettingHandler := adminhandler.NewSettingHandler(settingService, nil, nil, nil)
+	adminSettingHandler := adminhandler.NewSettingHandler(settingService, nil, nil, nil, nil, nil, nil)
 	adminAccountHandler := adminhandler.NewAccountHandler(adminService, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	jwtAuth := func(c *gin.Context) {
@@ -1284,7 +1313,6 @@ func newContractDeps(t *testing.T) *contractDeps {
 	v1Admin.Use(adminAuth)
 	v1Admin.GET("/settings", adminSettingHandler.GetSettings)
 	v1Admin.POST("/accounts/bulk-update", adminAccountHandler.BulkUpdate)
-	v1Admin.POST("/accounts/lookup", adminAccountHandler.Lookup)
 
 	return &contractDeps{
 		now:         now,
@@ -1296,7 +1324,6 @@ func newContractDeps(t *testing.T) *contractDeps {
 		usageRepo:   usageRepo,
 		settingRepo: settingRepo,
 		redeemRepo:  redeemRepo,
-		accountRepo: &accountRepo,
 	}
 }
 
@@ -1569,8 +1596,7 @@ func (stubGroupRepo) UpdateSortOrders(ctx context.Context, updates []service.Gro
 }
 
 type stubAccountRepo struct {
-	bulkUpdateIDs  []int64
-	lookupAccounts []service.Account
+	bulkUpdateIDs []int64
 }
 
 func (s *stubAccountRepo) Create(ctx context.Context, account *service.Account) error {
@@ -1623,36 +1649,6 @@ func (s *stubAccountRepo) ListActive(ctx context.Context) ([]service.Account, er
 
 func (s *stubAccountRepo) ListByPlatform(ctx context.Context, platform string) ([]service.Account, error) {
 	return nil, errors.New("not implemented")
-}
-
-func (s *stubAccountRepo) ListByPlatformAndCredentialEmails(ctx context.Context, platform string, emails []string) ([]service.Account, error) {
-	if len(s.lookupAccounts) == 0 {
-		return nil, nil
-	}
-	emailSet := make(map[string]struct{}, len(emails))
-	for _, email := range emails {
-		normalized := strings.ToLower(strings.TrimSpace(email))
-		if normalized == "" {
-			continue
-		}
-		emailSet[normalized] = struct{}{}
-	}
-	var matches []service.Account
-	for i := range s.lookupAccounts {
-		account := &s.lookupAccounts[i]
-		if account.Platform != platform {
-			continue
-		}
-		accountEmail := strings.ToLower(strings.TrimSpace(account.GetCredential("email")))
-		if accountEmail == "" {
-			continue
-		}
-		if _, ok := emailSet[accountEmail]; !ok {
-			continue
-		}
-		matches = append(matches, *account)
-	}
-	return matches, nil
 }
 
 func (s *stubAccountRepo) UpdateLastUsed(ctx context.Context, id int64) error {
@@ -1855,6 +1851,10 @@ func (stubRedeemCodeRepo) GetByCode(ctx context.Context, code string) (*service.
 
 func (stubRedeemCodeRepo) Update(ctx context.Context, code *service.RedeemCode) error {
 	return errors.New("not implemented")
+}
+
+func (stubRedeemCodeRepo) BatchUpdate(ctx context.Context, ids []int64, fields service.RedeemCodeBatchUpdateFields) (int64, error) {
+	return int64(len(ids)), nil
 }
 
 func (stubRedeemCodeRepo) Delete(ctx context.Context, id int64) error {

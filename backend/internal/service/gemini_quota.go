@@ -364,6 +364,11 @@ func clampGeminiQuotaRPM(value int64) int64 {
 	return value
 }
 
+func geminiCooldownForTier(tierID string) time.Duration {
+	policy := newGeminiQuotaPolicy()
+	return policy.CooldownForTier(tierID)
+}
+
 func geminiQuotaTierKeyForAccount(account *Account) string {
 	if account == nil || account.Platform != PlatformGemini {
 		return ""
