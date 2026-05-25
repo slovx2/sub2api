@@ -486,8 +486,7 @@ func (s *GeminiMessagesCompatService) HasAntigravityAccounts(ctx context.Context
 // 1) API key accounts (AI Studio)
 // 2) OAuth accounts without project_id (AI Studio OAuth)
 // 3) OAuth accounts explicitly marked as ai_studio
-// 4) API key accounts (Vertex API key; GET models falls back to local metadata)
-// 5) Any remaining Gemini accounts (fallback)
+// 4) Any remaining Gemini accounts (fallback)
 func (s *GeminiMessagesCompatService) SelectAccountForAIStudioEndpoints(ctx context.Context, groupID *int64) (*Account, error) {
 	accounts, err := s.listSchedulableAccountsOnce(ctx, groupID, PlatformGemini, true)
 	if err != nil {
@@ -504,9 +503,6 @@ func (s *GeminiMessagesCompatService) SelectAccountForAIStudioEndpoints(ctx cont
 		switch a.Type {
 		case AccountTypeAPIKey:
 			if strings.TrimSpace(a.GetCredential("api_key")) != "" {
-				if a.IsGeminiVertexAPIKey() {
-					return 3
-				}
 				return 0
 			}
 			return 9
@@ -518,7 +514,11 @@ func (s *GeminiMessagesCompatService) SelectAccountForAIStudioEndpoints(ctx cont
 				return 2
 			}
 			// Code Assist OAuth tokens often lack AI Studio scopes for models listing.
-			return 4
+			return 3
+		case AccountTypeServiceAccount:
+			// Vertex service accounts use aiplatform.googleapis.com, not the AI Studio
+			// endpoint (generativelanguage.googleapis.com), so they cannot serve these requests.
+			return 999
 		default:
 			return 10
 		}
@@ -583,7 +583,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 
 	originalModel := req.Model
 	mappedModel := req.Model
-	if account.Type == AccountTypeAPIKey {
+	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
 		mappedModel = account.GetMappedModel(req.Model)
 	}
 
@@ -615,13 +615,19 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 				return nil, "", errors.New("gemini api_key not configured")
 			}
 
+			baseURL := account.GetGeminiBaseURL(geminicli.AIStudioBaseURL)
+			normalizedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
+			if err != nil {
+				return nil, "", err
+			}
+
 			action := "generateContent"
 			if req.Stream {
 				action = "streamGenerateContent"
 			}
-			fullURL, err := buildGeminiAPIKeyUpstreamURL(account, s.validateUpstreamBaseURL, mappedModel, action, req.Stream)
-			if err != nil {
-				return nil, "", err
+			fullURL := fmt.Sprintf("%s/v1beta/models/%s:%s", strings.TrimRight(normalizedBaseURL, "/"), mappedModel, action)
+			if req.Stream {
+				fullURL += "?alt=sse"
 			}
 
 			restGeminiReq := normalizeGeminiRequestForAIStudio(geminiReq)
@@ -707,6 +713,36 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 				upstreamReq.Header.Set("Authorization", "Bearer "+accessToken)
 				return upstreamReq, "x-request-id", nil
 			}
+		}
+		requestIDHeader = "x-request-id"
+
+	case AccountTypeServiceAccount:
+		buildReq = func(ctx context.Context) (*http.Request, string, error) {
+			if s.tokenProvider == nil {
+				return nil, "", errors.New("gemini token provider not configured")
+			}
+			accessToken, err := s.tokenProvider.GetAccessToken(ctx, account)
+			if err != nil {
+				return nil, "", err
+			}
+
+			action := "generateContent"
+			if req.Stream {
+				action = "streamGenerateContent"
+			}
+			fullURL, err := buildVertexGeminiURL(account.VertexProjectID(), account.VertexLocation(mappedModel), mappedModel, action, req.Stream)
+			if err != nil {
+				return nil, "", err
+			}
+
+			restGeminiReq := normalizeGeminiRequestForAIStudio(geminiReq)
+			upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(restGeminiReq))
+			if err != nil {
+				return nil, "", err
+			}
+			upstreamReq.Header.Set("Content-Type", "application/json")
+			upstreamReq.Header.Set("Authorization", "Bearer "+accessToken)
+			return upstreamReq, "x-request-id", nil
 		}
 		requestIDHeader = "x-request-id"
 
@@ -1092,7 +1128,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	body = ensureGeminiFunctionCallThoughtSignatures(body)
 
 	mappedModel := originalModel
-	if account.Type == AccountTypeAPIKey {
+	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
 		mappedModel = account.GetMappedModel(originalModel)
 	}
 
@@ -1120,9 +1156,16 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 			if strings.TrimSpace(apiKey) == "" {
 				return nil, "", errors.New("gemini api_key not configured")
 			}
-			fullURL, err := buildGeminiAPIKeyUpstreamURL(account, s.validateUpstreamBaseURL, mappedModel, upstreamAction, useUpstreamStream)
+
+			baseURL := account.GetGeminiBaseURL(geminicli.AIStudioBaseURL)
+			normalizedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
 			if err != nil {
 				return nil, "", err
+			}
+
+			fullURL := fmt.Sprintf("%s/v1beta/models/%s:%s", strings.TrimRight(normalizedBaseURL, "/"), mappedModel, upstreamAction)
+			if useUpstreamStream {
+				fullURL += "?alt=sse"
 			}
 
 			upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(body))
@@ -1201,6 +1244,31 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 				upstreamReq.Header.Set("Authorization", "Bearer "+accessToken)
 				return upstreamReq, "x-request-id", nil
 			}
+		}
+		requestIDHeader = "x-request-id"
+
+	case AccountTypeServiceAccount:
+		buildReq = func(ctx context.Context) (*http.Request, string, error) {
+			if s.tokenProvider == nil {
+				return nil, "", errors.New("gemini token provider not configured")
+			}
+			accessToken, err := s.tokenProvider.GetAccessToken(ctx, account)
+			if err != nil {
+				return nil, "", err
+			}
+
+			fullURL, err := buildVertexGeminiURL(account.VertexProjectID(), account.VertexLocation(mappedModel), mappedModel, upstreamAction, useUpstreamStream)
+			if err != nil {
+				return nil, "", err
+			}
+
+			upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(body))
+			if err != nil {
+				return nil, "", err
+			}
+			upstreamReq.Header.Set("Content-Type", "application/json")
+			upstreamReq.Header.Set("Authorization", "Bearer "+accessToken)
+			return upstreamReq, "x-request-id", nil
 		}
 		requestIDHeader = "x-request-id"
 
@@ -2548,11 +2616,6 @@ func (s *GeminiMessagesCompatService) ForwardAIStudioGET(ctx context.Context, ac
 	if path == "" || !strings.HasPrefix(path, "/") {
 		return nil, errors.New("invalid path")
 	}
-	if account.IsGeminiVertexAPIKey() {
-		if fallbackRes, handled, err := buildGeminiVertexModelsFallback(path); handled || err != nil {
-			return fallbackRes, err
-		}
-	}
 
 	baseURL := account.GetGeminiBaseURL(geminicli.AIStudioBaseURL)
 	normalizedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
@@ -2752,17 +2815,33 @@ func (s *GeminiMessagesCompatService) handleGeminiUpstreamError(ctx context.Cont
 
 	oauthType := account.GeminiOAuthType()
 	tierID := account.GeminiTierID()
+	projectID := strings.TrimSpace(account.GetCredential("project_id"))
+	isCodeAssist := account.IsGeminiCodeAssist()
 
 	resetAt := ParseGeminiRateLimitResetTime(body)
-	if isGeminiDailyQuota429(body) {
-		resetAt = nil
-	}
 	if resetAt == nil {
-		cooldown := gemini429Cooldown(s.cfg)
-		ra := time.Now().Add(cooldown)
+		// 根据账号类型使用不同的默认重置时间
+		var ra time.Time
+		if isCodeAssist {
+			// Code Assist: fallback cooldown by tier
+			cooldown := geminiCooldownForTier(tierID)
+			if s.rateLimitService != nil {
+				cooldown = s.rateLimitService.GeminiCooldown(ctx, account)
+			}
+			ra = time.Now().Add(cooldown)
+			logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini 429] Account %d (Code Assist, tier=%s, project=%s) rate limited, cooldown=%v", account.ID, tierID, projectID, time.Until(ra).Truncate(time.Second))
+		} else {
+			// API Key / AI Studio OAuth: PST 午夜
+			if ts := nextGeminiDailyResetUnix(); ts != nil {
+				ra = time.Unix(*ts, 0)
+				logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini 429] Account %d (API Key/AI Studio, type=%s) rate limited, reset at PST midnight (%v)", account.ID, account.Type, ra)
+			} else {
+				// 兜底：5 分钟
+				ra = time.Now().Add(5 * time.Minute)
+				logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini 429] Account %d rate limited, fallback to 5min", account.ID)
+			}
+		}
 		_ = s.accountRepo.SetRateLimited(ctx, account.ID, ra)
-		logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini 429] Account %d rate limited, fallback cooldown=%v (oauth_type=%s, tier=%s)",
-			account.ID, cooldown, oauthType, tierID)
 		return
 	}
 
@@ -2815,24 +2894,12 @@ func ParseGeminiRateLimitResetTime(body []byte) *int64 {
 	return nil
 }
 
-func isGeminiDailyQuota429(body []byte) bool {
-	errMsg := gjson.GetBytes(body, "error.message").String()
-	return looksLikeGeminiDailyQuota(errMsg)
-}
-
 func looksLikeGeminiDailyQuota(message string) bool {
 	m := strings.ToLower(message)
 	if strings.Contains(m, "per day") || strings.Contains(m, "requests per day") || strings.Contains(m, "quota") && strings.Contains(m, "per day") {
 		return true
 	}
 	return false
-}
-
-func gemini429Cooldown(cfg *config.Config) time.Duration {
-	if cfg != nil && cfg.RateLimit.Gemini429CooldownMinutes > 0 {
-		return time.Duration(cfg.RateLimit.Gemini429CooldownMinutes) * time.Minute
-	}
-	return time.Minute
 }
 
 func nextGeminiDailyResetUnix() *int64 {
@@ -3373,12 +3440,15 @@ func (s *GeminiMessagesCompatService) extractImageSize(body []byte) string {
 		} `json:"generationConfig"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
-		return geminiImageSizeDefault
+		return "2K"
 	}
 
 	if req.GenerationConfig != nil && req.GenerationConfig.ImageConfig != nil {
-		return normalizeGeminiImageSizeOrDefault(req.GenerationConfig.ImageConfig.ImageSize)
+		size := strings.ToUpper(strings.TrimSpace(req.GenerationConfig.ImageConfig.ImageSize))
+		if size == "1K" || size == "2K" || size == "4K" {
+			return size
+		}
 	}
 
-	return geminiImageSizeDefault
+	return "2K"
 }

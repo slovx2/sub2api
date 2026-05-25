@@ -4,14 +4,25 @@
  */
 
 import { apiClient } from "../client";
-import type { CustomMenuItem, CustomEndpoint, NotifyEmailEntry } from "@/types";
+import type {
+  CustomEndpoint,
+  CustomMenuItem,
+  LoginAgreementDocument,
+  NotifyEmailEntry,
+} from "@/types";
 
 export interface DefaultSubscriptionSetting {
   group_id: number;
   validity_days: number;
 }
 
-export type AuthSourceType = "email" | "linuxdo" | "oidc" | "wechat";
+export type AuthSourceType =
+  | "email"
+  | "linuxdo"
+  | "oidc"
+  | "wechat"
+  | "github"
+  | "google";
 
 export interface AuthSourceDefaultsValue {
   balance: number;
@@ -51,6 +62,8 @@ const AUTH_SOURCE_TYPES: AuthSourceType[] = [
   "linuxdo",
   "oidc",
   "wechat",
+  "github",
+  "google",
 ];
 const AUTH_SOURCE_DEFAULT_BALANCE = 0;
 const AUTH_SOURCE_DEFAULT_CONCURRENCY = 5;
@@ -306,8 +319,16 @@ export interface SystemSettings {
   invitation_code_enabled: boolean;
   totp_enabled: boolean; // TOTP 双因素认证
   totp_encryption_key_configured: boolean; // TOTP 加密密钥是否已配置
+  login_agreement_enabled: boolean;
+  login_agreement_mode: "modal" | "checkbox" | string;
+  login_agreement_updated_at: string;
+  login_agreement_documents: LoginAgreementDocument[];
   // Default settings
   default_balance: number;
+  affiliate_rebate_rate: number;
+  affiliate_rebate_freeze_hours: number;
+  affiliate_rebate_duration_days: number;
+  affiliate_rebate_per_invitee_cap: number;
   default_concurrency: number;
   default_user_rpm_limit: number;
   default_subscriptions: DefaultSubscriptionSetting[];
@@ -331,6 +352,16 @@ export interface SystemSettings {
   auth_source_default_wechat_subscriptions?: DefaultSubscriptionSetting[];
   auth_source_default_wechat_grant_on_signup?: boolean;
   auth_source_default_wechat_grant_on_first_bind?: boolean;
+  auth_source_default_github_balance?: number;
+  auth_source_default_github_concurrency?: number;
+  auth_source_default_github_subscriptions?: DefaultSubscriptionSetting[];
+  auth_source_default_github_grant_on_signup?: boolean;
+  auth_source_default_github_grant_on_first_bind?: boolean;
+  auth_source_default_google_balance?: number;
+  auth_source_default_google_concurrency?: number;
+  auth_source_default_google_subscriptions?: DefaultSubscriptionSetting[];
+  auth_source_default_google_grant_on_signup?: boolean;
+  auth_source_default_google_grant_on_first_bind?: boolean;
   force_email_on_third_party_signup?: boolean;
   // OEM settings
   site_name: string;
@@ -408,6 +439,16 @@ export interface SystemSettings {
   oidc_connect_userinfo_email_path: string;
   oidc_connect_userinfo_id_path: string;
   oidc_connect_userinfo_username_path: string;
+  github_oauth_enabled: boolean;
+  github_oauth_client_id: string;
+  github_oauth_client_secret_configured: boolean;
+  github_oauth_redirect_url: string;
+  github_oauth_frontend_redirect_url: string;
+  google_oauth_enabled: boolean;
+  google_oauth_client_id: string;
+  google_oauth_client_secret_configured: boolean;
+  google_oauth_redirect_url: string;
+  google_oauth_frontend_redirect_url: string;
 
   // Model fallback configuration
   enable_model_fallback: boolean;
@@ -437,10 +478,12 @@ export interface SystemSettings {
   enable_fingerprint_unification: boolean;
   enable_metadata_passthrough: boolean;
   enable_cch_signing: boolean;
+  enable_anthropic_cache_ttl_1h_injection: boolean;
   web_search_emulation_enabled?: boolean;
 
   // Payment configuration
   payment_enabled: boolean;
+  risk_control_enabled: boolean;
   payment_min_amount: number;
   payment_max_amount: number;
   payment_daily_limit: number;
@@ -479,6 +522,12 @@ export interface SystemSettings {
 
   // Available Channels feature switch
   available_channels_enabled: boolean;
+
+  // Affiliate (邀请返利) feature switch
+  affiliate_enabled: boolean;
+
+  // OpenAI fast/flex policy
+  openai_fast_policy_settings?: OpenAIFastPolicySettings;
 }
 
 export interface UpdateSettingsRequest {
@@ -490,7 +539,15 @@ export interface UpdateSettingsRequest {
   frontend_url?: string;
   invitation_code_enabled?: boolean;
   totp_enabled?: boolean; // TOTP 双因素认证
+  login_agreement_enabled?: boolean;
+  login_agreement_mode?: "modal" | "checkbox" | string;
+  login_agreement_updated_at?: string;
+  login_agreement_documents?: LoginAgreementDocument[];
   default_balance?: number;
+  affiliate_rebate_rate?: number;
+  affiliate_rebate_freeze_hours?: number;
+  affiliate_rebate_duration_days?: number;
+  affiliate_rebate_per_invitee_cap?: number;
   default_concurrency?: number;
   default_user_rpm_limit?: number;
   default_subscriptions?: DefaultSubscriptionSetting[];
@@ -514,6 +571,16 @@ export interface UpdateSettingsRequest {
   auth_source_default_wechat_subscriptions?: DefaultSubscriptionSetting[];
   auth_source_default_wechat_grant_on_signup?: boolean;
   auth_source_default_wechat_grant_on_first_bind?: boolean;
+  auth_source_default_github_balance?: number;
+  auth_source_default_github_concurrency?: number;
+  auth_source_default_github_subscriptions?: DefaultSubscriptionSetting[];
+  auth_source_default_github_grant_on_signup?: boolean;
+  auth_source_default_github_grant_on_first_bind?: boolean;
+  auth_source_default_google_balance?: number;
+  auth_source_default_google_concurrency?: number;
+  auth_source_default_google_subscriptions?: DefaultSubscriptionSetting[];
+  auth_source_default_google_grant_on_signup?: boolean;
+  auth_source_default_google_grant_on_first_bind?: boolean;
   force_email_on_third_party_signup?: boolean;
   site_name?: string;
   site_logo?: string;
@@ -582,6 +649,16 @@ export interface UpdateSettingsRequest {
   oidc_connect_userinfo_email_path?: string;
   oidc_connect_userinfo_id_path?: string;
   oidc_connect_userinfo_username_path?: string;
+  github_oauth_enabled?: boolean;
+  github_oauth_client_id?: string;
+  github_oauth_client_secret?: string;
+  github_oauth_redirect_url?: string;
+  github_oauth_frontend_redirect_url?: string;
+  google_oauth_enabled?: boolean;
+  google_oauth_client_id?: string;
+  google_oauth_client_secret?: string;
+  google_oauth_redirect_url?: string;
+  google_oauth_frontend_redirect_url?: string;
   enable_model_fallback?: boolean;
   fallback_model_anthropic?: string;
   fallback_model_openai?: string;
@@ -599,8 +676,10 @@ export interface UpdateSettingsRequest {
   enable_fingerprint_unification?: boolean;
   enable_metadata_passthrough?: boolean;
   enable_cch_signing?: boolean;
+  enable_anthropic_cache_ttl_1h_injection?: boolean;
   // Payment configuration
   payment_enabled?: boolean;
+  risk_control_enabled?: boolean;
   payment_min_amount?: number;
   payment_max_amount?: number;
   payment_daily_limit?: number;
@@ -638,6 +717,12 @@ export interface UpdateSettingsRequest {
 
   // Available Channels feature switch
   available_channels_enabled?: boolean;
+
+  // Affiliate (邀请返利) feature switch
+  affiliate_enabled?: boolean;
+
+  // OpenAI fast/flex policy
+  openai_fast_policy_settings?: OpenAIFastPolicySettings;
 }
 
 /**
@@ -787,6 +872,30 @@ export async function updateOverloadCooldownSettings(
   return data;
 }
 
+// ==================== 429 Rate Limit Cooldown Settings ====================
+
+export interface RateLimit429CooldownSettings {
+  enabled: boolean;
+  cooldown_seconds: number;
+}
+
+export async function getRateLimit429CooldownSettings(): Promise<RateLimit429CooldownSettings> {
+  const { data } = await apiClient.get<RateLimit429CooldownSettings>(
+    "/admin/settings/rate-limit-429-cooldown",
+  );
+  return data;
+}
+
+export async function updateRateLimit429CooldownSettings(
+  settings: RateLimit429CooldownSettings,
+): Promise<RateLimit429CooldownSettings> {
+  const { data } = await apiClient.put<RateLimit429CooldownSettings>(
+    "/admin/settings/rate-limit-429-cooldown",
+    settings,
+  );
+  return data;
+}
+
 // ==================== Stream Timeout Settings ====================
 
 /**
@@ -863,6 +972,29 @@ export async function updateRectifierSettings(
     settings,
   );
   return data;
+}
+
+// ==================== OpenAI Fast Policy Settings ====================
+
+/**
+ * OpenAI fast/flex policy rule interface.
+ * Matches backend dto.OpenAIFastPolicyRule.
+ */
+export interface OpenAIFastPolicyRule {
+  service_tier: "all" | "priority" | "flex";
+  action: "pass" | "filter" | "block";
+  scope: "all" | "oauth" | "apikey" | "bedrock";
+  error_message?: string;
+  model_whitelist?: string[];
+  fallback_action?: "pass" | "filter" | "block";
+  fallback_error_message?: string;
+}
+
+/**
+ * OpenAI fast/flex policy settings interface.
+ */
+export interface OpenAIFastPolicySettings {
+  rules: OpenAIFastPolicyRule[];
 }
 
 // ==================== Beta Policy Settings ====================
@@ -983,6 +1115,8 @@ export const settingsAPI = {
   deleteAdminApiKey,
   getOverloadCooldownSettings,
   updateOverloadCooldownSettings,
+  getRateLimit429CooldownSettings,
+  updateRateLimit429CooldownSettings,
   getStreamTimeoutSettings,
   updateStreamTimeoutSettings,
   getRectifierSettings,
