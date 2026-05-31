@@ -223,42 +223,6 @@ func TestRelay_FunctionCallOutputBytesPreserved(t *testing.T) {
 	require.Equal(t, firstPayload, upstreamWrites[0].payload)
 }
 
-func TestRelay_OnClientFrame_SummarizesFunctionCallOutput(t *testing.T) {
-	t.Parallel()
-
-	clientConn := newPassthroughTestFrameConn(nil, false)
-	upstreamConn := newPassthroughTestFrameConn([]passthroughTestFrame{
-		{
-			msgType: coderws.MessageText,
-			payload: []byte(`{"type":"response.completed","response":{"id":"resp_client_diag","usage":{"input_tokens":1,"output_tokens":1}}}`),
-		},
-	}, true)
-
-	firstPayload := []byte(`{"type":"response.create","model":"gpt-5.3-codex","service_tier":"fast","previous_response_id":"resp_prev_1","prompt_cache_key":"pc_1","input":[{"type":"function_call_output","call_id":"call_abc123","output":"{\"ok\":true}"},{"type":"input_text","text":"next"}]}`)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	frames := make([]RelayClientFrameEvent, 0, 1)
-	_, relayExit := Relay(ctx, clientConn, upstreamConn, firstPayload, RelayOptions{
-		OnClientFrame: func(frame RelayClientFrameEvent) {
-			frames = append(frames, frame)
-		},
-	})
-	require.Nil(t, relayExit)
-	require.Len(t, frames, 1)
-	require.Equal(t, 1, frames[0].Index)
-	require.Equal(t, "text", frames[0].MessageType)
-	require.Equal(t, "response.create", frames[0].EventType)
-	require.Equal(t, "gpt-5.3-codex", frames[0].Model)
-	require.Equal(t, "fast", frames[0].ServiceTier)
-	require.Equal(t, "resp_prev_1", frames[0].PreviousResponseID)
-	require.Equal(t, "response", frames[0].PreviousResponseIDKind)
-	require.True(t, frames[0].PromptCacheKeyPresent)
-	require.True(t, frames[0].HasFunctionCallOutput)
-	require.Equal(t, []string{"call_abc123"}, frames[0].FunctionCallOutputCallIDs)
-	require.Equal(t, []string{"function_call_output", "input_text"}, frames[0].InputTypes)
-}
-
 func TestRelay_UpstreamDisconnect(t *testing.T) {
 	t.Parallel()
 
@@ -487,56 +451,6 @@ func TestRelay_OnTurnComplete_PerTerminalEvent(t *testing.T) {
 	require.Equal(t, 4, turns[1].Usage.OutputTokens)
 	require.Equal(t, 5, result.Usage.InputTokens)
 	require.Equal(t, 5, result.Usage.OutputTokens)
-}
-
-func TestRelay_OnUpstreamEvent_SummarizesToolCallAndError(t *testing.T) {
-	t.Parallel()
-
-	clientConn := newPassthroughTestFrameConn(nil, false)
-	upstreamConn := newPassthroughTestFrameConn([]passthroughTestFrame{
-		{
-			msgType: coderws.MessageText,
-			payload: []byte(`{"type":"response.output_item.added","response_id":"resp_tool_diag","item":{"type":"function_call","call_id":"call_diag_1","name":"shell"}}`),
-		},
-		{
-			msgType: coderws.MessageText,
-			payload: []byte(`{"type":"error","error":{"code":"invalid_request_error","type":"invalid_request_error","message":"No tool output found for function call call_diag_1"}}`),
-		},
-		{
-			msgType: coderws.MessageText,
-			payload: []byte(`{"type":"response.completed","response":{"id":"resp_tool_diag","usage":{"input_tokens":2,"output_tokens":1}}}`),
-		},
-	}, true)
-
-	firstPayload := []byte(`{"type":"response.create","model":"gpt-5.3-codex","input":[]}`)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	events := make([]RelayUpstreamEvent, 0, 3)
-	_, relayExit := Relay(ctx, clientConn, upstreamConn, firstPayload, RelayOptions{
-		OnUpstreamEvent: func(event RelayUpstreamEvent) {
-			events = append(events, event)
-		},
-	})
-	require.Nil(t, relayExit)
-	require.Len(t, events, 3)
-	require.Equal(t, 1, events[0].Index)
-	require.Equal(t, "response.output_item.added", events[0].EventType)
-	require.Equal(t, "resp_tool_diag", events[0].ResponseID)
-	require.False(t, events[0].Terminal)
-	require.True(t, events[0].HasToolCalls)
-	require.Equal(t, []string{"call_diag_1"}, events[0].CallIDs)
-
-	require.Equal(t, 2, events[1].Index)
-	require.Equal(t, "error", events[1].EventType)
-	require.Equal(t, "invalid_request_error", events[1].ErrorCode)
-	require.Equal(t, "invalid_request_error", events[1].ErrorType)
-	require.Contains(t, events[1].ErrorMessage, "call_diag_1")
-
-	require.Equal(t, 3, events[2].Index)
-	require.Equal(t, "response.completed", events[2].EventType)
-	require.Equal(t, "resp_tool_diag", events[2].ResponseID)
-	require.True(t, events[2].Terminal)
 }
 
 func TestRelay_OnTurnComplete_ProvidesTurnMetrics(t *testing.T) {
