@@ -1453,7 +1453,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, result.FirstTokenMs)
 				inboundEndpoint := GetInboundEndpoint(c)
 				upstreamEndpoint := GetUpstreamEndpoint(c, account.Platform)
-				h.submitOpenAIUsageRecordTask(ctx, result, func(taskCtx context.Context) {
+				// WebSocket 一个连接会产生多个可计费 turn，不能继承连接级 request id。
+				// 让计费去重使用每个 turn 自己的 upstream response id，避免多轮互相冲突。
+				h.submitOpenAIUsageRecordTask(context.Background(), result, func(taskCtx context.Context) {
 					if err := h.gatewayService.RecordUsage(taskCtx, &service.OpenAIRecordUsageInput{
 						Result:             result,
 						APIKey:             apiKey,
