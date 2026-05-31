@@ -16,6 +16,7 @@ import (
 	coderws "github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
+	"go.uber.org/zap"
 )
 
 type openAIWSClientFrameConn struct {
@@ -719,62 +720,14 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 
 	turnCount := int(completedTurns.Load())
 	if relayExit == nil {
-		logOpenAIWSV2Passthrough(
-			"relay_completed account_id=%d request_id=%s terminal_event=%s duration_ms=%d c2u_frames=%d u2c_frames=%d dropped_frames=%d turns=%d first_exit_stage=%s first_exit_graceful=%v first_exit_wrote_downstream=%v first_exit_err=%s has_second_exit=%v second_exit_stage=%s second_exit_graceful=%v second_exit_wrote_downstream=%v second_exit_err=%s client_closed_first=%v terminal_observed=%v",
-			account.ID,
-			truncateOpenAIWSLogValue(result.RequestID, openAIWSIDValueMaxLen),
-			normalizeOpenAIWSLogEnum(relayResult.TerminalEventType),
-			result.Duration.Milliseconds(),
-			relayResult.ClientToUpstreamFrames,
-			relayResult.UpstreamToClientFrames,
-			relayResult.DroppedDownstreamFrames,
-			turnCount,
-			normalizeOpenAIWSLogEnum(relayResult.FirstExitStage),
-			relayResult.FirstExitGraceful,
-			relayResult.FirstExitWroteDownstream,
-			truncateOpenAIWSLogValue(relayResult.FirstExitError, openAIWSLogValueMaxLen),
-			relayResult.HasSecondExit,
-			normalizeOpenAIWSLogEnum(relayResult.SecondExitStage),
-			relayResult.SecondExitGraceful,
-			relayResult.SecondExitWroteDownstream,
-			truncateOpenAIWSLogValue(relayResult.SecondExitError, openAIWSLogValueMaxLen),
-			relayResult.ClientClosedFirst,
-			relayResult.TerminalObserved,
-		)
+		logOpenAIWSV2PassthroughResult("relay_completed", account.ID, result, relayResult, nil, turnCount)
 		// 正常路径按 terminal 事件逐 turn 已回调；仅在零 turn 场景兜底回调一次。
 		if turnCount == 0 && hooks != nil && hooks.AfterTurn != nil {
 			hooks.AfterTurn(1, result, nil)
 		}
 		return nil
 	}
-	relayCloseStatus, relayCloseReason := summarizeOpenAIWSReadCloseError(relayExit.Err)
-	logOpenAIWSV2Passthrough(
-		"relay_failed account_id=%d stage=%s request_id=%s terminal_event=%s wrote_downstream=%v close_status=%s close_reason=%s err=%s duration_ms=%d c2u_frames=%d u2c_frames=%d dropped_frames=%d turns=%d first_exit_stage=%s first_exit_graceful=%v first_exit_wrote_downstream=%v first_exit_err=%s has_second_exit=%v second_exit_stage=%s second_exit_graceful=%v second_exit_wrote_downstream=%v second_exit_err=%s client_closed_first=%v terminal_observed=%v",
-		account.ID,
-		normalizeOpenAIWSLogEnum(relayExit.Stage),
-		truncateOpenAIWSLogValue(result.RequestID, openAIWSIDValueMaxLen),
-		normalizeOpenAIWSLogEnum(relayResult.TerminalEventType),
-		relayExit.WroteDownstream,
-		relayCloseStatus,
-		truncateOpenAIWSLogValue(relayCloseReason, openAIWSHeaderValueMaxLen),
-		truncateOpenAIWSLogValue(relayErrorText(relayExit.Err), openAIWSLogValueMaxLen),
-		result.Duration.Milliseconds(),
-		relayResult.ClientToUpstreamFrames,
-		relayResult.UpstreamToClientFrames,
-		relayResult.DroppedDownstreamFrames,
-		turnCount,
-		normalizeOpenAIWSLogEnum(relayResult.FirstExitStage),
-		relayResult.FirstExitGraceful,
-		relayResult.FirstExitWroteDownstream,
-		truncateOpenAIWSLogValue(relayResult.FirstExitError, openAIWSLogValueMaxLen),
-		relayResult.HasSecondExit,
-		normalizeOpenAIWSLogEnum(relayResult.SecondExitStage),
-		relayResult.SecondExitGraceful,
-		relayResult.SecondExitWroteDownstream,
-		truncateOpenAIWSLogValue(relayResult.SecondExitError, openAIWSLogValueMaxLen),
-		relayResult.ClientClosedFirst,
-		relayResult.TerminalObserved,
-	)
+	logOpenAIWSV2PassthroughResult("relay_failed", account.ID, result, relayResult, relayExit, turnCount)
 
 	relayErr := relayExit.Err
 	if relayExit.Stage == "idle_timeout" {
@@ -863,6 +816,63 @@ func relayErrorText(err error) string {
 		return ""
 	}
 	return err.Error()
+}
+
+func logOpenAIWSV2PassthroughResult(
+	event string,
+	accountID int64,
+	result *OpenAIForwardResult,
+	relayResult openaiwsv2.RelayResult,
+	relayExit *openaiwsv2.RelayExit,
+	turnCount int,
+) {
+	durationMS := int64(0)
+	requestID := ""
+	if result != nil {
+		durationMS = result.Duration.Milliseconds()
+		requestID = result.RequestID
+	}
+
+	fields := []zap.Field{
+		zap.String("component", "service.openai_ws_v2"),
+		zap.String("ws_mode", "passthrough"),
+		zap.String("ws_router", "v2"),
+		zap.Int64("account_id", accountID),
+		zap.String("request_id", truncateOpenAIWSLogValue(requestID, openAIWSIDValueMaxLen)),
+		zap.String("terminal_event", normalizeOpenAIWSLogEnum(relayResult.TerminalEventType)),
+		zap.Int64("duration_ms", durationMS),
+		zap.Int64("c2u_frames", relayResult.ClientToUpstreamFrames),
+		zap.Int64("u2c_frames", relayResult.UpstreamToClientFrames),
+		zap.Int64("dropped_frames", relayResult.DroppedDownstreamFrames),
+		zap.Int("turns", turnCount),
+		zap.String("first_exit_stage", normalizeOpenAIWSLogEnum(relayResult.FirstExitStage)),
+		zap.String("first_exit_close_status", truncateOpenAIWSLogValue(relayResult.FirstExitCloseStatus, openAIWSLogValueMaxLen)),
+		zap.String("first_exit_close_reason", truncateOpenAIWSLogValue(relayResult.FirstExitCloseReason, openAIWSHeaderValueMaxLen)),
+		zap.Bool("first_exit_graceful", relayResult.FirstExitGraceful),
+		zap.Bool("first_exit_wrote_downstream", relayResult.FirstExitWroteDownstream),
+		zap.String("first_exit_err", truncateOpenAIWSLogValue(relayResult.FirstExitError, openAIWSLogValueMaxLen)),
+		zap.Bool("has_second_exit", relayResult.HasSecondExit),
+		zap.String("second_exit_stage", normalizeOpenAIWSLogEnum(relayResult.SecondExitStage)),
+		zap.String("second_exit_close_status", truncateOpenAIWSLogValue(relayResult.SecondExitCloseStatus, openAIWSLogValueMaxLen)),
+		zap.String("second_exit_close_reason", truncateOpenAIWSLogValue(relayResult.SecondExitCloseReason, openAIWSHeaderValueMaxLen)),
+		zap.Bool("second_exit_graceful", relayResult.SecondExitGraceful),
+		zap.Bool("second_exit_wrote_downstream", relayResult.SecondExitWroteDownstream),
+		zap.String("second_exit_err", truncateOpenAIWSLogValue(relayResult.SecondExitError, openAIWSLogValueMaxLen)),
+		zap.Bool("client_closed_first", relayResult.ClientClosedFirst),
+		zap.Bool("terminal_observed", relayResult.TerminalObserved),
+	}
+	if relayExit != nil {
+		closeStatus, closeReason := summarizeOpenAIWSReadCloseError(relayExit.Err)
+		fields = append(fields,
+			zap.String("stage", normalizeOpenAIWSLogEnum(relayExit.Stage)),
+			zap.Bool("wrote_downstream", relayExit.WroteDownstream),
+			zap.String("close_status", closeStatus),
+			zap.String("close_reason", truncateOpenAIWSLogValue(closeReason, openAIWSHeaderValueMaxLen)),
+			zap.String("err", truncateOpenAIWSLogValue(relayErrorText(relayExit.Err), openAIWSLogValueMaxLen)),
+		)
+	}
+
+	logger.L().Info("openai_ws_v2_passthrough."+event, fields...)
 }
 
 func openAIWSFirstTokenMsForLog(firstTokenMs *int) int {

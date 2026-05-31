@@ -40,11 +40,15 @@ type RelayResult struct {
 	DroppedDownstreamFrames   int64
 	FirstExitStage            string
 	FirstExitError            string
+	FirstExitCloseStatus      string
+	FirstExitCloseReason      string
 	FirstExitGraceful         bool
 	FirstExitWroteDownstream  bool
 	HasSecondExit             bool
 	SecondExitStage           string
 	SecondExitError           string
+	SecondExitCloseStatus     string
+	SecondExitCloseReason     string
 	SecondExitGraceful        bool
 	SecondExitWroteDownstream bool
 	ClientClosedFirst         bool
@@ -297,12 +301,14 @@ func Relay(
 	result.DroppedDownstreamFrames = droppedDownstreamFrames.Load()
 	result.FirstExitStage = firstExit.stage
 	result.FirstExitError = relayErrorString(firstExit.err)
+	result.FirstExitCloseStatus, result.FirstExitCloseReason = relayCloseFields(firstExit.err)
 	result.FirstExitGraceful = firstExit.graceful
 	result.FirstExitWroteDownstream = firstExit.wroteDownstream
 	result.HasSecondExit = hasSecondExit
 	if hasSecondExit {
 		result.SecondExitStage = secondExit.stage
 		result.SecondExitError = relayErrorString(secondExit.err)
+		result.SecondExitCloseStatus, result.SecondExitCloseReason = relayCloseFields(secondExit.err)
 		result.SecondExitGraceful = secondExit.graceful
 		result.SecondExitWroteDownstream = secondExit.wroteDownstream
 	}
