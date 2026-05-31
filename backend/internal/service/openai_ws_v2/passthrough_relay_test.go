@@ -695,6 +695,45 @@ func TestRelay_TraceEvents_ContainsLifecycleStages(t *testing.T) {
 	require.Contains(t, capturedStages, "relay_complete")
 }
 
+func TestRelay_UpstreamCloseBeforeTerminalIsFailure(t *testing.T) {
+	t.Parallel()
+
+	clientConn := newPassthroughTestFrameConn(nil, false)
+	upstreamConn := newPassthroughTestFrameConn([]passthroughTestFrame{
+		{
+			msgType: coderws.MessageText,
+			payload: []byte(`{"type":"response.output_text.delta","response_id":"resp_partial","delta":"hello"}`),
+		},
+	}, true)
+
+	firstPayload := []byte(`{"type":"response.create","model":"gpt-4o","input":[]}`)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	stages := make([]string, 0, 8)
+	var stagesMu sync.Mutex
+	result, relayExit := Relay(ctx, clientConn, upstreamConn, firstPayload, RelayOptions{
+		RequireTerminalBeforeUpstreamClose: true,
+		OnTrace: func(event RelayTraceEvent) {
+			stagesMu.Lock()
+			stages = append(stages, event.Stage)
+			stagesMu.Unlock()
+		},
+	})
+	require.NotNil(t, relayExit)
+	require.Equal(t, "read_upstream", relayExit.Stage)
+	require.True(t, relayExit.WroteDownstream)
+	require.Equal(t, "", result.TerminalEventType)
+	require.Equal(t, "resp_partial", result.RequestID)
+
+	stagesMu.Lock()
+	capturedStages := append([]string(nil), stages...)
+	stagesMu.Unlock()
+	require.Contains(t, capturedStages, "relay_upstream_closed_before_terminal")
+	require.Contains(t, capturedStages, "relay_exit")
+	require.NotContains(t, capturedStages, "relay_complete")
+}
+
 func TestRelay_TraceEvents_IdleTimeout(t *testing.T) {
 	t.Parallel()
 

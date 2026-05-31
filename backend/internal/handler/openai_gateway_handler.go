@@ -1215,8 +1215,18 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	reqLog = reqLog.With(
 		zap.Bool("ws_ingress", true),
 		zap.String("model", reqModel),
+		zap.Int("first_message_bytes", len(firstMessage)),
+		zap.String("first_message_type", msgType.String()),
 		zap.Bool("has_previous_response_id", previousResponseID != ""),
 		zap.String("previous_response_id_kind", previousResponseIDKind),
+	)
+	reqLog.Info("openai.websocket_first_message_received",
+		zap.Int("input_items", len(gjson.GetBytes(firstMessage, "input").Array())),
+		zap.Bool("has_prompt_cache_key", strings.TrimSpace(gjson.GetBytes(firstMessage, "prompt_cache_key").String()) != ""),
+		zap.Bool("has_instructions", strings.TrimSpace(gjson.GetBytes(firstMessage, "instructions").String()) != ""),
+		zap.Bool("has_tools", gjson.GetBytes(firstMessage, "tools").IsArray()),
+		zap.String("stream", strings.TrimSpace(gjson.GetBytes(firstMessage, "stream").Raw)),
+		zap.String("store", strings.TrimSpace(gjson.GetBytes(firstMessage, "store").Raw)),
 	)
 	setOpsRequestContext(c, reqModel, true)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeWSV2))
@@ -1293,6 +1303,14 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		c,
 		firstMessage,
 		openAIWSIngressFallbackSessionSeed(subject.UserID, apiKey.ID, apiKey.GroupID),
+	)
+	reqLog.Info("openai.websocket_session_resolved",
+		zap.String("session_hash", truncateLogValue(sessionHash, 12)),
+		zap.Bool("has_session_hash", strings.TrimSpace(sessionHash) != ""),
+		zap.String("header_session_id", truncateLogValue(strings.TrimSpace(c.GetHeader("session_id")), 64)),
+		zap.String("header_conversation_id", truncateLogValue(strings.TrimSpace(c.GetHeader("conversation_id")), 64)),
+		zap.Bool("has_turn_state", strings.TrimSpace(c.GetHeader("x-codex-turn-state")) != ""),
+		zap.Int("turn_state_len", len(strings.TrimSpace(c.GetHeader("x-codex-turn-state")))),
 	)
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
@@ -1372,9 +1390,10 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			return
 		}
 
-		reqLog.Debug("openai.websocket_account_selected",
+		reqLog.Info("openai.websocket_account_selected",
 			zap.Int64("account_id", account.ID),
 			zap.String("account_name", account.Name),
+			zap.String("account_type", string(account.Type)),
 			zap.String("schedule_layer", scheduleDecision.Layer),
 			zap.Int("candidate_count", scheduleDecision.CandidateCount),
 		)

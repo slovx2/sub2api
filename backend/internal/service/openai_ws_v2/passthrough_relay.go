@@ -56,18 +56,19 @@ type RelayExit struct {
 }
 
 type RelayOptions struct {
-	WriteTimeout                    time.Duration
-	IdleTimeout                     time.Duration
-	UpstreamDrainTimeout            time.Duration
-	FirstMessageType                coderws.MessageType
-	FirstMessageSent                bool
-	StartClientAfterFirstDownstream bool
-	OnUsageParseFailure             func(eventType string, usageRaw string)
-	OnTurnComplete                  func(turn RelayTurnResult)
-	BeforeWriteClient               func(msgType coderws.MessageType, payload []byte, wroteDownstream bool) error
-	ReadClientFrame                 func(ctx context.Context, clientConn FrameConn) (coderws.MessageType, []byte, error)
-	OnTrace                         func(event RelayTraceEvent)
-	Now                             func() time.Time
+	WriteTimeout                       time.Duration
+	IdleTimeout                        time.Duration
+	UpstreamDrainTimeout               time.Duration
+	FirstMessageType                   coderws.MessageType
+	FirstMessageSent                   bool
+	StartClientAfterFirstDownstream    bool
+	RequireTerminalBeforeUpstreamClose bool
+	OnUsageParseFailure                func(eventType string, usageRaw string)
+	OnTurnComplete                     func(turn RelayTurnResult)
+	BeforeWriteClient                  func(msgType coderws.MessageType, payload []byte, wroteDownstream bool) error
+	ReadClientFrame                    func(ctx context.Context, clientConn FrameConn) (coderws.MessageType, []byte, error)
+	OnTrace                            func(event RelayTraceEvent)
+	Now                                func() time.Time
 }
 
 type RelayTraceEvent struct {
@@ -77,6 +78,8 @@ type RelayTraceEvent struct {
 	PayloadBytes    int
 	Graceful        bool
 	WroteDownstream bool
+	CloseStatus     string
+	CloseReason     string
 	Error           string
 }
 
@@ -289,6 +292,31 @@ func Relay(
 		})
 		return result, nil
 	}
+	if options.RequireTerminalBeforeUpstreamClose && firstExit.stage == "read_upstream" && firstExit.graceful && !relayHasTerminalEvent(state) {
+		exitErr := firstExit.err
+		if exitErr == nil {
+			exitErr = io.EOF
+		}
+		emitRelayTrace(onTrace, RelayTraceEvent{
+			Stage:           "relay_upstream_closed_before_terminal",
+			Direction:       relayDirectionFromStage(firstExit.stage),
+			Graceful:        false,
+			WroteDownstream: combinedWroteDownstream,
+			Error:           relayErrorString(exitErr),
+		})
+		emitRelayTrace(onTrace, RelayTraceEvent{
+			Stage:           "relay_exit",
+			Direction:       relayDirectionFromStage(firstExit.stage),
+			Graceful:        false,
+			WroteDownstream: combinedWroteDownstream,
+			Error:           relayErrorString(exitErr),
+		})
+		return result, &RelayExit{
+			Stage:           firstExit.stage,
+			Err:             exitErr,
+			WroteDownstream: combinedWroteDownstream,
+		}
+	}
 	if firstExit.stage == "read_client" && firstExit.graceful {
 		stage := "client_disconnected"
 		exitErr := firstExit.err
@@ -384,11 +412,14 @@ func runClientToUpstream(
 	for {
 		msgType, payload, err := readClientFrame(ctx, clientConn)
 		if err != nil {
+			closeStatus, closeReason := relayCloseFields(err)
 			emitRelayTrace(onTrace, RelayTraceEvent{
-				Stage:     "read_client_failed",
-				Direction: "client_to_upstream",
-				Error:     err.Error(),
-				Graceful:  isDisconnectError(err),
+				Stage:       "read_client_failed",
+				Direction:   "client_to_upstream",
+				Error:       err.Error(),
+				Graceful:    isDisconnectError(err),
+				CloseStatus: closeStatus,
+				CloseReason: closeReason,
 			})
 			exitCh <- relayExitSignal{stage: "read_client", err: err, graceful: isDisconnectError(err)}
 			return
@@ -434,12 +465,15 @@ func runUpstreamToClient(
 	for {
 		msgType, payload, err := upstreamConn.ReadFrame(ctx)
 		if err != nil {
+			closeStatus, closeReason := relayCloseFields(err)
 			emitRelayTrace(onTrace, RelayTraceEvent{
 				Stage:           "read_upstream_failed",
 				Direction:       "upstream_to_client",
 				Error:           err.Error(),
 				Graceful:        isDisconnectError(err),
 				WroteDownstream: wroteDownstream,
+				CloseStatus:     closeStatus,
+				CloseReason:     closeReason,
 			})
 			exitCh <- relayExitSignal{
 				stage:           "read_upstream",
@@ -499,6 +533,7 @@ func runUpstreamToClient(
 			continue
 		}
 		if err := writeClient(msgType, payload); err != nil {
+			closeStatus, closeReason := relayCloseFields(err)
 			emitRelayTrace(onTrace, RelayTraceEvent{
 				Stage:           "write_client_failed",
 				Direction:       "upstream_to_client",
@@ -506,6 +541,8 @@ func runUpstreamToClient(
 				PayloadBytes:    len(payload),
 				WroteDownstream: wroteDownstream,
 				Error:           err.Error(),
+				CloseStatus:     closeStatus,
+				CloseReason:     closeReason,
 			})
 			exitCh <- relayExitSignal{stage: "write_client", err: err, wroteDownstream: wroteDownstream}
 			return
@@ -597,6 +634,22 @@ func relayErrorString(err error) string {
 	return err.Error()
 }
 
+func relayCloseFields(err error) (status string, reason string) {
+	if err == nil {
+		return "", ""
+	}
+	statusCode := coderws.CloseStatus(err)
+	if statusCode == -1 {
+		return "", ""
+	}
+	status = strconv.Itoa(int(statusCode)) + "(" + statusCode.String() + ")"
+	var closeErr coderws.CloseError
+	if errors.As(err, &closeErr) {
+		reason = strings.TrimSpace(closeErr.Reason)
+	}
+	return status, reason
+}
+
 func observeUpstreamMessage(
 	state *relayState,
 	message []byte,
@@ -641,6 +694,7 @@ func observeUpstreamMessage(
 		usage:      parsedUsage,
 	}
 	if responseID != "" {
+		state.lastResponseID = responseID
 		turnTiming := openAIWSRelayGetOrInitTurnTiming(state, responseID, now)
 		if turnTiming != nil && turnTiming.firstTokenMs == nil && isTokenEvent(eventType) {
 			ms := int(now.Sub(turnTiming.startAt).Milliseconds())
@@ -823,6 +877,13 @@ func enrichResult(result *RelayResult, state *relayState, duration time.Duration
 	result.RequestID = state.lastResponseID
 	result.TerminalEventType = state.terminalEventType
 	result.FirstTokenMs = state.firstTokenMs
+}
+
+func relayHasTerminalEvent(state *relayState) bool {
+	if state == nil {
+		return false
+	}
+	return strings.TrimSpace(state.terminalEventType) != ""
 }
 
 func isDisconnectError(err error) bool {

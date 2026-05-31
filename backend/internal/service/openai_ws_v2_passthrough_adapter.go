@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -191,6 +192,82 @@ func openAIWSPassthroughRequestModelFromSessionFrame(payload []byte) string {
 	return strings.TrimSpace(gjson.GetBytes(payload, "session.model").String())
 }
 
+func openAIWSPassthroughFrameInputSummary(payload []byte) string {
+	if len(payload) == 0 {
+		return "-"
+	}
+	input := gjson.GetBytes(payload, "input")
+	if !input.Exists() || strings.TrimSpace(input.Raw) == "" {
+		return "-"
+	}
+	var decoded any
+	if err := json.Unmarshal([]byte(input.Raw), &decoded); err != nil {
+		return "parse_error"
+	}
+	return summarizeOpenAIWSInput(decoded)
+}
+
+func openAIWSPassthroughPayloadBoolForLog(payload []byte, key string) string {
+	value := gjson.GetBytes(payload, key)
+	if !value.Exists() {
+		return "-"
+	}
+	if value.Type != gjson.True && value.Type != gjson.False {
+		return "non_bool"
+	}
+	if value.Bool() {
+		return "true"
+	}
+	return "false"
+}
+
+func logOpenAIWSV2PassthroughFrame(prefix string, accountID int64, turn int, payload []byte) {
+	eventType := strings.TrimSpace(gjson.GetBytes(payload, "type").String())
+	model := strings.TrimSpace(gjson.GetBytes(payload, "model").String())
+	previousResponseID := strings.TrimSpace(gjson.GetBytes(payload, "previous_response_id").String())
+	previousResponseIDKind := ClassifyOpenAIPreviousResponseIDKind(previousResponseID)
+	promptCacheKey := strings.TrimSpace(gjson.GetBytes(payload, "prompt_cache_key").String())
+	reasoningEffort := strings.TrimSpace(gjson.GetBytes(payload, "reasoning.effort").String())
+	if reasoningEffort == "" {
+		reasoningEffort = strings.TrimSpace(gjson.GetBytes(payload, "reasoning_effort").String())
+	}
+	serviceTier := strings.TrimSpace(gjson.GetBytes(payload, "service_tier").String())
+	lowerPayload := strings.ToLower(string(payload))
+	compactHint := strings.Contains(lowerPayload, "compact") ||
+		strings.Contains(lowerPayload, "summariz") ||
+		strings.Contains(lowerPayload, "summary")
+	instructionsLen := len(gjson.GetBytes(payload, "instructions").String())
+	inputItems := 0
+	if input := gjson.GetBytes(payload, "input"); input.IsArray() {
+		inputItems = len(input.Array())
+	}
+	toolCount := 0
+	if tools := gjson.GetBytes(payload, "tools"); tools.IsArray() {
+		toolCount = len(tools.Array())
+	}
+	logOpenAIWSV2Passthrough(
+		"%s account_id=%d turn=%d type=%s model=%s payload_bytes=%d input_items=%d input_summary=%s instructions_len=%d tools=%d stream=%s store=%s previous_response_id=%s previous_response_id_kind=%s has_prompt_cache_key=%v service_tier=%s reasoning_effort=%s compact_hint=%v",
+		prefix,
+		accountID,
+		turn,
+		truncateOpenAIWSLogValue(eventType, openAIWSLogValueMaxLen),
+		truncateOpenAIWSLogValue(model, openAIWSLogValueMaxLen),
+		len(payload),
+		inputItems,
+		truncateOpenAIWSLogValue(openAIWSPassthroughFrameInputSummary(payload), openAIWSLogValueMaxLen),
+		instructionsLen,
+		toolCount,
+		openAIWSPassthroughPayloadBoolForLog(payload, "stream"),
+		openAIWSPassthroughPayloadBoolForLog(payload, "store"),
+		truncateOpenAIWSLogValue(previousResponseID, openAIWSIDValueMaxLen),
+		normalizeOpenAIWSLogValue(previousResponseIDKind),
+		promptCacheKey != "",
+		truncateOpenAIWSLogValue(serviceTier, openAIWSLogValueMaxLen),
+		truncateOpenAIWSLogValue(reasoningEffort, openAIWSLogValueMaxLen),
+		compactHint,
+	)
+}
+
 const openaiWSV2PassthroughModeFields = "ws_mode=passthrough ws_router=v2"
 
 var _ openaiwsv2.FrameConn = (*openAIWSClientFrameConn)(nil)
@@ -312,6 +389,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	// goroutine）和 OnTurnComplete / final result（runUpstreamToClient
 	// goroutine）之间同步当前 turn 的 usage metadata。
 	usageMeta.initFromFirstFrame(firstClientMessage)
+	logOpenAIWSV2PassthroughFrame("relay_first_request_frame", account.ID, 1, firstClientMessage)
 	promptCacheKey := strings.TrimSpace(gjson.GetBytes(firstClientMessage, "prompt_cache_key").String())
 
 	wsURL, err := s.buildOpenAIResponsesWSURL(account)
@@ -401,11 +479,12 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			if msgType != coderws.MessageText {
 				return payload, nil, nil
 			}
-			if strings.TrimSpace(gjson.GetBytes(payload, "type").String()) == "response.create" && hooks != nil && hooks.BeforeRequest != nil {
-				turnNo := int(completedTurns.Load()) + 1
-				if turnNo < 2 {
-					turnNo = 2
-				}
+			frameType := strings.TrimSpace(gjson.GetBytes(payload, "type").String())
+			turnNo := int(completedTurns.Load()) + 1
+			if turnNo < 2 {
+				turnNo = 2
+			}
+			if frameType == "response.create" && hooks != nil && hooks.BeforeRequest != nil {
 				requestModel := usageMeta.requestModelForFrame(payload)
 				if requestModel == "" {
 					requestModel = capturedSessionModel
@@ -451,8 +530,11 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			//     覆盖（Store(nil)），因为 OpenAI 上游对该帧实际不传
 			//     service_tier 时按 default 处理，billing 应如实反映。
 			if policyErr == nil && blocked == nil &&
-				strings.TrimSpace(gjson.GetBytes(payload, "type").String()) == "response.create" {
+				frameType == "response.create" {
 				usageMeta.updateFromResponseCreate(out, requestModelForThisFrame)
+			}
+			if frameType == "response.create" {
+				logOpenAIWSV2PassthroughFrame("relay_request_frame", account.ID, turnNo, out)
 			}
 			return out, blocked, policyErr
 		},
@@ -492,6 +574,17 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			if msgType == coderws.MessageText && strings.TrimSpace(gjson.GetBytes(payload, "type").String()) == "response.create" {
 				return msgType, payload, nil
 			}
+			if msgType == coderws.MessageText {
+				logOpenAIWSV2PassthroughFrame("relay_client_control_frame", account.ID, int(completedTurns.Load())+1, payload)
+			} else {
+				logOpenAIWSV2Passthrough(
+					"relay_client_control_frame account_id=%d turn=%d type=- msg_type=%s payload_bytes=%d",
+					account.ID,
+					int(completedTurns.Load())+1,
+					openaiwsv2RelayMessageTypeName(msgType),
+					len(payload),
+				)
+			}
 			if writeErr := upstreamFrameConn.WriteFrame(readCtx, msgType, payload); writeErr != nil {
 				return msgType, payload, writeErr
 			}
@@ -504,12 +597,13 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		UpstreamConn:       upstreamFrameConn,
 		FirstClientMessage: firstClientMessage,
 		Options: openaiwsv2.RelayOptions{
-			WriteTimeout:                    s.openAIWSWriteTimeout(),
-			IdleTimeout:                     s.openAIWSPassthroughIdleTimeout(),
-			FirstMessageType:                coderws.MessageText,
-			FirstMessageSent:                upstreamFirstMessageSent,
-			StartClientAfterFirstDownstream: true,
-			ReadClientFrame:                 readNextClientFrame,
+			WriteTimeout:                       s.openAIWSWriteTimeout(),
+			IdleTimeout:                        s.openAIWSPassthroughIdleTimeout(),
+			FirstMessageType:                   coderws.MessageText,
+			FirstMessageSent:                   upstreamFirstMessageSent,
+			StartClientAfterFirstDownstream:    true,
+			RequireTerminalBeforeUpstreamClose: true,
+			ReadClientFrame:                    readNextClientFrame,
 			OnUsageParseFailure: func(eventType string, usageRaw string) {
 				logOpenAIWSV2Passthrough(
 					"usage_parse_failed event_type=%s usage_raw=%s",
@@ -580,7 +674,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			},
 			OnTrace: func(event openaiwsv2.RelayTraceEvent) {
 				logOpenAIWSV2Passthrough(
-					"relay_trace account_id=%d stage=%s direction=%s msg_type=%s bytes=%d graceful=%v wrote_downstream=%v err=%s",
+					"relay_trace account_id=%d stage=%s direction=%s msg_type=%s bytes=%d graceful=%v wrote_downstream=%v close_status=%s close_reason=%s err=%s",
 					account.ID,
 					truncateOpenAIWSLogValue(event.Stage, openAIWSLogValueMaxLen),
 					truncateOpenAIWSLogValue(event.Direction, openAIWSLogValueMaxLen),
@@ -588,6 +682,8 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 					event.PayloadBytes,
 					event.Graceful,
 					event.WroteDownstream,
+					truncateOpenAIWSLogValue(event.CloseStatus, openAIWSLogValueMaxLen),
+					truncateOpenAIWSLogValue(event.CloseReason, openAIWSLogValueMaxLen),
 					truncateOpenAIWSLogValue(event.Error, openAIWSLogValueMaxLen),
 				)
 			},
@@ -632,11 +728,16 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		}
 		return nil
 	}
+	relayCloseStatus, relayCloseReason := summarizeOpenAIWSReadCloseError(relayExit.Err)
 	logOpenAIWSV2Passthrough(
-		"relay_failed account_id=%d stage=%s wrote_downstream=%v err=%s duration_ms=%d c2u_frames=%d u2c_frames=%d dropped_frames=%d turns=%d",
+		"relay_failed account_id=%d stage=%s request_id=%s terminal_event=%s wrote_downstream=%v close_status=%s close_reason=%s err=%s duration_ms=%d c2u_frames=%d u2c_frames=%d dropped_frames=%d turns=%d",
 		account.ID,
 		truncateOpenAIWSLogValue(relayExit.Stage, openAIWSLogValueMaxLen),
+		truncateOpenAIWSLogValue(result.RequestID, openAIWSIDValueMaxLen),
+		truncateOpenAIWSLogValue(relayResult.TerminalEventType, openAIWSLogValueMaxLen),
 		relayExit.WroteDownstream,
+		relayCloseStatus,
+		truncateOpenAIWSLogValue(relayCloseReason, openAIWSHeaderValueMaxLen),
 		truncateOpenAIWSLogValue(relayErrorText(relayExit.Err), openAIWSLogValueMaxLen),
 		result.Duration.Milliseconds(),
 		relayResult.ClientToUpstreamFrames,

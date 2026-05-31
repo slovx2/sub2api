@@ -11,15 +11,16 @@ on:
         required: true
         type: string
       simple_release:
-        description: 'Simple release: only x86_64 GHCR image, skip other artifacts'
+        description: 'Simple release: only x86_64 GHCR image, skip other artifacts. Set false for full multi-platform release.'
         required: false
         type: boolean
-        default: false
+        default: true
 
 # 环境变量：合并 workflow_dispatch 输入和 repository variable
-# tag push 触发时读取 vars.SIMPLE_RELEASE，workflow_dispatch 时使用输入参数
+# 默认走 simple release；如需完整多平台发布，可在 workflow_dispatch 传 simple_release=false，
+# 或在仓库变量中设置 SIMPLE_RELEASE=false。
 env:
-  SIMPLE_RELEASE: ${{ github.event.inputs.simple_release == 'true' || vars.SIMPLE_RELEASE == 'true' }}
+  SIMPLE_RELEASE: ${{ github.event.inputs.simple_release != 'false' && vars.SIMPLE_RELEASE != 'false' }}
 
 permissions:
   contents: write
@@ -119,13 +120,14 @@ jobs:
 
       # Docker setup for GoReleaser
       - name: Set up QEMU
+        if: ${{ env.SIMPLE_RELEASE != 'true' }}
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Login to DockerHub
-        if: ${{ env.DOCKERHUB_USERNAME != '' }}
+        if: ${{ env.SIMPLE_RELEASE != 'true' && env.DOCKERHUB_USERNAME != '' }}
         uses: docker/login-action@v3
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
