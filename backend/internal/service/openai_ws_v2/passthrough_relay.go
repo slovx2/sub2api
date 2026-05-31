@@ -29,15 +29,26 @@ type Usage struct {
 }
 
 type RelayResult struct {
-	RequestModel            string
-	Usage                   Usage
-	RequestID               string
-	TerminalEventType       string
-	FirstTokenMs            *int
-	Duration                time.Duration
-	ClientToUpstreamFrames  int64
-	UpstreamToClientFrames  int64
-	DroppedDownstreamFrames int64
+	RequestModel              string
+	Usage                     Usage
+	RequestID                 string
+	TerminalEventType         string
+	FirstTokenMs              *int
+	Duration                  time.Duration
+	ClientToUpstreamFrames    int64
+	UpstreamToClientFrames    int64
+	DroppedDownstreamFrames   int64
+	FirstExitStage            string
+	FirstExitError            string
+	FirstExitGraceful         bool
+	FirstExitWroteDownstream  bool
+	HasSecondExit             bool
+	SecondExitStage           string
+	SecondExitError           string
+	SecondExitGraceful        bool
+	SecondExitWroteDownstream bool
+	ClientClosedFirst         bool
+	TerminalObserved          bool
 }
 
 type RelayTurnResult struct {
@@ -284,6 +295,19 @@ func Relay(
 	result.ClientToUpstreamFrames = clientToUpstreamFrames.Load()
 	result.UpstreamToClientFrames = upstreamToClientFrames.Load()
 	result.DroppedDownstreamFrames = droppedDownstreamFrames.Load()
+	result.FirstExitStage = firstExit.stage
+	result.FirstExitError = relayErrorString(firstExit.err)
+	result.FirstExitGraceful = firstExit.graceful
+	result.FirstExitWroteDownstream = firstExit.wroteDownstream
+	result.HasSecondExit = hasSecondExit
+	if hasSecondExit {
+		result.SecondExitStage = secondExit.stage
+		result.SecondExitError = relayErrorString(secondExit.err)
+		result.SecondExitGraceful = secondExit.graceful
+		result.SecondExitWroteDownstream = secondExit.wroteDownstream
+	}
+	result.ClientClosedFirst = firstExit.stage == "read_client" && firstExit.graceful
+	result.TerminalObserved = relayHasTerminalEvent(state)
 	if options.FirstMessageSent && firstExit.stage == "read_client" && firstExit.graceful {
 		emitRelayTrace(onTrace, RelayTraceEvent{
 			Stage:           "relay_client_closed",

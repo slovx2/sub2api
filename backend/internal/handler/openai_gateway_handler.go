@@ -1153,8 +1153,11 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		return
 	}
 	reqLog.Info("openai.websocket_ingress_started")
+	ingressStartedAt := time.Now()
 	clientIP := ip.GetClientIP(c)
 	userAgent := strings.TrimSpace(c.GetHeader("User-Agent"))
+	cfRay := strings.TrimSpace(c.GetHeader("CF-Ray"))
+	cfConnectingIP := strings.TrimSpace(c.GetHeader("CF-Connecting-IP"))
 
 	wsConn, err := coderws.Accept(c.Writer, c.Request, &coderws.AcceptOptions{
 		CompressionMode: coderws.CompressionContextTakeover,
@@ -1550,7 +1553,18 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			closeOpenAIClientWS(wsConn, coderws.StatusInternalError, "upstream websocket proxy failed")
 			return
 		}
-		reqLog.Info("openai.websocket_ingress_closed", zap.Int64("account_id", account.ID))
+		reqLog.Info("openai.websocket_ingress_closed",
+			zap.Int64("account_id", account.ID),
+			zap.Duration("duration", time.Since(ingressStartedAt)),
+			zap.Int64("duration_ms", time.Since(ingressStartedAt).Milliseconds()),
+			zap.String("client_ip", clientIP),
+			zap.String("host", c.Request.Host),
+			zap.String("x_forwarded_for", truncateLogValue(strings.TrimSpace(c.GetHeader("X-Forwarded-For")), 128)),
+			zap.String("x_real_ip", truncateLogValue(strings.TrimSpace(c.GetHeader("X-Real-IP")), 64)),
+			zap.Bool("has_cf_ray", cfRay != ""),
+			zap.Bool("has_cf_connecting_ip", cfConnectingIP != ""),
+			zap.String("request_user_agent", truncateLogValue(userAgent, 128)),
+		)
 		return
 	}
 

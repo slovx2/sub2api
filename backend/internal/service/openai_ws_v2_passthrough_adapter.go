@@ -221,6 +221,14 @@ func openAIWSPassthroughPayloadBoolForLog(payload []byte, key string) string {
 	return "false"
 }
 
+func normalizeOpenAIWSLogEnum(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "-"
+	}
+	return strings.Join(strings.Fields(trimmed), "_")
+}
+
 func logOpenAIWSV2PassthroughFrame(prefix string, accountID int64, turn int, payload []byte) {
 	eventType := strings.TrimSpace(gjson.GetBytes(payload, "type").String())
 	model := strings.TrimSpace(gjson.GetBytes(payload, "model").String())
@@ -676,9 +684,9 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				logOpenAIWSV2Passthrough(
 					"relay_trace account_id=%d stage=%s direction=%s msg_type=%s bytes=%d graceful=%v wrote_downstream=%v close_status=%s close_reason=%s err=%s",
 					account.ID,
-					truncateOpenAIWSLogValue(event.Stage, openAIWSLogValueMaxLen),
-					truncateOpenAIWSLogValue(event.Direction, openAIWSLogValueMaxLen),
-					truncateOpenAIWSLogValue(event.MessageType, openAIWSLogValueMaxLen),
+					normalizeOpenAIWSLogEnum(event.Stage),
+					normalizeOpenAIWSLogEnum(event.Direction),
+					normalizeOpenAIWSLogEnum(event.MessageType),
 					event.PayloadBytes,
 					event.Graceful,
 					event.WroteDownstream,
@@ -712,15 +720,26 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	turnCount := int(completedTurns.Load())
 	if relayExit == nil {
 		logOpenAIWSV2Passthrough(
-			"relay_completed account_id=%d request_id=%s terminal_event=%s duration_ms=%d c2u_frames=%d u2c_frames=%d dropped_frames=%d turns=%d",
+			"relay_completed account_id=%d request_id=%s terminal_event=%s duration_ms=%d c2u_frames=%d u2c_frames=%d dropped_frames=%d turns=%d first_exit_stage=%s first_exit_graceful=%v first_exit_wrote_downstream=%v first_exit_err=%s has_second_exit=%v second_exit_stage=%s second_exit_graceful=%v second_exit_wrote_downstream=%v second_exit_err=%s client_closed_first=%v terminal_observed=%v",
 			account.ID,
 			truncateOpenAIWSLogValue(result.RequestID, openAIWSIDValueMaxLen),
-			truncateOpenAIWSLogValue(relayResult.TerminalEventType, openAIWSLogValueMaxLen),
+			normalizeOpenAIWSLogEnum(relayResult.TerminalEventType),
 			result.Duration.Milliseconds(),
 			relayResult.ClientToUpstreamFrames,
 			relayResult.UpstreamToClientFrames,
 			relayResult.DroppedDownstreamFrames,
 			turnCount,
+			normalizeOpenAIWSLogEnum(relayResult.FirstExitStage),
+			relayResult.FirstExitGraceful,
+			relayResult.FirstExitWroteDownstream,
+			truncateOpenAIWSLogValue(relayResult.FirstExitError, openAIWSLogValueMaxLen),
+			relayResult.HasSecondExit,
+			normalizeOpenAIWSLogEnum(relayResult.SecondExitStage),
+			relayResult.SecondExitGraceful,
+			relayResult.SecondExitWroteDownstream,
+			truncateOpenAIWSLogValue(relayResult.SecondExitError, openAIWSLogValueMaxLen),
+			relayResult.ClientClosedFirst,
+			relayResult.TerminalObserved,
 		)
 		// 正常路径按 terminal 事件逐 turn 已回调；仅在零 turn 场景兜底回调一次。
 		if turnCount == 0 && hooks != nil && hooks.AfterTurn != nil {
@@ -730,11 +749,11 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	}
 	relayCloseStatus, relayCloseReason := summarizeOpenAIWSReadCloseError(relayExit.Err)
 	logOpenAIWSV2Passthrough(
-		"relay_failed account_id=%d stage=%s request_id=%s terminal_event=%s wrote_downstream=%v close_status=%s close_reason=%s err=%s duration_ms=%d c2u_frames=%d u2c_frames=%d dropped_frames=%d turns=%d",
+		"relay_failed account_id=%d stage=%s request_id=%s terminal_event=%s wrote_downstream=%v close_status=%s close_reason=%s err=%s duration_ms=%d c2u_frames=%d u2c_frames=%d dropped_frames=%d turns=%d first_exit_stage=%s first_exit_graceful=%v first_exit_wrote_downstream=%v first_exit_err=%s has_second_exit=%v second_exit_stage=%s second_exit_graceful=%v second_exit_wrote_downstream=%v second_exit_err=%s client_closed_first=%v terminal_observed=%v",
 		account.ID,
-		truncateOpenAIWSLogValue(relayExit.Stage, openAIWSLogValueMaxLen),
+		normalizeOpenAIWSLogEnum(relayExit.Stage),
 		truncateOpenAIWSLogValue(result.RequestID, openAIWSIDValueMaxLen),
-		truncateOpenAIWSLogValue(relayResult.TerminalEventType, openAIWSLogValueMaxLen),
+		normalizeOpenAIWSLogEnum(relayResult.TerminalEventType),
 		relayExit.WroteDownstream,
 		relayCloseStatus,
 		truncateOpenAIWSLogValue(relayCloseReason, openAIWSHeaderValueMaxLen),
@@ -744,6 +763,17 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		relayResult.UpstreamToClientFrames,
 		relayResult.DroppedDownstreamFrames,
 		turnCount,
+		normalizeOpenAIWSLogEnum(relayResult.FirstExitStage),
+		relayResult.FirstExitGraceful,
+		relayResult.FirstExitWroteDownstream,
+		truncateOpenAIWSLogValue(relayResult.FirstExitError, openAIWSLogValueMaxLen),
+		relayResult.HasSecondExit,
+		normalizeOpenAIWSLogEnum(relayResult.SecondExitStage),
+		relayResult.SecondExitGraceful,
+		relayResult.SecondExitWroteDownstream,
+		truncateOpenAIWSLogValue(relayResult.SecondExitError, openAIWSLogValueMaxLen),
+		relayResult.ClientClosedFirst,
+		relayResult.TerminalObserved,
 	)
 
 	relayErr := relayExit.Err
