@@ -924,6 +924,28 @@ func logOpenAIWSV2PassthroughResult(
 		)
 	}
 
+	logOpenAIWSV2Passthrough(
+		"relay_result_summary event=%s account_id=%d request_id=%s terminal_event=%s duration_ms=%d turns=%d c2u_frames=%d u2c_frames=%d dropped_frames=%d first_exit_stage=%s first_exit_graceful=%v first_exit_wrote_downstream=%v first_exit_close_status=%s has_second_exit=%v second_exit_stage=%s second_exit_graceful=%v second_exit_wrote_downstream=%v client_closed_first=%v terminal_observed=%v",
+		event,
+		accountID,
+		truncateOpenAIWSLogValue(requestID, openAIWSIDValueMaxLen),
+		normalizeOpenAIWSLogEnum(relayResult.TerminalEventType),
+		durationMS,
+		turnCount,
+		relayResult.ClientToUpstreamFrames,
+		relayResult.UpstreamToClientFrames,
+		relayResult.DroppedDownstreamFrames,
+		normalizeOpenAIWSLogEnum(relayResult.FirstExitStage),
+		relayResult.FirstExitGraceful,
+		relayResult.FirstExitWroteDownstream,
+		truncateOpenAIWSLogValue(relayResult.FirstExitCloseStatus, openAIWSLogValueMaxLen),
+		relayResult.HasSecondExit,
+		normalizeOpenAIWSLogEnum(relayResult.SecondExitStage),
+		relayResult.SecondExitGraceful,
+		relayResult.SecondExitWroteDownstream,
+		relayResult.ClientClosedFirst,
+		relayResult.TerminalObserved,
+	)
 	logger.L().Info("openai_ws_v2_passthrough."+event, fields...)
 }
 
