@@ -3009,9 +3009,31 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 
 		// Send request
 		upstreamStart := time.Now()
+		if reqStream {
+			logger.FromContext(ctx).Info("openai.responses.http_stream.upstream_request_start",
+				zap.Int64("account_id", account.ID),
+				zap.String("account_name", account.Name),
+				zap.String("account_type", account.Type),
+				zap.String("model", originalModel),
+				zap.String("upstream_model", upstreamModel),
+				zap.Bool("stream", reqStream),
+				zap.String("client_transport", string(clientTransport)),
+				zap.String("path", requestPathForLog(c)),
+				zap.Int("request_body_bytes", len(body)),
+			)
+		}
 		resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
 		SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
 		if err != nil {
+			if reqStream {
+				logger.FromContext(ctx).Warn("openai.responses.http_stream.upstream_request_error",
+					zap.Int64("account_id", account.ID),
+					zap.String("model", originalModel),
+					zap.String("upstream_model", upstreamModel),
+					zap.Duration("upstream_latency", time.Since(upstreamStart)),
+					zap.Error(err),
+				)
+			}
 			// Ensure the client receives an error response (handlers assume Forward writes on non-failover errors).
 			safeErr := sanitizeUpstreamErrorMessage(err.Error())
 			setOpsUpstreamError(c, 0, safeErr, "")
@@ -3030,6 +3052,19 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 				},
 			})
 			return nil, fmt.Errorf("upstream request failed: %s", safeErr)
+		}
+		if reqStream {
+			logger.FromContext(ctx).Info("openai.responses.http_stream.upstream_headers",
+				zap.Int64("account_id", account.ID),
+				zap.String("model", originalModel),
+				zap.String("upstream_model", upstreamModel),
+				zap.Int("status_code", resp.StatusCode),
+				zap.String("upstream_request_id", strings.TrimSpace(resp.Header.Get("x-request-id"))),
+				zap.String("content_type", strings.TrimSpace(resp.Header.Get("content-type"))),
+				zap.Strings("transfer_encoding", resp.TransferEncoding),
+				zap.Int64("content_length", resp.ContentLength),
+				zap.Duration("upstream_latency", time.Since(upstreamStart)),
+			)
 		}
 
 		// Handle error response
@@ -4562,7 +4597,45 @@ type openaiNonStreamingResult struct {
 	imageOutputSizes []string
 }
 
+func requestPathForLog(c *gin.Context) string {
+	if c == nil || c.Request == nil {
+		return ""
+	}
+	if c.Request.URL == nil {
+		return c.Request.RequestURI
+	}
+	return c.Request.URL.Path
+}
+
+func configuredStreamDataIntervalSeconds(s *OpenAIGatewayService) int {
+	if s == nil || s.cfg == nil {
+		return 0
+	}
+	return s.cfg.Gateway.StreamDataIntervalTimeout
+}
+
+func configuredStreamKeepaliveSeconds(s *OpenAIGatewayService) int {
+	if s == nil || s.cfg == nil {
+		return 0
+	}
+	return s.cfg.Gateway.StreamKeepaliveInterval
+}
+
 func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, startTime time.Time, originalModel, mappedModel string) (*openaiStreamingResult, error) {
+	streamLog := logger.FromContext(ctx).With(
+		zap.Int64("account_id", account.ID),
+		zap.String("account_name", account.Name),
+		zap.String("account_type", account.Type),
+		zap.String("model", originalModel),
+		zap.String("upstream_model", mappedModel),
+		zap.String("upstream_request_id", strings.TrimSpace(resp.Header.Get("x-request-id"))),
+		zap.String("path", requestPathForLog(c)),
+	)
+	streamLog.Info("openai.responses.http_stream.start",
+		zap.Duration("stream_data_interval", time.Duration(configuredStreamDataIntervalSeconds(s))*time.Second),
+		zap.Duration("stream_keepalive_interval", time.Duration(configuredStreamKeepaliveSeconds(s))*time.Second),
+	)
+
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	}
@@ -4648,22 +4721,46 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 	clientOutputStarted := false
 	upstreamRequestID := strings.TrimSpace(resp.Header.Get("x-request-id"))
 	var streamFailoverErr error
+	upstreamLineCount := 0
+	upstreamDataEventCount := 0
+	keepaliveSentCount := 0
+	firstUpstreamLineLogged := false
+	firstUpstreamDataLogged := false
 	sendErrorEvent := func(reason string) {
 		if errorEventSent || clientDisconnected {
 			return
 		}
 		errorEventSent = true
+		streamLog.Warn("openai.responses.http_stream.error_event_send",
+			zap.String("reason", reason),
+			zap.Bool("client_output_started", openAIStreamClientOutputStarted(c, clientOutputStarted)),
+			zap.Bool("client_disconnected", clientDisconnected),
+			zap.Int("upstream_line_count", upstreamLineCount),
+			zap.Int("upstream_data_event_count", upstreamDataEventCount),
+		)
 		payload := `{"type":"error","sequence_number":0,"error":{"type":"upstream_error","message":` + strconv.Quote(reason) + `,"code":` + strconv.Quote(reason) + `}}`
 		if err := flushBuffered(); err != nil {
 			clientDisconnected = true
+			streamLog.Info("openai.responses.http_stream.client_disconnect",
+				zap.String("phase", "error_event_preflush"),
+				zap.Error(err),
+			)
 			return
 		}
 		if _, err := bufferedWriter.WriteString("data: " + payload + "\n\n"); err != nil {
 			clientDisconnected = true
+			streamLog.Info("openai.responses.http_stream.client_disconnect",
+				zap.String("phase", "error_event_write"),
+				zap.Error(err),
+			)
 			return
 		}
 		if err := flushBuffered(); err != nil {
 			clientDisconnected = true
+			streamLog.Info("openai.responses.http_stream.client_disconnect",
+				zap.String("phase", "error_event_flush"),
+				zap.Error(err),
+			)
 			return
 		}
 		clientOutputStarted = true
@@ -4680,7 +4777,19 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 		}
 	}
 	finalizeStream := func() (*openaiStreamingResult, error) {
+		finishFields := []zap.Field{
+			zap.Bool("saw_terminal_event", sawTerminalEvent),
+			zap.Bool("saw_failed_event", sawFailedEvent),
+			zap.Bool("client_disconnected", clientDisconnected),
+			zap.Bool("client_output_started", openAIStreamClientOutputStarted(c, clientOutputStarted)),
+			zap.Bool("error_event_sent", errorEventSent),
+			zap.Int("upstream_line_count", upstreamLineCount),
+			zap.Int("upstream_data_event_count", upstreamDataEventCount),
+			zap.Int("keepalive_sent_count", keepaliveSentCount),
+			zap.Duration("duration", time.Since(startTime)),
+		}
 		if !sawTerminalEvent {
+			streamLog.Warn("openai.responses.http_stream.finish_missing_terminal", finishFields...)
 			if !openAIStreamClientOutputStarted(c, clientOutputStarted) {
 				return resultWithUsage(), s.newOpenAIStreamFailoverError(
 					c,
@@ -4694,18 +4803,26 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 			return resultWithUsage(), fmt.Errorf("stream usage incomplete: missing terminal event")
 		}
 		if sawFailedEvent {
+			streamLog.Warn("openai.responses.http_stream.finish_failed_event",
+				append(finishFields, zap.String("failed_message", failedMessage))...,
+			)
 			return resultWithUsage(), fmt.Errorf("upstream response failed: %s", failedMessage)
 		}
 		if !clientDisconnected {
 			hadBufferedData := bufferedWriter.Buffered() > 0
 			if err := flushBuffered(); err != nil {
 				clientDisconnected = true
+				streamLog.Info("openai.responses.http_stream.client_disconnect",
+					zap.String("phase", "final_flush"),
+					zap.Error(err),
+				)
 				logger.LegacyPrintf("service.openai_gateway", "Client disconnected during final flush, returning collected usage")
 			} else if hadBufferedData {
 				clientOutputStarted = true
 				lastDownstreamWriteAt = time.Now()
 			}
 		}
+		streamLog.Info("openai.responses.http_stream.finish_ok", finishFields...)
 		return resultWithUsage(), nil
 	}
 	handleScanErr := func(scanErr error) (*openaiStreamingResult, error, bool) {
@@ -4713,23 +4830,46 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 			return nil, nil, false
 		}
 		if sawTerminalEvent && !sawFailedEvent {
+			streamLog.Info("openai.responses.http_stream.scan_error_after_terminal",
+				zap.Error(scanErr),
+				zap.Int("upstream_line_count", upstreamLineCount),
+				zap.Int("upstream_data_event_count", upstreamDataEventCount),
+			)
 			logger.LegacyPrintf("service.openai_gateway", "Upstream scan ended after terminal event: %v", scanErr)
 			return resultWithUsage(), nil, true
 		}
 		if sawFailedEvent {
+			streamLog.Warn("openai.responses.http_stream.scan_error_after_failed_event",
+				zap.Error(scanErr),
+				zap.String("failed_message", failedMessage),
+			)
 			return resultWithUsage(), fmt.Errorf("upstream response failed: %s", failedMessage), true
 		}
 		// 客户端断开/取消请求时，上游读取往往会返回 context canceled。
 		// /v1/responses 的 SSE 事件必须符合 OpenAI 协议；这里不注入自定义 error event，避免下游 SDK 解析失败。
 		if errors.Is(scanErr, context.Canceled) || errors.Is(scanErr, context.DeadlineExceeded) {
+			streamLog.Info("openai.responses.http_stream.scan_context_done",
+				zap.Error(scanErr),
+				zap.Bool("client_disconnected", clientDisconnected),
+				zap.Bool("client_output_started", openAIStreamClientOutputStarted(c, clientOutputStarted)),
+			)
 			return resultWithUsage(), fmt.Errorf("stream usage incomplete: %w", scanErr), true
 		}
 		if errors.Is(scanErr, bufio.ErrTooLong) {
+			streamLog.Warn("openai.responses.http_stream.scan_line_too_long",
+				zap.Int("max_line_size", maxLineSize),
+				zap.Error(scanErr),
+			)
 			logger.LegacyPrintf("service.openai_gateway", "SSE line too long: account=%d max_size=%d error=%v", account.ID, maxLineSize, scanErr)
 			sendErrorEvent("response_too_large")
 			return resultWithUsage(), scanErr, true
 		}
 		if !openAIStreamClientOutputStarted(c, clientOutputStarted) {
+			streamLog.Warn("openai.responses.http_stream.scan_error_before_client_output",
+				zap.Error(scanErr),
+				zap.Int("upstream_line_count", upstreamLineCount),
+				zap.Int("upstream_data_event_count", upstreamDataEventCount),
+			)
 			msg := "OpenAI stream disconnected before completion"
 			if errText := strings.TrimSpace(scanErr.Error()); errText != "" {
 				msg += ": " + errText
@@ -4738,8 +4878,15 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 		}
 		// 客户端已断开时，上游出错仅影响体验，不影响计费；返回已收集 usage
 		if clientDisconnected {
+			streamLog.Info("openai.responses.http_stream.scan_error_after_client_disconnect",
+				zap.Error(scanErr),
+			)
 			return resultWithUsage(), fmt.Errorf("stream usage incomplete after disconnect: %w", scanErr), true
 		}
+		streamLog.Warn("openai.responses.http_stream.scan_error",
+			zap.Error(scanErr),
+			zap.Bool("client_output_started", openAIStreamClientOutputStarted(c, clientOutputStarted)),
+		)
 		sendErrorEvent("stream_read_error")
 		return resultWithUsage(), fmt.Errorf("stream read error: %w", scanErr), true
 	}
@@ -4747,8 +4894,16 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 		if streamFailoverErr != nil {
 			return
 		}
+		upstreamLineCount++
+		if !firstUpstreamLineLogged {
+			firstUpstreamLineLogged = true
+			streamLog.Info("openai.responses.http_stream.first_upstream_line",
+				zap.Duration("elapsed", time.Since(startTime)),
+			)
+		}
 		// Extract data from SSE line (supports both "data: " and "data:" formats)
 		if data, ok := extractOpenAISSEDataLine(line); ok {
+			upstreamDataEventCount++
 
 			// Replace model in response if needed.
 			// Fast path: most events do not contain model field values.
@@ -4761,9 +4916,20 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 				sawTerminalEvent = true
 			}
 			eventType := strings.TrimSpace(gjson.GetBytes(dataBytes, "type").String())
+			if !firstUpstreamDataLogged && eventType != "" {
+				firstUpstreamDataLogged = true
+				streamLog.Info("openai.responses.http_stream.first_upstream_event",
+					zap.String("event_type", eventType),
+					zap.Duration("elapsed", time.Since(startTime)),
+				)
+			}
 			forceFlushFailedEvent := false
 			if eventType == "response.failed" {
 				failedMessage = extractOpenAISSEErrorMessage(dataBytes)
+				streamLog.Warn("openai.responses.http_stream.response_failed_event",
+					zap.String("failed_message", failedMessage),
+					zap.Bool("client_output_started", openAIStreamClientOutputStarted(c, clientOutputStarted)),
+				)
 				if !openAIStreamClientOutputStarted(c, clientOutputStarted) && openAIStreamFailedEventShouldFailover(dataBytes, failedMessage) {
 					sawFailedEvent = true
 					streamFailoverErr = s.newOpenAIStreamFailoverError(c, account, false, upstreamRequestID, dataBytes, failedMessage)
@@ -4792,13 +4958,28 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 				}
 				if _, err := bufferedWriter.WriteString(line); err != nil {
 					clientDisconnected = true
+					streamLog.Info("openai.responses.http_stream.client_disconnect",
+						zap.String("phase", "data_write"),
+						zap.String("event_type", eventType),
+						zap.Error(err),
+					)
 					logger.LegacyPrintf("service.openai_gateway", "Client disconnected during streaming, continuing to drain upstream for billing")
 				} else if _, err := bufferedWriter.WriteString("\n"); err != nil {
 					clientDisconnected = true
+					streamLog.Info("openai.responses.http_stream.client_disconnect",
+						zap.String("phase", "data_newline"),
+						zap.String("event_type", eventType),
+						zap.Error(err),
+					)
 					logger.LegacyPrintf("service.openai_gateway", "Client disconnected during streaming, continuing to drain upstream for billing")
 				} else if shouldFlush {
 					if err := flushBuffered(); err != nil {
 						clientDisconnected = true
+						streamLog.Info("openai.responses.http_stream.client_disconnect",
+							zap.String("phase", "data_flush"),
+							zap.String("event_type", eventType),
+							zap.Error(err),
+						)
 						logger.LegacyPrintf("service.openai_gateway", "Client disconnected during streaming flush, continuing to drain upstream for billing")
 					} else {
 						clientOutputStarted = true
@@ -4820,13 +5001,25 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 		if !clientDisconnected {
 			if _, err := bufferedWriter.WriteString(line); err != nil {
 				clientDisconnected = true
+				streamLog.Info("openai.responses.http_stream.client_disconnect",
+					zap.String("phase", "non_data_write"),
+					zap.Error(err),
+				)
 				logger.LegacyPrintf("service.openai_gateway", "Client disconnected during streaming, continuing to drain upstream for billing")
 			} else if _, err := bufferedWriter.WriteString("\n"); err != nil {
 				clientDisconnected = true
+				streamLog.Info("openai.responses.http_stream.client_disconnect",
+					zap.String("phase", "non_data_newline"),
+					zap.Error(err),
+				)
 				logger.LegacyPrintf("service.openai_gateway", "Client disconnected during streaming, continuing to drain upstream for billing")
 			} else if queueDrained && clientOutputStarted {
 				if err := flushBuffered(); err != nil {
 					clientDisconnected = true
+					streamLog.Info("openai.responses.http_stream.client_disconnect",
+						zap.String("phase", "non_data_flush"),
+						zap.Error(err),
+					)
 					logger.LegacyPrintf("service.openai_gateway", "Client disconnected during streaming flush, continuing to drain upstream for billing")
 				} else {
 					clientOutputStarted = true
@@ -4903,8 +5096,21 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 				continue
 			}
 			if clientDisconnected {
+				streamLog.Warn("openai.responses.http_stream.data_interval_timeout_after_client_disconnect",
+					zap.Duration("interval", streamInterval),
+					zap.Int("upstream_line_count", upstreamLineCount),
+					zap.Int("upstream_data_event_count", upstreamDataEventCount),
+				)
 				return resultWithUsage(), fmt.Errorf("stream usage incomplete after timeout")
 			}
+			streamLog.Warn("openai.responses.http_stream.data_interval_timeout",
+				zap.Duration("interval", streamInterval),
+				zap.Duration("since_last_upstream_read", time.Since(lastRead)),
+				zap.Bool("client_output_started", openAIStreamClientOutputStarted(c, clientOutputStarted)),
+				zap.Int("upstream_line_count", upstreamLineCount),
+				zap.Int("upstream_data_event_count", upstreamDataEventCount),
+				zap.Int("keepalive_sent_count", keepaliveSentCount),
+			)
 			logger.LegacyPrintf("service.openai_gateway", "Stream data interval timeout: account=%d model=%s interval=%s", account.ID, originalModel, streamInterval)
 			// 处理流超时，可能标记账户为临时不可调度或错误状态
 			if s.rateLimitService != nil {
@@ -4922,13 +5128,26 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 			}
 			if _, err := bufferedWriter.WriteString(":\n\n"); err != nil {
 				clientDisconnected = true
+				streamLog.Info("openai.responses.http_stream.client_disconnect",
+					zap.String("phase", "keepalive_write"),
+					zap.Error(err),
+				)
 				logger.LegacyPrintf("service.openai_gateway", "Client disconnected during streaming, continuing to drain upstream for billing")
 				continue
 			}
 			if err := flushBuffered(); err != nil {
 				clientDisconnected = true
+				streamLog.Info("openai.responses.http_stream.client_disconnect",
+					zap.String("phase", "keepalive_flush"),
+					zap.Error(err),
+				)
 				logger.LegacyPrintf("service.openai_gateway", "Client disconnected during keepalive flush, continuing to drain upstream for billing")
 			} else {
+				keepaliveSentCount++
+				streamLog.Debug("openai.responses.http_stream.keepalive_sent",
+					zap.Int("keepalive_sent_count", keepaliveSentCount),
+					zap.Duration("idle_for", time.Since(lastDownstreamWriteAt)),
+				)
 				lastDownstreamWriteAt = time.Now()
 			}
 		}
