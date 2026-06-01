@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
@@ -21,6 +22,10 @@ import (
 
 type openAIWSClientFrameConn struct {
 	conn *coderws.Conn
+}
+
+type openAIWSPingFrameConn interface {
+	Ping(ctx context.Context) error
 }
 
 // openAIWSPolicyEnforcingFrameConn wraps a client-side FrameConn and runs
@@ -76,6 +81,51 @@ func (c *openAIWSPolicyEnforcingFrameConn) Close() error {
 		return nil
 	}
 	return c.inner.Close()
+}
+
+func (s *OpenAIGatewayService) startOpenAIWSPassthroughUpstreamKeepalive(
+	ctx context.Context,
+	conn any,
+	accountID int64,
+) func() {
+	pinger, ok := conn.(openAIWSPingFrameConn)
+	if !ok || pinger == nil {
+		return func() {}
+	}
+	interval := openAIWSPassthroughPingInterval
+	if interval <= 0 {
+		return func() {}
+	}
+	keepaliveCtx, cancel := context.WithCancel(ctx)
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-keepaliveCtx.Done():
+				return
+			case <-ticker.C:
+				pingCtx, cancelPing := context.WithTimeout(keepaliveCtx, s.openAIWSWriteTimeout())
+				err := pinger.Ping(pingCtx)
+				cancelPing()
+				if err != nil {
+					logOpenAIWSV2Passthrough(
+						"relay_upstream_keepalive_ping_failed account_id=%d interval_ms=%d err=%s",
+						accountID,
+						interval.Milliseconds(),
+						truncateOpenAIWSLogValue(err.Error(), openAIWSLogValueMaxLen),
+					)
+					return
+				}
+				logOpenAIWSV2Passthrough(
+					"relay_upstream_keepalive_ping_ok account_id=%d interval_ms=%d",
+					accountID,
+					interval.Milliseconds(),
+				)
+			}
+		}
+	}()
+	return cancel
 }
 
 // openAIWSPassthroughPolicyModelForFrame returns the upstream-perspective
@@ -476,6 +526,8 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	if !ok {
 		return errors.New("openai ws passthrough upstream connection does not support frame relay")
 	}
+	stopUpstreamKeepalive := s.startOpenAIWSPassthroughUpstreamKeepalive(ctx, upstreamConn, account.ID)
+	defer stopUpstreamKeepalive()
 
 	completedTurns := atomic.Int32{}
 	policyClientConn := &openAIWSPolicyEnforcingFrameConn{

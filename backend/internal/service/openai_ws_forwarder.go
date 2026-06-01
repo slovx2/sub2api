@@ -50,6 +50,7 @@ const (
 	openAIWSEventFlushIntervalDefault     = 25 * time.Millisecond
 	openAIWSPayloadLogSampleDefault       = 0.2
 	openAIWSPassthroughIdleTimeoutDefault = time.Hour
+	openAIWSPassthroughPingInterval       = 60 * time.Second
 
 	openAIWSStoreDisabledConnModeStrict   = "strict"
 	openAIWSStoreDisabledConnModeAdaptive = "adaptive"
