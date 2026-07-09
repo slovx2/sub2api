@@ -81,9 +81,12 @@ func provideCleanup(
 	schedulerSnapshot *service.SchedulerSnapshotService,
 	tokenRefresh *service.TokenRefreshService,
 	accountExpiry *service.AccountExpiryService,
+	proxyExpiry *service.ProxyExpiryService,
 	subscriptionExpiry *service.SubscriptionExpiryService,
 	usageCleanup *service.UsageCleanupService,
 	idempotencyCleanup *service.IdempotencyCleanupService,
+	batchImageCleanup *service.BatchImageCleanupService,
+	batchImageWorker *service.BatchImageWorkerRuntime,
 	pricing *service.PricingService,
 	emailQueue *service.EmailQueueService,
 	billingCache *service.BillingCacheService,
@@ -93,10 +96,13 @@ func provideCleanup(
 	openaiOAuth *service.OpenAIOAuthService,
 	geminiOAuth *service.GeminiOAuthService,
 	antigravityOAuth *service.AntigravityOAuthService,
+	grokOAuth *service.GrokOAuthService,
 	openAIGateway *service.OpenAIGatewayService,
 	scheduledTestRunner *service.ScheduledTestRunnerService,
 	backupSvc *service.BackupService,
+	paymentOrderExpiry *service.PaymentOrderExpiryService,
 	channelMonitorRunner *service.ChannelMonitorRunner,
+	quotaFlusher *service.UserPlatformQuotaUsageFlusher,
 ) func() {
 	return func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -163,12 +169,28 @@ func provideCleanup(
 				}
 				return nil
 			}},
+			{"BatchImageCleanupService", func() error {
+				if batchImageCleanup != nil {
+					batchImageCleanup.Stop()
+				}
+				return nil
+			}},
+			{"BatchImageWorkerRuntime", func() error {
+				if batchImageWorker != nil {
+					batchImageWorker.Stop()
+				}
+				return nil
+			}},
 			{"TokenRefreshService", func() error {
 				tokenRefresh.Stop()
 				return nil
 			}},
 			{"AccountExpiryService", func() error {
 				accountExpiry.Stop()
+				return nil
+			}},
+			{"ProxyExpiryService", func() error {
+				proxyExpiry.Stop()
 				return nil
 			}},
 			{"SubscriptionExpiryService", func() error {
@@ -215,6 +237,12 @@ func provideCleanup(
 				antigravityOAuth.Stop()
 				return nil
 			}},
+			{"GrokOAuthService", func() error {
+				if grokOAuth != nil {
+					grokOAuth.Stop()
+				}
+				return nil
+			}},
 			{"OpenAIWSPool", func() error {
 				if openAIGateway != nil {
 					openAIGateway.CloseOpenAIWSPool()
@@ -233,9 +261,21 @@ func provideCleanup(
 				}
 				return nil
 			}},
+			{"PaymentOrderExpiryService", func() error {
+				if paymentOrderExpiry != nil {
+					paymentOrderExpiry.Stop()
+				}
+				return nil
+			}},
 			{"ChannelMonitorRunner", func() error {
 				if channelMonitorRunner != nil {
 					channelMonitorRunner.Stop()
+				}
+				return nil
+			}},
+			{"UserPlatformQuotaUsageFlusher", func() error {
+				if quotaFlusher != nil {
+					quotaFlusher.Stop()
 				}
 				return nil
 			}},
