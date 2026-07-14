@@ -1187,6 +1187,136 @@ func TestOpenAIStreamingTimeout(t *testing.T) {
 	}
 }
 
+func TestOpenAIPassthroughStreamingTimeoutPreservesFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfg := &config.Config{
+		Gateway: config.GatewayConfig{
+			StreamDataIntervalTimeout: 1,
+			MaxLineSize:               defaultMaxLineSize,
+		},
+	}
+	svc := &OpenAIGatewayService{cfg: cfg}
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/responses", nil)
+
+	pr, pw := io.Pipe()
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       pr,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+	}
+
+	_, err := svc.handleStreamingResponsePassthrough(
+		c.Request.Context(),
+		resp,
+		c,
+		&Account{ID: 1, Platform: PlatformOpenAI},
+		time.Now(),
+		"model",
+		"model",
+	)
+	_ = pw.Close()
+	_ = pr.Close()
+
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Contains(t, string(failoverErr.ResponseBody), "stream data interval timeout")
+	require.Empty(t, rec.Body.String())
+}
+
+func TestOpenAIPassthroughStreamingActivityResetsTimeout(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfg := &config.Config{
+		Gateway: config.GatewayConfig{
+			StreamDataIntervalTimeout: 1,
+			MaxLineSize:               defaultMaxLineSize,
+		},
+	}
+	svc := &OpenAIGatewayService{cfg: cfg}
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/responses", nil)
+
+	pr, pw := io.Pipe()
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       pr,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+	}
+	go func() {
+		defer pw.Close()
+		time.Sleep(600 * time.Millisecond)
+		_, _ = fmt.Fprintln(pw, `data: {"type":"response.created","response":{"id":"resp_1"}}`)
+		_, _ = fmt.Fprintln(pw)
+		time.Sleep(600 * time.Millisecond)
+		_, _ = fmt.Fprintln(pw, `data: {"type":"response.completed","response":{"id":"resp_1","usage":{"input_tokens":1,"output_tokens":1}}}`)
+		_, _ = fmt.Fprintln(pw)
+	}()
+
+	result, err := svc.handleStreamingResponsePassthrough(
+		c.Request.Context(),
+		resp,
+		c,
+		&Account{ID: 1, Platform: PlatformOpenAI},
+		time.Now(),
+		"model",
+		"model",
+	)
+	_ = pr.Close()
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Contains(t, rec.Body.String(), "response.created")
+	require.Contains(t, rec.Body.String(), "response.completed")
+}
+
+func TestOpenAIPassthroughStreamingTimeoutAfterOutputDoesNotFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfg := &config.Config{
+		Gateway: config.GatewayConfig{
+			StreamDataIntervalTimeout: 1,
+			MaxLineSize:               defaultMaxLineSize,
+		},
+	}
+	svc := &OpenAIGatewayService{cfg: cfg}
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/responses", nil)
+
+	pr, pw := io.Pipe()
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       pr,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+	}
+	go func() {
+		_, _ = fmt.Fprintln(pw, `data: {"type":"response.output_text.delta","delta":"partial"}`)
+		_, _ = fmt.Fprintln(pw)
+	}()
+
+	_, err := svc.handleStreamingResponsePassthrough(
+		c.Request.Context(),
+		resp,
+		c,
+		&Account{ID: 1, Platform: PlatformOpenAI},
+		time.Now(),
+		"model",
+		"model",
+	)
+	_ = pw.Close()
+	_ = pr.Close()
+
+	require.Error(t, err)
+	var failoverErr *UpstreamFailoverError
+	require.False(t, errors.As(err, &failoverErr))
+	require.Contains(t, err.Error(), "stream data interval timeout")
+	require.Contains(t, rec.Body.String(), "response.output_text.delta")
+}
+
 func TestOpenAIStreamingContextCanceledReturnsIncompleteErrorWithoutInjectingErrorEvent(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfg := &config.Config{
