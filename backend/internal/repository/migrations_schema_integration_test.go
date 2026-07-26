@@ -179,6 +179,26 @@ SELECT EXISTS (
 	require.True(t, exists, "expected index %s on %s", index, table)
 }
 
+func requireConstraintDefinitionContains(t *testing.T, tx *sql.Tx, table, constraint string, fragments ...string) {
+	t.Helper()
+
+	var def string
+	err := tx.QueryRowContext(context.Background(), `
+SELECT pg_get_constraintdef(c.oid)
+FROM pg_constraint c
+JOIN pg_class tbl ON tbl.oid = c.conrelid
+JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
+WHERE ns.nspname = 'public'
+  AND tbl.relname = $1
+  AND c.conname = $2
+`, table, constraint).Scan(&def)
+	require.NoError(t, err, "query constraint definition for %s.%s", table, constraint)
+
+	for _, fragment := range fragments {
+		require.Contains(t, def, fragment, "expected constraint definition for %s.%s to contain %q", table, constraint, fragment)
+	}
+}
+
 func requireColumn(t *testing.T, tx *sql.Tx, table, column, dataType string, maxLen int, nullable bool) {
 	t.Helper()
 
