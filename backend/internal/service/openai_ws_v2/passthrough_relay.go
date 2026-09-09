@@ -555,14 +555,10 @@ func runUpstreamToClient(
 			// terminal protocol event. Treat an early 1000/EOF as a relay failure so
 			// the adapter does not report relay_completed with an active turn.
 			if graceful && state.hasUnfinishedTurn() {
-				if requireTerminalBeforeClose && !relayHasTerminalEvent(state) {
-					emitRelayTrace(onTrace, RelayTraceEvent{Stage: "relay_upstream_closed_before_terminal", Direction: "upstream_to_client", Graceful: false, WroteDownstream: wroteDownstream, Error: err.Error()})
-				}
 				graceful = false
 				err = errors.New("upstream websocket closed before terminal event: " + err.Error())
 			}
 			if requireTerminalBeforeClose && graceful && !relayHasTerminalEvent(state) {
-				emitRelayTrace(onTrace, RelayTraceEvent{Stage: "relay_upstream_closed_before_terminal", Direction: "upstream_to_client", Graceful: false, WroteDownstream: wroteDownstream, Error: err.Error()})
 				graceful = false
 				if err == io.EOF {
 					err = errors.New("upstream closed before terminal event")
