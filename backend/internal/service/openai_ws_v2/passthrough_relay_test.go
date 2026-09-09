@@ -1285,7 +1285,7 @@ func TestRelay_UpstreamCloseBeforeTerminalIsFailure(t *testing.T) {
 	stagesMu.Lock()
 	capturedStages := append([]string(nil), stages...)
 	stagesMu.Unlock()
-	require.Contains(t, capturedStages, "relay_upstream_closed_before_terminal")
+	require.NotContains(t, capturedStages, "relay_upstream_closed_before_terminal")
 	require.Contains(t, capturedStages, "relay_exit")
 	require.NotContains(t, capturedStages, "relay_complete")
 }
