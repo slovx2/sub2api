@@ -19,7 +19,13 @@ func TestFetchOpenAIAccountModelsOAuthPopulatesPickerFields(t *testing.T) {
 	require.NoError(t, err)
 	models, err := svc.FetchOpenAIAccountModels(ctx, account)
 	require.NoError(t, err)
-	require.Len(t, models, 2)
+	ids := make([]string, 0, len(models))
+	for _, model := range models {
+		ids = append(ids, model.ID)
+	}
+	require.Contains(t, ids, "gpt-image-2.5-flare")
+	require.Contains(t, ids, "gpt-image-2.5-sunburst")
+	require.Contains(t, ids, "gpt-image-2.5-flare-2026-09-08")
 	for i, id := range []string{"new-oauth-model", "gpt-6-astra"} {
 		require.Equal(t, id, models[i].ID)
 		require.Equal(t, id, models[i].DisplayName)
