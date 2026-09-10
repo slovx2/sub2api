@@ -334,7 +334,7 @@ func TestGetOpenAICodexCanonicalUserAgentBuildsFromVersion(t *testing.T) {
 	}}, nil)
 
 	require.Equal(t,
-		buildCodexCLIUserAgent("0.200.1"),
+		"codex-tui/0.200.1"+codexCLIUserAgentSuffix,
 		svc.GetOpenAICodexCanonicalUserAgent(context.Background()),
 	)
 }

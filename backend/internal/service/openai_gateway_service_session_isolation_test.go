@@ -31,9 +31,13 @@ func TestIsolateOpenAISessionID(t *testing.T) {
 		require.NotEqual(t, a, b)
 	})
 
-	t.Run("format_is_uuid_v4", func(t *testing.T) {
+	t.Run("format_is_16_hex_chars", func(t *testing.T) {
 		result := isolateOpenAISessionID(99, "test_session")
-		assert.Regexp(t, `^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`, result)
+		assert.Len(t, result, 16, "应为 16 字符的 hex 字符串")
+		for _, ch := range result {
+			assert.True(t, (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f'),
+				"应仅包含 hex 字符: %c", ch)
+		}
 	})
 
 	t.Run("zero_apiKeyID_still_works", func(t *testing.T) {
