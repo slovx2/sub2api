@@ -21,19 +21,6 @@ type liveHTTPUpstreamStub struct {
 	body    []byte
 }
 
-type liveAttestationStub struct {
-	header string
-	err    error
-}
-
-func (s liveAttestationStub) Check(context.Context) error {
-	return s.err
-}
-
-func (s liveAttestationStub) Generate(context.Context) (string, error) {
-	return s.header, s.err
-}
-
 func (s *liveHTTPUpstreamStub) Do(
 	request *http.Request,
 	_ string,
@@ -47,7 +34,7 @@ func (s *liveHTTPUpstreamStub) Do(
 	}
 	s.body = body
 	return &http.Response{
-		StatusCode: http.StatusOK,
+		StatusCode: http.StatusCreated,
 		Header: http.Header{
 			"Location": {"/backend-api/codex/call_test"},
 		},
@@ -119,7 +106,7 @@ func TestCreateUpstreamLiveCallPreservesSession(t *testing.T) {
 	created, err := service.createUpstreamLiveCall(context.Background(), account, &LiveCallRequest{
 		SDP:     "v=offer\r\n",
 		Session: session,
-	}, `{"v":1,"s":0,"t":"v1.test"}`)
+	})
 	require.NoError(t, err)
 	require.Equal(t, "call_test", created.CallID)
 	require.Equal(t, []byte("v=0\r\n"), created.SDP)
@@ -131,60 +118,22 @@ func TestCreateUpstreamLiveCallPreservesSession(t *testing.T) {
 	require.NoError(t, json.Unmarshal(upstream.body, &forwarded))
 	require.Equal(t, "v=offer\r\n", forwarded.SDP)
 	require.JSONEq(t, string(session), string(forwarded.Session))
+	require.Equal(t, "/backend-api/wham/realtime/calls", upstream.request.URL.Path)
+	require.Equal(t, "quicksilver", upstream.request.URL.Query().Get("intent"))
+	require.Equal(t, "avas", upstream.request.URL.Query().Get("architecture"))
 	require.Equal(t, "Bearer test-access-token", upstream.request.Header.Get("Authorization"))
 	require.Equal(t, "acct_test", upstream.request.Header.Get("Chatgpt-Account-Id"))
 	require.Equal(t, "quicksilver=v2", upstream.request.Header.Get("OpenAI-Alpha"))
-	require.Equal(t, `{"v":1,"s":0,"t":"v1.test"}`, upstream.request.Header.Get(liveAttestationHeader))
+	require.Equal(t, liveUpstreamOriginator, upstream.request.Header.Get("Originator"))
+	require.Equal(t, "1", upstream.request.Header.Get("X-OpenAI-Attach-Auth"))
+	require.Equal(t, "1", upstream.request.Header.Get("X-OpenAI-Attach-Integrity-State"))
+	require.NotContains(t, upstream.request.Header, "X-Oai-Attestation")
+	require.True(t, strings.HasPrefix(upstream.request.Header.Get("User-Agent"), liveUpstreamOriginator+"/"))
 	require.NotEmpty(t, upstream.request.Header.Get("Session-Id"))
 	require.NotEmpty(t, upstream.request.Header.Get("Thread-Id"))
 	require.Empty(t, upstream.request.Header.Get("OpenAI-Beta"))
 	require.Equal(t, HTTPUpstreamProfileOpenAI, HTTPUpstreamProfileFromContext(upstream.request.Context()))
 	require.True(t, HTTPUpstreamRedirectsDisabled(upstream.request.Context()))
-}
-
-func TestLiveAttestationCipherRoundTripAndRejectsOtherInstanceKey(t *testing.T) {
-	first := newLiveAttestationCipher(&config.Config{
-		JWT: config.JWTConfig{Secret: "first-live-secret"},
-	})
-	second := newLiveAttestationCipher(&config.Config{
-		JWT: config.JWTConfig{Secret: "second-live-secret"},
-	})
-	require.NotNil(t, first)
-	require.NotNil(t, second)
-
-	ciphertext, err := first.Encrypt(`{"v":1,"s":0,"t":"v1.opaque"}`)
-	require.NoError(t, err)
-	require.NotContains(t, ciphertext, "opaque")
-
-	plaintext, err := first.Decrypt(ciphertext)
-	require.NoError(t, err)
-	require.Equal(t, `{"v":1,"s":0,"t":"v1.opaque"}`, plaintext)
-
-	_, err = second.Decrypt(ciphertext)
-	require.Error(t, err)
-}
-
-func TestPrepareLiveAttestationEncryptsHeaderAndReturnsExplicitProviderError(t *testing.T) {
-	cipher := newLiveAttestationCipher(&config.Config{
-		JWT: config.JWTConfig{Secret: "live-attestation-test-secret"},
-	})
-	service := &OpenAIGatewayService{
-		liveAttestation:       liveAttestationStub{header: `{"v":1,"s":0,"t":"v1.test"}`},
-		liveAttestationCipher: cipher,
-	}
-	header, ciphertext, err := service.prepareLiveAttestation(context.Background())
-	require.NoError(t, err)
-	require.Equal(t, `{"v":1,"s":0,"t":"v1.test"}`, header)
-	require.NotContains(t, ciphertext, "v1.test")
-	decrypted, err := cipher.Decrypt(ciphertext)
-	require.NoError(t, err)
-	require.Equal(t, header, decrypted)
-
-	service.liveAttestation = liveAttestationStub{err: errors.New("macOS app missing")}
-	_, _, err = service.prepareLiveAttestation(context.Background())
-	var unavailable *LiveAttestationUnavailableError
-	require.ErrorAs(t, err, &unavailable)
-	require.Contains(t, unavailable.Error(), "macOS app missing")
 }
 
 func TestLiveMaxSessionDurationDefaultsAndOverrides(t *testing.T) {
