@@ -36,7 +36,11 @@ const (
 	// {originator}/{version} ({OS} {OS_version}; {arch}) {terminal}
 	// 缺少 OS/架构/终端后缀的形态易被上游指纹识别为非官方客户端。
 	// 该后缀是 UA 形态的唯一定义处，buildCodexCLIUserAgent 按运行时版本号复用它。
-	codexCLIUserAgentSuffix = " (Ubuntu 22.4.0; x86_64) xterm-256color"
+	//
+	// 不要用 `(Ubuntu 22.4.0; x86_64) xterm-256color`：这是仓库公开源码里的
+	// 编译期常量，上游可精确匹配后优先降载（HTTP 200 + server_is_overloaded）。
+	// `Ubuntu 22.04` + 同一终端同样会被打。形态按个人 Mac TUI。
+	codexCLIUserAgentSuffix = " (Mac OS X 15.3.1; arm64) iTerm.app"
 	// codexCLIUserAgent 是编译期兜底 UA；运行时优先使用由后台版本号拼出的规范 UA。
 	// 版本段必须来自 codexCLIVersion：UA 与 version 头是同一个版本声明的两个出口，
 	// 各自硬编码会漂移成互相矛盾的身份。
