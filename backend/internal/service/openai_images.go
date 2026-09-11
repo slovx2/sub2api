@@ -14,6 +14,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
+	"os"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -42,6 +43,13 @@ const (
 	openAIImagesResponsesMainModel         = "gpt-5.6-luna"
 	openAIImagesVerbatimPromptInstructions = "When invoking the image_generation tool, use the user's image prompt verbatim. Do not rewrite, expand, summarize, embellish, translate, normalize punctuation, or add or remove visual details or constraints. Preserve the original language, wording, capitalization, quotes, and punctuation exactly."
 )
+
+func openAIImagesResponsesMainModelValue() string {
+	if model := strings.TrimSpace(os.Getenv("SUB2API_IMAGES_MAIN_MODEL")); model != "" {
+		return model
+	}
+	return openAIImagesResponsesMainModel
+}
 
 type OpenAIImagesCapability string
 
