@@ -288,6 +288,7 @@ func TestGroupHandlerSimpleModeBlocksAdvancedOperations(t *testing.T) {
 		{http.MethodDelete, "/groups/1/rpm-overrides", ""},
 		{http.MethodGet, "/groups/1/stats", ""},
 		{http.MethodGet, "/groups/1/api-keys", ""},
+		{http.MethodGet, "/groups/live-capability", ""},
 		{http.MethodGet, "/groups/usage-summary", ""},
 		{http.MethodGet, "/groups/capacity-summary", ""},
 		{http.MethodPut, "/groups/sort-order", `{"updates":[{"id":1,"sort_order":1}]}`},
@@ -305,22 +306,4 @@ func TestGroupHandlerSimpleModeBlocksAdvancedOperations(t *testing.T) {
 			require.Zero(t, svc.advancedGroupOperationCalls)
 		})
 	}
-}
-
-func TestGroupHandlerLiveCapabilityIsPlatformIndependent(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	svc := newStubAdminService()
-	r := newSimpleModeGroupRouter(svc)
-	res := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/groups/live-capability", nil)
-	r.ServeHTTP(res, req)
-
-	require.Equal(t, http.StatusOK, res.Code)
-	var payload struct {
-		Data struct {
-			Supported bool `json:"supported"`
-		} `json:"data"`
-	}
-	require.NoError(t, json.Unmarshal(res.Body.Bytes(), &payload))
-	require.True(t, payload.Data.Supported)
 }

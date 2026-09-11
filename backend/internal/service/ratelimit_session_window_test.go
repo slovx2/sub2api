@@ -102,9 +102,6 @@ func (m *sessionWindowMockRepo) ListOAuthRefreshCandidates(context.Context) ([]A
 func (m *sessionWindowMockRepo) ListByPlatform(context.Context, string) ([]Account, error) {
 	panic("unexpected")
 }
-func (m *sessionWindowMockRepo) ListByPlatformAndCredentialEmails(context.Context, string, []string) ([]Account, error) {
-	panic("unexpected")
-}
 func (m *sessionWindowMockRepo) UpdateLastUsed(context.Context, int64) error { panic("unexpected") }
 func (m *sessionWindowMockRepo) BatchUpdateLastUsed(context.Context, map[int64]time.Time) error {
 	panic("unexpected")

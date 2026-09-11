@@ -1928,10 +1928,6 @@ func (s *stubAccountRepo) ListByPlatform(ctx context.Context, platform string) (
 	return nil, errors.New("not implemented")
 }
 
-func (s *stubAccountRepo) ListByPlatformAndCredentialEmails(ctx context.Context, platform string, emails []string) ([]service.Account, error) {
-	return nil, errors.New("not implemented")
-}
-
 func (s *stubAccountRepo) UpdateLastUsed(ctx context.Context, id int64) error {
 	return errors.New("not implemented")
 }

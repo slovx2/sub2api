@@ -70,24 +70,23 @@ type RelayExit struct {
 }
 
 type RelayOptions struct {
-	WriteTimeout                       time.Duration
-	IdleTimeout                        time.Duration
-	UpstreamDrainTimeout               time.Duration
-	FirstMessageType                   coderws.MessageType
-	FirstMessageSent                   bool
-	StartClientAfterFirstDownstream    bool
-	RequireTerminalBeforeUpstreamClose bool
-	OnUsageParseFailure                func(eventType string, usageRaw string)
-	OnTurnComplete                     func(turn RelayTurnResult)
-	BeforeWriteClient                  func(msgType coderws.MessageType, payload []byte, wroteDownstream bool) error
-	BeforeClientWrite                  func(msgType coderws.MessageType, payload []byte)
-	AfterClientWrite                   func(msgType coderws.MessageType, payload []byte, writeErr error)
-	BeforeRelayCancel                  func(exit RelayExit)
-	ReadClientFrame                    func(ctx context.Context, clientConn FrameConn) (coderws.MessageType, []byte, error)
-	OnTrace                            func(event RelayTraceEvent)
-	Now                                func() time.Time
-	FirstTurnStartedAt                 time.Time
-	TakeNextTurnStartedAt              func() time.Time
+	WriteTimeout                    time.Duration
+	IdleTimeout                     time.Duration
+	UpstreamDrainTimeout            time.Duration
+	FirstTurnStartedAt              time.Time
+	TakeNextTurnStartedAt           func() time.Time
+	FirstMessageType                coderws.MessageType
+	FirstMessageSent                bool
+	StartClientAfterFirstDownstream bool
+	OnUsageParseFailure             func(eventType string, usageRaw string)
+	OnTurnComplete                  func(turn RelayTurnResult)
+	BeforeWriteClient               func(msgType coderws.MessageType, payload []byte, wroteDownstream bool) error
+	BeforeClientWrite               func(msgType coderws.MessageType, payload []byte)
+	AfterClientWrite                func(msgType coderws.MessageType, payload []byte, writeErr error)
+	BeforeRelayCancel               func(exit RelayExit)
+	ReadClientFrame                 func(ctx context.Context, clientConn FrameConn) (coderws.MessageType, []byte, error)
+	OnTrace                         func(event RelayTraceEvent)
+	Now                             func() time.Time
 }
 
 type RelayTraceEvent struct {
@@ -318,7 +317,6 @@ func Relay(
 			markActivity,
 			onTrace,
 			exitCh,
-			options.RequireTerminalBeforeUpstreamClose,
 		)
 	}()
 	go runIdleWatchdog(relayCtx, nowFn, options.IdleTimeout, &lastActivity, onTrace, exitCh)
@@ -541,9 +539,7 @@ func runUpstreamToClient(
 	markActivity func(),
 	onTrace func(event RelayTraceEvent),
 	exitCh chan<- relayExitSignal,
-	requireTerminalBeforeCloseOpt ...bool,
 ) {
-	requireTerminalBeforeClose := len(requireTerminalBeforeCloseOpt) > 0 && requireTerminalBeforeCloseOpt[0]
 	wroteDownstream := false
 	for {
 		msgType, payload, err := upstreamConn.ReadFrame(ctx)
@@ -557,12 +553,6 @@ func runUpstreamToClient(
 			if graceful && state.hasUnfinishedTurn() {
 				graceful = false
 				err = errors.New("upstream websocket closed before terminal event: " + err.Error())
-			}
-			if requireTerminalBeforeClose && graceful && !relayHasTerminalEvent(state) {
-				graceful = false
-				if err == io.EOF {
-					err = errors.New("upstream closed before terminal event")
-				}
 			}
 			emitRelayTrace(onTrace, RelayTraceEvent{
 				Stage:           "read_upstream_failed",
@@ -795,9 +785,6 @@ func observeUpstreamMessage(
 		responseID: responseID,
 		usage:      parsedUsage,
 	}
-	if responseID != "" {
-		state.lastResponseID = responseID
-	}
 	var turnTiming *relayTurnTiming
 	if responseID != "" {
 		turnTiming = openAIWSRelayGetOrInitTurnTiming(state, responseID, now)
@@ -869,6 +856,7 @@ func finalizeObservedRelayTerminal(state *relayState, observed observedUpstreamE
 	observed.terminal = true
 	responseID := strings.TrimSpace(observed.responseID)
 	if responseID != "" {
+		state.lastResponseID = responseID
 		if turnTiming, ok := openAIWSRelayDeleteTurnTiming(state, responseID); ok {
 			observed.responseModel = relayTurnResponseModel(&turnTiming)
 			observed.responseConflict = turnTiming.responseModelConflict
@@ -1262,10 +1250,6 @@ func enrichResult(result *RelayResult, state *relayState, duration time.Duration
 	result.RequestID = state.lastResponseID
 	result.TerminalEventType = state.terminalEventType
 	result.FirstTokenMs = state.firstTokenMs
-}
-
-func relayHasTerminalEvent(state *relayState) bool {
-	return state != nil && strings.TrimSpace(state.terminalEventType) != ""
 }
 
 func (s *relayState) setRequestModel(model string) {

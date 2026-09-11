@@ -48,19 +48,13 @@ func (h *OpenAIGatewayHandler) Live(c *gin.Context) {
 		h.errorResponse(c, http.StatusNotFound, "not_found_error", "Live only supports OpenAI models for Composite groups")
 		return
 	}
-	// Frameless Codex sessions reject the public Realtime `session.model` field.
-	// Composite routing is the only case where the gateway is expected to add
-	// a mapped model; leave native OpenAI sessions untouched, including when
-	// the client intentionally omits `model`.
-	if apiKey.Group.Platform == service.PlatformComposite {
-		if upstreamModel, ok := service.ResolvedUpstreamModelFromContext(c.Request.Context()); ok && upstreamModel != model {
-			rewrittenSession, rewriteErr := sjson.SetBytes(request.Session, "model", upstreamModel)
-			if rewriteErr != nil {
-				h.errorResponse(c, http.StatusInternalServerError, "api_error", "Failed to apply Composite model route")
-				return
-			}
-			request.Session = rewrittenSession
+	if upstreamModel, ok := service.ResolvedUpstreamModelFromContext(c.Request.Context()); ok && upstreamModel != model {
+		rewrittenSession, rewriteErr := sjson.SetBytes(request.Session, "model", upstreamModel)
+		if rewriteErr != nil {
+			h.errorResponse(c, http.StatusInternalServerError, "api_error", "Failed to apply Composite model route")
+			return
 		}
+		request.Session = rewrittenSession
 	}
 	reqLog := requestLogger(
 		c,
@@ -125,7 +119,7 @@ func (h *OpenAIGatewayHandler) Live(c *gin.Context) {
 		return
 	}
 	c.Header("Location", liveSidebandLocation(c.FullPath(), created.CallID))
-	c.Data(http.StatusCreated, "application/sdp", created.SDP)
+	c.Data(http.StatusOK, "application/sdp", created.SDP)
 }
 
 func parseLiveCallRequest(c *gin.Context) (*service.LiveCallRequest, error) {
@@ -190,6 +184,11 @@ func (h *OpenAIGatewayHandler) writeLiveCreateError(c *gin.Context, err error) {
 	case errors.Is(err, service.ErrLiveUnavailable):
 		h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "Live is unavailable")
 	default:
+		var attestationErr *service.LiveAttestationUnavailableError
+		if errors.As(err, &attestationErr) {
+			h.errorResponse(c, http.StatusServiceUnavailable, "api_error", attestationErr.Error())
+			return
+		}
 		var upstreamErr *service.UpstreamFailoverError
 		if errors.As(err, &upstreamErr) && upstreamErr.StatusCode >= 400 && upstreamErr.StatusCode < 500 {
 			h.errorResponse(c, upstreamErr.StatusCode, "invalid_request_error", "Live upstream rejected the request")

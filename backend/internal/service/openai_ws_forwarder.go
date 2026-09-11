@@ -38,7 +38,6 @@ const (
 	openAIWSEventFlushIntervalDefault     = 25 * time.Millisecond
 	openAIWSPayloadLogSampleDefault       = 0.2
 	openAIWSPassthroughIdleTimeoutDefault = time.Hour
-	openAIWSPassthroughPingInterval       = 60 * time.Second
 
 	openAIWSStoreDisabledConnModeStrict   = "strict"
 	openAIWSStoreDisabledConnModeAdaptive = "adaptive"
@@ -439,54 +438,4 @@ func (s *OpenAIGatewayService) openAIWSAcquireTimeout() time.Duration {
 		dial = 10 * time.Second
 	}
 	return dial + 2*time.Second
-}
-
-func diffOpenAIWSUniqueIDs(expected []string, actual []string) (bool, []string, []string) {
-	expectedSet := make(map[string]struct{}, len(expected))
-	seenExpected := make(map[string]struct{}, len(expected))
-	uniqueExpected := make([]string, 0, len(expected))
-	for _, id := range expected {
-		id = strings.TrimSpace(id)
-		if id == "" {
-			continue
-		}
-		if _, ok := seenExpected[id]; ok {
-			continue
-		}
-		seenExpected[id] = struct{}{}
-		expectedSet[id] = struct{}{}
-		uniqueExpected = append(uniqueExpected, id)
-	}
-
-	actualSet := make(map[string]struct{}, len(actual))
-	seenActual := make(map[string]struct{}, len(actual))
-	uniqueActual := make([]string, 0, len(actual))
-	for _, id := range actual {
-		id = strings.TrimSpace(id)
-		if id == "" {
-			continue
-		}
-		if _, ok := seenActual[id]; ok {
-			continue
-		}
-		seenActual[id] = struct{}{}
-		actualSet[id] = struct{}{}
-		uniqueActual = append(uniqueActual, id)
-	}
-
-	missing := make([]string, 0)
-	for _, id := range uniqueExpected {
-		if _, ok := actualSet[id]; !ok {
-			missing = append(missing, id)
-		}
-	}
-
-	extra := make([]string, 0)
-	for _, id := range uniqueActual {
-		if _, ok := expectedSet[id]; !ok {
-			extra = append(extra, id)
-		}
-	}
-
-	return len(missing) == 0 && len(extra) == 0, missing, extra
 }

@@ -931,12 +931,6 @@ const geminiOAuthType = computed(() => {
   return (creds?.oauth_type || '').trim() || null
 })
 
-const geminiApiMode = computed(() => {
-  if (props.account.platform !== 'gemini') return null
-  const creds = props.account.credentials as GeminiCredentials | undefined
-  return (creds?.api_mode || '').trim() || 'ai_studio'
-})
-
 // Gemini 是否为 Code Assist OAuth
 const isGeminiCodeAssist = computed(() => {
   if (props.account.platform !== 'gemini') return false
@@ -944,12 +938,11 @@ const isGeminiCodeAssist = computed(() => {
   return creds?.oauth_type === 'code_assist' || (!creds?.oauth_type && !!creds?.project_id)
 })
 
-const geminiChannelShort = computed((): 'ai studio' | 'vertex' | 'gcp' | 'google one' | 'client' | null => {
+const geminiChannelShort = computed((): 'ai studio' | 'gcp' | 'google one' | 'client' | null => {
   if (props.account.platform !== 'gemini') return null
 
-  if (props.account.type === 'apikey') {
-    return geminiApiMode.value === 'vertex' ? 'vertex' : 'ai studio'
-  }
+  // API Key accounts are AI Studio.
+  if (props.account.type === 'apikey') return 'ai studio'
 
   if (geminiOAuthType.value === 'google_one') return 'google one'
   if (isGeminiCodeAssist.value) return 'gcp'
@@ -990,13 +983,6 @@ const geminiUserLevel = computed((): string | null => {
     return 'standard'
   }
 
-  if (props.account.type === 'apikey' && geminiApiMode.value === 'vertex') {
-    if (tierLower === 'gcp_enterprise') return 'enterprise'
-    if (tierLower === 'gcp_standard') return 'standard'
-    if (tierUpper.includes('ULTRA') || tierUpper.includes('ENTERPRISE')) return 'enterprise'
-    return 'standard'
-  }
-
   // AI Studio (API Key) and Client OAuth: free / paid
   if (props.account.type === 'apikey' || geminiOAuthType.value === 'ai_studio') {
     if (tierLower === 'aistudio_paid') return 'paid'
@@ -1029,11 +1015,6 @@ const geminiTierClass = computed(() => {
     return 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300'
   }
 
-  if (channel === 'vertex') {
-    if (level === 'enterprise') return 'bg-purple-100 text-purple-600 dark:bg-purple-900/40 dark:text-purple-300'
-    return 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300'
-  }
-
   if (channel === 'google one') {
     if (level === 'ultra') return 'bg-purple-100 text-purple-600 dark:bg-purple-900/40 dark:text-purple-300'
     if (level === 'pro') return 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300'
@@ -1055,9 +1036,6 @@ const geminiQuotaPolicyChannel = computed(() => {
   }
   if (isGeminiCodeAssist.value) {
     return t('admin.accounts.gemini.quotaPolicy.rows.gcp.channel')
-  }
-  if (props.account.type === 'apikey' && geminiApiMode.value === 'vertex') {
-    return t('admin.accounts.gemini.quotaPolicy.rows.vertex.channel')
   }
   return t('admin.accounts.gemini.quotaPolicy.rows.aiStudio.channel')
 })
@@ -1081,12 +1059,6 @@ const geminiQuotaPolicyLimits = computed(() => {
     }
     return t('admin.accounts.gemini.quotaPolicy.rows.gcp.limitsStandard')
   }
-  if (props.account.type === 'apikey' && geminiApiMode.value === 'vertex') {
-    if (tierLower === 'gcp_enterprise' || geminiUserLevel.value === 'enterprise') {
-      return t('admin.accounts.gemini.quotaPolicy.rows.vertex.limitsEnterprise')
-    }
-    return t('admin.accounts.gemini.quotaPolicy.rows.vertex.limitsStandard')
-  }
 
   // AI Studio (API Key / custom OAuth)
   if (tierLower === 'aistudio_paid' || geminiUserLevel.value === 'paid') {
@@ -1098,9 +1070,6 @@ const geminiQuotaPolicyLimits = computed(() => {
 const geminiQuotaPolicyDocsUrl = computed(() => {
   if (geminiOAuthType.value === 'google_one' || isGeminiCodeAssist.value) {
     return 'https://developers.google.com/gemini-code-assist/resources/quotas'
-  }
-  if (props.account.type === 'apikey' && geminiApiMode.value === 'vertex') {
-    return 'https://cloud.google.com/vertex-ai/generative-ai/docs/quotas'
   }
   return 'https://ai.google.dev/pricing'
 })

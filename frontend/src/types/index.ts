@@ -242,8 +242,6 @@ export interface PublicSettings {
   compact_home_enabled: boolean
   hide_ccs_import_button: boolean
   payment_enabled: boolean
-  purchase_subscription_enabled: boolean
-  purchase_subscription_url: string
   risk_control_enabled: boolean
   table_default_page_size: number
   table_page_size_options: number[]
@@ -1002,7 +1000,6 @@ export interface GeminiCredentials {
   // OAuth authentication
   access_token?: string
   refresh_token?: string
-  api_mode?: 'ai_studio' | 'vertex' | string
   oauth_type?: 'code_assist' | 'google_one' | 'ai_studio' | string
   tier_id?:
     | 'google_one_free'

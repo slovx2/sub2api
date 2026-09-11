@@ -56,13 +56,6 @@ func (s *adminServiceImpl) GetAccount(ctx context.Context, id int64) (*Account, 
 	return s.accountRepo.GetByID(ctx, id)
 }
 
-func (s *adminServiceImpl) LookupAccountsByCredentialEmail(ctx context.Context, platform string, emails []string) ([]Account, error) {
-	if platform == "" || len(emails) == 0 {
-		return []Account{}, nil
-	}
-	return s.accountRepo.ListByPlatformAndCredentialEmails(ctx, platform, emails)
-}
-
 func (s *adminServiceImpl) GetAccountsByIDs(ctx context.Context, ids []int64) ([]*Account, error) {
 	if len(ids) == 0 {
 		return []*Account{}, nil

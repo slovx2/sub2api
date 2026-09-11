@@ -36,11 +36,9 @@ const (
 var liveObserverStoreRetryInterval = time.Second
 
 var (
-	chatGPTLiveCallsURL        = "https://chatgpt.com/backend-api/wham/realtime/calls?intent=quicksilver&architecture=avas"
-	chatGPTLiveSidebandBaseURL = "wss://api.openai.com/v1/live"
+	chatGPTLiveCallsURL        = "https://chatgpt.com/backend-api/codex/realtime/calls?intent=quicksilver&architecture=avas"
+	chatGPTLiveSidebandBaseURL = "wss://chatgpt.com/backend-api/codex"
 )
-
-const liveUpstreamOriginator = "Codex Desktop"
 
 type liveFrameConn interface {
 	ReadFrame(ctx context.Context) (coderws.MessageType, []byte, error)
@@ -140,6 +138,11 @@ func (s *OpenAIGatewayService) CreateLiveCall(
 	if err != nil {
 		return nil, err
 	}
+	attestation, attestationCiphertext, err := s.prepareLiveAttestation(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	excluded := make(map[int64]struct{})
 	// Live 按通话时长计费，不属于 token 利润门的语义范围：显式豁免，避免
 	// 防御性装门按文本 D 过滤 Live 账号池且门与计费时刻不同源。
@@ -192,7 +195,7 @@ func (s *OpenAIGatewayService) CreateLiveCall(
 			return nil, ErrLiveConcurrencyFull
 		}
 
-		created, createErr := s.createUpstreamLiveCall(ctx, account, request)
+		created, createErr := s.createUpstreamLiveCall(ctx, account, request, attestation)
 		selection.ReleaseFunc()
 		if createErr != nil {
 			s.releaseLiveLease(account.ID, identity.UserID, identity.APIKeyID, leaseID)
@@ -210,21 +213,22 @@ func (s *OpenAIGatewayService) CreateLiveCall(
 			model = "gpt-live"
 		}
 		record := &LiveCallRecord{
-			CallID:          created.CallID,
-			CallHash:        hashLiveCallID(created.CallID),
-			AccountID:       account.ID,
-			APIKeyID:        identity.APIKeyID,
-			UserID:          identity.UserID,
-			GroupID:         liveGroupID(identity.GroupID),
-			SubscriptionID:  liveGroupID(identity.SubscriptionID),
-			LeaseID:         leaseID,
-			Model:           model,
-			CreatedAt:       now,
-			ExpiresAt:       now.Add(s.liveMaxSessionDuration()),
-			Controller:      LiveControllerPending,
-			UserAgent:       identity.UserAgent,
-			IPAddress:       identity.IPAddress,
-			InboundEndpoint: identity.InboundEndpoint,
+			CallID:                created.CallID,
+			CallHash:              hashLiveCallID(created.CallID),
+			AccountID:             account.ID,
+			APIKeyID:              identity.APIKeyID,
+			UserID:                identity.UserID,
+			GroupID:               liveGroupID(identity.GroupID),
+			SubscriptionID:        liveGroupID(identity.SubscriptionID),
+			LeaseID:               leaseID,
+			Model:                 model,
+			CreatedAt:             now,
+			ExpiresAt:             now.Add(s.liveMaxSessionDuration()),
+			Controller:            LiveControllerPending,
+			UserAgent:             identity.UserAgent,
+			IPAddress:             identity.IPAddress,
+			InboundEndpoint:       identity.InboundEndpoint,
+			AttestationCiphertext: attestationCiphertext,
 		}
 		mappingTTL := s.liveMaxSessionDuration() + 5*time.Minute
 		if saveErr := store.SaveLiveCall(ctx, record, mappingTTL); saveErr != nil {
@@ -258,6 +262,7 @@ func (s *OpenAIGatewayService) createUpstreamLiveCall(
 	ctx context.Context,
 	account *Account,
 	request *LiveCallRequest,
+	attestation string,
 ) (*LiveCallCreated, error) {
 	token, _, err := s.GetAccessToken(ctx, account)
 	if err != nil {
@@ -296,6 +301,7 @@ func (s *OpenAIGatewayService) createUpstreamLiveCall(
 	}
 	upstreamReq.Header.Set("Content-Type", "application/json")
 	upstreamReq.Header.Set("Accept", "application/sdp")
+	upstreamReq.Header.Set(liveAttestationHeader, attestation)
 	applyLiveUpstreamIdentityHeaders(upstreamReq.Header)
 
 	resp, err := s.doOpenAIUpstream(upstreamReq, resolveAccountProxyURL(account), account)
@@ -394,24 +400,9 @@ func liveCallIDFromLocation(location string) (string, error) {
 }
 
 func applyLiveUpstreamIdentityHeaders(headers http.Header) {
-	// ChatGPT Desktop marks its first-party AVAS request with these presence
-	// headers. They are capability markers only; no DeviceCheck token or
-	// x-oai-attestation payload is generated, persisted, or forwarded.
-	headers.Set("X-OpenAI-Attach-Auth", "1")
-	headers.Set("X-OpenAI-Attach-Integrity-State", "1")
 	headers.Set("OpenAI-Alpha", "quicksilver=v2")
-	// Frameless Live identifies itself as the desktop client even when the
-	// relay runs on Linux. Avoid the generic Codex identity enforcement here,
-	// because it intentionally rewrites requests to the TUI identity.
-	headers.Set("originator", liveUpstreamOriginator)
-	if strings.TrimSpace(headers.Get("User-Agent")) == "" {
-		version := CodexCanonicalClientVersion()
-		if version == "" {
-			headers.Set("User-Agent", liveUpstreamOriginator)
-		} else {
-			headers.Set("User-Agent", liveUpstreamOriginator+"/"+version)
-		}
-	}
+	ensureCodexIdentityHeaders(headers)
+	enforceCodexIdentityHeaders(headers)
 	if strings.TrimSpace(headers.Get("session-id")) == "" {
 		headers.Set("session-id", uuid.NewString())
 	}
@@ -425,6 +416,7 @@ func applyLiveUpstreamIdentityHeaders(headers http.Header) {
 func (s *OpenAIGatewayService) liveSidebandHeaders(
 	ctx context.Context,
 	account *Account,
+	record *LiveCallRecord,
 ) (http.Header, error) {
 	token, _, err := s.GetAccessToken(ctx, account)
 	if err != nil {
@@ -437,6 +429,11 @@ func (s *OpenAIGatewayService) liveSidebandHeaders(
 	if err := resolveAndSetOpenAIChatGPTAccountHeaders(ctx, s.accountRepo, headers, account); err != nil {
 		return nil, err
 	}
+	attestation, err := s.decryptLiveAttestation(record)
+	if err != nil {
+		return nil, err
+	}
+	headers.Set(liveAttestationHeader, attestation)
 	applyLiveUpstreamIdentityHeaders(headers)
 	return headers, nil
 }
@@ -449,7 +446,7 @@ func (s *OpenAIGatewayService) dialLiveSideband(ctx context.Context, record *Liv
 	if account == nil || !account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityLive) {
 		return nil, ErrLiveUnavailable
 	}
-	headers, err := s.liveSidebandHeaders(ctx, account)
+	headers, err := s.liveSidebandHeaders(ctx, account, record)
 	if err != nil {
 		return nil, err
 	}
@@ -820,7 +817,7 @@ func (s *OpenAIGatewayService) finalizeLiveCall(record *LiveCallRecord) {
 		duration = 0
 	}
 	inboundEndpoint := record.InboundEndpoint
-	upstreamEndpoint := "/backend-api/wham/realtime/calls"
+	upstreamEndpoint := "/backend-api/codex/realtime/calls"
 	userAgent := record.UserAgent
 	ipAddress := record.IPAddress
 	billingType := int8(BillingTypeBalance)
