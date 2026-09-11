@@ -29,9 +29,8 @@ import (
 // liveRequestRoutes 是模型位于 session.model（而非顶层 model）的入口，
 // 与 Live handler 的解析保持一致。
 var liveRequestRoutes = map[string]bool{
-	"/v1/live":                          true,
-	"/live":                             true,
-	"/backend-api/codex/realtime/calls": true,
+	"/v1/live/sessions": true,
+	"/live/sessions":    true,
 }
 
 // IsLiveRequestRoute 报告该路由模板的 handler 是否只读取 session.model。

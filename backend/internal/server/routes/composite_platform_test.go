@@ -161,21 +161,21 @@ func TestCompositeTargetPlatformMiddlewareRewritesNestedLiveModel(t *testing.T) 
 		c.Next()
 	})))
 	router.Use(compositeTargetPlatformMiddleware(resolver))
-	router.POST("/backend-api/codex/realtime/calls", func(c *gin.Context) {
+	router.POST("/v1/live/sessions", func(c *gin.Context) {
 		platform, ok := service.ResolvedTargetPlatformFromContext(c.Request.Context())
 		require.True(t, ok)
 		require.Equal(t, service.PlatformOpenAI, platform)
 
 		body, err := io.ReadAll(c.Request.Body)
 		require.NoError(t, err)
-		require.JSONEq(t, `{"session":{"model":"gpt-live"},"sdp":"v=0"}`, string(body))
+		require.JSONEq(t, `{"session":{"model":"gpt-live"},"transport":{"type":"webrtc","sdp":"v=0"}}`, string(body))
 		c.Status(http.StatusNoContent)
 	})
 
 	req := httptest.NewRequest(
 		http.MethodPost,
-		"/backend-api/codex/realtime/calls",
-		strings.NewReader(`{"session":{"model":"live-alias"},"sdp":"v=0"}`),
+		"/v1/live/sessions",
+		strings.NewReader(`{"session":{"model":"live-alias"},"transport":{"type":"webrtc","sdp":"v=0"}}`),
 	)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -199,8 +199,7 @@ func TestCompositeCodexControlPathsUseResponsesRoutes(t *testing.T) {
 	for _, path := range []string{
 		"/v1/alpha/search",
 		"/backend-api/codex/alpha/search",
-		"/v1/live",
-		"/backend-api/codex/realtime/calls",
+		"/v1/live/sessions",
 	} {
 		require.Equal(t, service.CompositeRouteEndpointResponses, compositeRouteEndpointForPath(path), "path=%s", path)
 	}
@@ -344,22 +343,22 @@ func TestCompositeLiveRouteDispatchesBySessionModelNotTopLevelAlias(t *testing.T
 		c.Next()
 	})))
 	router.Use(compositeTargetPlatformMiddleware(resolver))
-	router.POST("/backend-api/codex/realtime/calls", func(c *gin.Context) {
+	router.POST("/v1/live/sessions", func(c *gin.Context) {
 		upstream, ok := service.ResolvedUpstreamModelFromContext(c.Request.Context())
 		require.True(t, ok)
 		require.Equal(t, "gpt-realtime-1", upstream,
 			"Live dispatch must resolve the session model, never the top-level alias upstream")
 		body, err := io.ReadAll(c.Request.Body)
 		require.NoError(t, err)
-		require.JSONEq(t, `{"model":"live-alias","session":{"model":"gpt-realtime-1"},"sdp":"v=0"}`, string(body),
+		require.JSONEq(t, `{"model":"live-alias","session":{"model":"gpt-realtime-1"},"transport":{"type":"webrtc","sdp":"v=0"}}`, string(body),
 			"session.model must stay untouched when dispatch resolves by session model")
 		c.Status(http.StatusNoContent)
 	})
 
 	req := httptest.NewRequest(
 		http.MethodPost,
-		"/backend-api/codex/realtime/calls",
-		strings.NewReader(`{"model":"live-alias","session":{"model":"gpt-realtime-1"},"sdp":"v=0"}`),
+		"/v1/live/sessions",
+		strings.NewReader(`{"model":"live-alias","session":{"model":"gpt-realtime-1"},"transport":{"type":"webrtc","sdp":"v=0"}}`),
 	)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 
@@ -118,41 +117,52 @@ func (h *OpenAIGatewayHandler) Live(c *gin.Context) {
 		h.writeLiveCreateError(c, err)
 		return
 	}
-	c.Header("Location", liveSidebandLocation(c.FullPath(), created.CallID))
-	c.Data(http.StatusOK, "application/sdp", created.SDP)
+	writeLiveCreateResponse(c, created)
 }
 
 func parseLiveCallRequest(c *gin.Context) (*service.LiveCallRequest, error) {
-	contentType := strings.ToLower(c.GetHeader("Content-Type"))
-	if strings.HasPrefix(contentType, "multipart/form-data") {
-		sdp := c.PostForm("sdp")
-		session := json.RawMessage(c.PostForm("session"))
-		request := &service.LiveCallRequest{SDP: sdp, Session: session}
-		if err := service.ValidateLiveCallRequest(request); err != nil {
-			return nil, err
-		}
-		return request, nil
-	}
-	var request service.LiveCallRequest
+	var payload liveCreateClientRequest
 	decoder := json.NewDecoder(c.Request.Body)
-	if err := decoder.Decode(&request); err != nil {
+	if err := decoder.Decode(&payload); err != nil {
 		return nil, errors.New("request body must be valid JSON")
 	}
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		return nil, errors.New("request body must contain one JSON object")
 	}
-	if err := service.ValidateLiveCallRequest(&request); err != nil {
+	if payload.Transport == nil || strings.TrimSpace(payload.Transport.SDP) == "" {
+		return nil, errors.New("transport.sdp is required")
+	}
+	if strings.TrimSpace(payload.Transport.Type) != "webrtc" {
+		return nil, errors.New("transport.type must be webrtc")
+	}
+	request := &service.LiveCallRequest{
+		SDP:     payload.Transport.SDP,
+		Session: payload.Session,
+	}
+	if err := service.ValidateLiveCallRequest(request); err != nil {
 		return nil, err
 	}
-	return &request, nil
+	return request, nil
 }
 
-func liveSidebandLocation(fullPath, callID string) string {
-	prefix := "/v1/live/"
-	if strings.HasPrefix(fullPath, "/backend-api/codex/") {
-		prefix = "/backend-api/codex/"
-	}
-	return prefix + url.PathEscape(callID)
+type liveCreateClientRequest struct {
+	Session   json.RawMessage      `json:"session"`
+	Transport *liveCreateTransport `json:"transport"`
+}
+
+type liveCreateTransport struct {
+	Type string `json:"type"`
+	SDP  string `json:"sdp"`
+}
+
+func writeLiveCreateResponse(c *gin.Context, created *service.LiveCallCreated) {
+	c.JSON(http.StatusCreated, gin.H{
+		"session": gin.H{"id": created.CallID},
+		"transport": gin.H{
+			"type": "webrtc",
+			"sdp":  string(created.SDP),
+		},
+	})
 }
 
 func liveCallIdentity(
@@ -218,7 +228,7 @@ func (h *OpenAIGatewayHandler) LiveSideband(c *gin.Context) {
 		UserID:   subject.UserID,
 		GroupID:  apiKey.GroupID,
 	}
-	record, err := h.gatewayService.GetLiveCallForIdentity(c.Request.Context(), c.Param("call_id"), identity)
+	record, err := h.gatewayService.GetLiveCallForIdentity(c.Request.Context(), c.Param("session_id"), identity)
 	if err != nil {
 		if errors.Is(err, service.ErrLiveIdentityMismatch) {
 			h.errorResponse(c, http.StatusForbidden, "permission_error", "Live call belongs to another identity")

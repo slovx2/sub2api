@@ -3,7 +3,6 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
-	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -13,17 +12,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestParseLiveCallRequestMultipartPreservesSession(t *testing.T) {
+func TestParseLiveCallRequestOfficialJSONPreservesSession(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	session := `{"model":"gpt-live-test","delegation":{"type":"client"},"instructions":"你好"}`
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-	require.NoError(t, writer.WriteField("sdp", "v=0\r\n"))
-	require.NoError(t, writer.WriteField("session", session))
-	require.NoError(t, writer.Close())
-
-	request := httptest.NewRequest("POST", "/v1/live", &body)
-	request.Header.Set("Content-Type", writer.FormDataContentType())
+	session := `{"model":"gpt-live-test","delegation":{"type":"client"},"instructions":"hello"}`
+	body := `{"session":` + session + `,"transport":{"type":"webrtc","sdp":"v=0\r\n"}}`
+	request := httptest.NewRequest("POST", "/v1/live/sessions", bytes.NewBufferString(body))
+	request.Header.Set("Content-Type", "application/json")
 	context, _ := gin.CreateTestContext(httptest.NewRecorder())
 	context.Request = request
 
@@ -34,45 +28,43 @@ func TestParseLiveCallRequestMultipartPreservesSession(t *testing.T) {
 	require.Equal(t, "client", jsonPathString(t, parsed.Session, "delegation", "type"))
 }
 
-func TestParseLiveCallRequestJSONPreservesSessionWithoutDelegation(t *testing.T) {
+func TestParseLiveCallRequestRejectsLegacyAndInvalidShapes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	body := `{"sdp":"v=0\\r\\n","session":{"model":"gpt-live-test","instructions":"standalone"}}`
-	request := httptest.NewRequest("POST", "/backend-api/codex/realtime/calls", bytes.NewBufferString(body))
-	request.Header.Set("Content-Type", "application/json")
-	context, _ := gin.CreateTestContext(httptest.NewRecorder())
-	context.Request = request
-
-	parsed, err := parseLiveCallRequest(context)
-	require.NoError(t, err)
-	require.NotContains(t, string(parsed.Session), "delegation")
-	require.Equal(t, "standalone", jsonPathString(t, parsed.Session, "instructions"))
-}
-
-func TestParseLiveCallRequestRejectsInvalidJSONShape(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	testCases := []string{
-		`{"session":{"type":"quicksilver"}}`,
-		`{"sdp":"v=0\\r\\n","session":[]}`,
-		`{"sdp":"v=0\\r\\n","session":null}`,
-		`{"sdp":"v=0\\r\\n","session":{"type":"quicksilver"}} {}`,
+	testCases := []struct {
+		body string
+		want string
+	}{
+		{`{"session":{"model":"gpt-live-test"},"sdp":"v=0"}`, "transport.sdp is required"},
+		{`{"session":{"model":"gpt-live-test"},"transport":{"type":"websocket","sdp":"v=0"}}`, "transport.type must be webrtc"},
+		{`{"session":{"model":"gpt-live-test"},"transport":{"type":"webrtc"}}`, "transport.sdp is required"},
+		{`{"session":[],"transport":{"type":"webrtc","sdp":"v=0"}}`, "session must be a JSON object"},
+		{`{"session":null,"transport":{"type":"webrtc","sdp":"v=0"}}`, "session must be a JSON object"},
+		{`{"session":{"model":"gpt-live-test"},"transport":{"type":"webrtc","sdp":"v=0"}} {}`, "request body must contain one JSON object"},
 	}
-	for _, body := range testCases {
-		request := httptest.NewRequest("POST", "/backend-api/codex/realtime/calls", bytes.NewBufferString(body))
+	for _, tc := range testCases {
+		request := httptest.NewRequest("POST", "/v1/live/sessions", bytes.NewBufferString(tc.body))
 		request.Header.Set("Content-Type", "application/json")
 		context, _ := gin.CreateTestContext(httptest.NewRecorder())
 		context.Request = request
 		_, err := parseLiveCallRequest(context)
-		require.Error(t, err)
+		require.Error(t, err, tc.body)
+		require.Contains(t, err.Error(), tc.want, tc.body)
 	}
 }
 
-func TestLiveSidebandLocationMatchesCreateRoute(t *testing.T) {
-	require.Equal(t, "/v1/live/call_123", liveSidebandLocation("/v1/live", "call_123"))
-	require.Equal(
-		t,
-		"/backend-api/codex/call_123",
-		liveSidebandLocation("/backend-api/codex/realtime/calls", "call_123"),
-	)
+func TestWriteLiveCreateResponseUsesOfficialEnvelope(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	writeLiveCreateResponse(context, &service.LiveCallCreated{
+		CallID: "call_123",
+		SDP:    []byte("v=answer"),
+	})
+	require.Equal(t, http.StatusCreated, recorder.Code)
+	require.JSONEq(t, `{
+		"session":{"id":"call_123"},
+		"transport":{"type":"webrtc","sdp":"v=answer"}
+	}`, recorder.Body.String())
 }
 
 func TestLiveEnabledForAPIKey(t *testing.T) {

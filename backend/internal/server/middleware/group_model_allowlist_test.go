@@ -40,7 +40,7 @@ func newGroupModelAllowlistTestRouter(apiKey *service.APIKey, pathPrefix string)
 	register(http.MethodPost, pathPrefix+"/models/*modelAction")
 	register(http.MethodGet, pathPrefix+"/realtime")
 	register(http.MethodPost, pathPrefix+"/images/edits")
-	register(http.MethodPost, pathPrefix+"/live")
+	register(http.MethodPost, pathPrefix+"/live/sessions")
 	return router, &calls
 }
 
@@ -385,13 +385,13 @@ func TestGroupModelAllowlistLiveUsesSessionModel(t *testing.T) {
 	router, _ := newGroupModelAllowlistTestRouter(allowlistAPIKey(true, "gpt-realtime-model"), "/v1")
 
 	// session.model 不在白名单：即使顶层 model 命中也必须拒绝。
-	w := doJSON(t, router, http.MethodPost, "/v1/live", `{"model":"gpt-realtime-model","session":{"model":"blocked-model"},"sdp":"v=0"}`)
+	w := doJSON(t, router, http.MethodPost, "/v1/live/sessions", `{"model":"gpt-realtime-model","session":{"model":"blocked-model"},"transport":{"type":"webrtc","sdp":"v=0"}}`)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 when session.model is blocked, got %d: %s", w.Code, w.Body.String())
 	}
 
 	// session.model 命中：顶层 model 不在白名单也不影响（handler 不读它）。
-	w = doJSON(t, router, http.MethodPost, "/v1/live", `{"model":"blocked-model","session":{"model":"gpt-realtime-model"},"sdp":"v=0"}`)
+	w = doJSON(t, router, http.MethodPost, "/v1/live/sessions", `{"model":"blocked-model","session":{"model":"gpt-realtime-model"},"transport":{"type":"webrtc","sdp":"v=0"}}`)
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200 when session.model is allowlisted, got %d: %s", w.Code, w.Body.String())
 	}

@@ -278,7 +278,7 @@ func TestFinalizeLiveCallIsIdempotentAndWritesZeroUsage(t *testing.T) {
 		CreatedAt:       time.Now().Add(-time.Second),
 		ExpiresAt:       time.Now().Add(time.Hour),
 		Controller:      LiveControllerPending,
-		InboundEndpoint: "/v1/live",
+		InboundEndpoint: "/v1/live/sessions",
 	}
 	store := &liveTestStore{}
 	require.NoError(t, store.SaveLiveCall(context.Background(), record, time.Hour))

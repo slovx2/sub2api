@@ -157,9 +157,8 @@ func TestGatewayRoutesGroupModelAllowlistCoversRootAliasRoutes(t *testing.T) {
 		{http.MethodPost, "/v1/embeddings", `{"model":"gpt-4.1","input":"hi"}`},
 		{http.MethodPost, "/v1/images/generations", `{"model":"gpt-4.1"}`},
 		{http.MethodPost, "/v1/videos/generations", `{"model":"gpt-4.1"}`},
-		{http.MethodPost, "/v1/live", `{"session":{"model":"gpt-4.1"},"sdp":"v=0"}`},
+		{http.MethodPost, "/v1/live/sessions", `{"session":{"model":"gpt-4.1"},"transport":{"type":"webrtc","sdp":"v=0"}}`},
 		{http.MethodPost, "/backend-api/codex/responses", `{"model":"gpt-4.1"}`},
-		{http.MethodPost, "/backend-api/codex/realtime/calls", `{"session":{"model":"gpt-4.1"},"sdp":"v=0"}`},
 		{http.MethodPost, "/antigravity/v1/messages", `{"model":"gemini-2.5-pro","messages":[]}`},
 	}
 
@@ -204,5 +203,16 @@ func TestGatewayRoutesGroupModelAllowlistModelFreeRoutesUnaffected(t *testing.T)
 		router.ServeHTTP(w, req)
 		require.NotContains(t, w.Body.String(), "not available for this group",
 			"%s should not be blocked by the allowlist middleware, got: %s", path, w.Body.String())
+	}
+}
+
+func TestGatewayRemovesLegacyLiveRoutes(t *testing.T) {
+	router := newGatewayRoutesTestRouterWithGroup(allowlistGroup(service.PlatformOpenAI, false))
+	for _, path := range []string{"/v1/live", "/backend-api/codex/realtime/calls"} {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"session":{"model":"gpt-live-1"},"sdp":"v=0"}`))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusNotFound, w.Code, path)
 	}
 }

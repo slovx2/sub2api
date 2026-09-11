@@ -58,8 +58,8 @@ route's `upstream_model` before dispatch. For Gemini native paths such as
 the handler forwards the resolved upstream model.
 
 Codex Alpha Search and Live requests use the `responses` route domain. Live
-requests resolve the model from `session.model`, including multipart `session`
-payloads, and apply the configured `upstream_model` before dispatch.
+requests resolve the model from `session.model` and apply the configured
+`upstream_model` before dispatch.
 Codex model manifest requests reuse the existing OpenAI account selection and
 failover path within the Composite group.
 

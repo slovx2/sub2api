@@ -114,13 +114,10 @@ func TestResetRequestBodyNilRequestIsNoop(t *testing.T) {
 func TestFromBodyForRouteLivePrefersSessionModel(t *testing.T) {
 	body := []byte(`{"model":"top-level","session":{"model":"session-model"},"sdp":"v=0"}`)
 
-	if got := FromBodyForRoute("/v1/live", "application/json", body); got != "session-model" {
+	if got := FromBodyForRoute("/v1/live/sessions", "application/json", body); got != "session-model" {
 		t.Fatalf("live route should prefer session.model, got %q", got)
 	}
-	if got := FromBodyForRoute("/backend-api/codex/realtime/calls", "application/json", body); got != "session-model" {
-		t.Fatalf("codex realtime route should prefer session.model, got %q", got)
-	}
-	if got := FromBodyForRoute("/live", "application/json", body); got != "session-model" {
+	if got := FromBodyForRoute("/live/sessions", "application/json", body); got != "session-model" {
 		t.Fatalf("root live alias should prefer session.model, got %q", got)
 	}
 }
@@ -137,7 +134,7 @@ func TestFromBodyForRouteNonLivePrefersTopLevelModel(t *testing.T) {
 }
 
 func TestFromBodyForRouteFallsBackWhenPreferredFieldMissing(t *testing.T) {
-	if got := FromBodyForRoute("/v1/live", "application/json", []byte(`{"model":"top-level"}`)); got != "top-level" {
+	if got := FromBodyForRoute("/v1/live/sessions", "application/json", []byte(`{"model":"top-level"}`)); got != "top-level" {
 		t.Fatalf("live without session.model should fall back to model, got %q", got)
 	}
 	if got := FromBodyForRoute("/v1/messages", "application/json", []byte(`{"session":{"model":"session-model"}}`)); got != "session-model" {
@@ -153,7 +150,7 @@ func TestFromBodyForRouteMultipartSessionFirstForLive(t *testing.T) {
 	_ = writer.Close()
 	contentType := writer.FormDataContentType()
 
-	if got := FromBodyForRoute("/v1/live", contentType, body.Bytes()); got != "session-model" {
+	if got := FromBodyForRoute("/v1/live/sessions", contentType, body.Bytes()); got != "session-model" {
 		t.Fatalf("live multipart should prefer session field, got %q", got)
 	}
 	if got := FromBodyForRoute("/v1/messages", contentType, body.Bytes()); got != "top-level" {
@@ -162,12 +159,12 @@ func TestFromBodyForRouteMultipartSessionFirstForLive(t *testing.T) {
 }
 
 func TestIsLiveRequestRoute(t *testing.T) {
-	for _, path := range []string{"/v1/live", "/live", "/backend-api/codex/realtime/calls"} {
+	for _, path := range []string{"/v1/live/sessions", "/live/sessions"} {
 		if !IsLiveRequestRoute(path) {
 			t.Fatalf("%s should be a live route", path)
 		}
 	}
-	for _, path := range []string{"/v1/messages", "/v1/responses", "/realtime", ""} {
+	for _, path := range []string{"/v1/messages", "/v1/responses", "/realtime", "/v1/live", "/backend-api/codex/realtime/calls", ""} {
 		if IsLiveRequestRoute(path) {
 			t.Fatalf("%s should not be a live route", path)
 		}
@@ -186,7 +183,7 @@ func TestFromBodyMultipartContentTypeSkipsJSONScan(t *testing.T) {
 	if got := FromBody(writer.FormDataContentType(), body.Bytes()); got != "top-level" {
 		t.Fatalf("multipart body should use the model field, got %q", got)
 	}
-	if got := FromBodyForRoute("/v1/live", writer.FormDataContentType(), body.Bytes()); got != "session-model" {
+	if got := FromBodyForRoute("/v1/live/sessions", writer.FormDataContentType(), body.Bytes()); got != "session-model" {
 		t.Fatalf("live multipart should use the session field, got %q", got)
 	}
 }
@@ -215,7 +212,7 @@ func TestFromBodyCandidatesSessionVariants(t *testing.T) {
 	}
 
 	// Live 入口：session 候选（含大小写变体与重复）。
-	got = FromBodyCandidates("/v1/live", "application/json", body)
+	got = FromBodyCandidates("/v1/live/sessions", "application/json", body)
 	if len(got) != 2 || got[0] != "s-caps" || got[1] != "s-lower" {
 		t.Fatalf("live should collect all session candidates, got %#v", got)
 	}
@@ -243,7 +240,7 @@ func TestFromBodyCandidatesMultipartDuplicateFields(t *testing.T) {
 		t.Fatalf("non-live multipart candidates mismatch, got %#v", got)
 	}
 
-	got = FromBodyCandidates("/v1/live", writer.FormDataContentType(), body.Bytes())
+	got = FromBodyCandidates("/v1/live/sessions", writer.FormDataContentType(), body.Bytes())
 	if len(got) != 2 || got[0] != "live-a" || got[1] != "live-b" {
 		t.Fatalf("live multipart session candidates mismatch, got %#v", got)
 	}

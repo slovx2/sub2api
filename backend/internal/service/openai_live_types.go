@@ -33,7 +33,7 @@ func (e *LiveAttestationUnavailableError) Error() string {
 	return "Live attestation is unavailable: " + e.Reason
 }
 
-// LiveCallRequest 是两个下游创建协议归一后的请求。Session 不做结构改写。
+// LiveCallRequest 是转发给 ChatGPT Codex Live 的上游创建请求。Session 不做结构改写。
 type LiveCallRequest struct {
 	SDP     string          `json:"sdp"`
 	Session json.RawMessage `json:"session"`
