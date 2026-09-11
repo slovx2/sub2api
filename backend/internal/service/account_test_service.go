@@ -178,6 +178,8 @@ func (s *AccountTestService) SetOpenAIGatewayService(gateway *OpenAIGatewayServi
 }
 
 // FetchOpenAIAccountModels uses the shared cached discovery path for the test picker.
+// It only fills picker-only gaps (local display-name fallbacks, OAuth image choices)
+// on its own copy; the shared catalog and its cache stay untouched.
 func (s *AccountTestService) FetchOpenAIAccountModels(ctx context.Context, account *Account) ([]openai.Model, error) {
 	if s == nil || s.openaiGatewayService == nil {
 		return nil, errors.New("OpenAI model discovery service is unavailable")
@@ -192,27 +194,37 @@ func (s *AccountTestService) FetchOpenAIAccountModels(ctx context.Context, accou
 	if err := json.Unmarshal(response.Body, &payload); err != nil {
 		return nil, fmt.Errorf("decode OpenAI account models: %w", err)
 	}
-	// Codex 目录主要返回文本模型；测试列表补齐图片模型，但仍遵守账号白名单。
-	if account.IsOpenAIOAuthLike() {
+	// Every entry in the picker is labelled by the same rule: the upstream display
+	// name when the catalog has one, otherwise the local catalog name for that model
+	// ID, otherwise the raw ID. Without this the picker mixes "GPT-5.6 Sol" with
+	// "gpt-5.6-sol" for the same catalog.
+	for i := range payload.Data {
+		model := &payload.Data[i]
+		if strings.TrimSpace(model.DisplayName) == "" {
+			model.DisplayName = openaiCodexDisplayName(model.ID)
+		}
+		if strings.TrimSpace(model.Type) == "" {
+			model.Type = "model"
+		}
+	}
+	// Codex discovery lists Responses drivers, not image_generation tool models.
+	// Add locally supported image choices only to the OAuth test picker; keep the
+	// shared upstream catalog and API-key discovery authoritative.
+	if account != nil && account.IsOpenAIOAuthLike() {
 		seen := make(map[string]bool, len(payload.Data))
 		for _, model := range payload.Data {
 			seen[model.ID] = true
 		}
 		for _, model := range openai.DefaultModels {
-			if IsGPTImageGenerationModel(model.ID) && !seen[model.ID] && account.IsModelSupported(model.ID) {
+			if IsGPTImageGenerationModel(model.ID) && account.IsModelSupported(model.ID) && !seen[model.ID] {
 				payload.Data = append(payload.Data, model)
+				seen[model.ID] = true
 			}
 		}
-	}
-	// Standard model catalogs do not require the fields used by the admin picker.
-	// Populate them here without changing the shared discovery response or cache.
-	for i := range payload.Data {
-		model := &payload.Data[i]
-		if strings.TrimSpace(model.DisplayName) == "" {
-			model.DisplayName = model.ID
-		}
-		if strings.TrimSpace(model.Type) == "" {
-			model.Type = "model"
+		for model := range account.GetModelMapping() {
+			if IsGPTImageGenerationModel(model) && !strings.Contains(model, "*") && !seen[model] {
+				payload.Data = append(payload.Data, openai.Model{ID: model, Object: "model", Type: "model", OwnedBy: "openai", DisplayName: openaiCodexDisplayName(model)})
+			}
 		}
 	}
 	return payload.Data, nil
@@ -3052,7 +3064,7 @@ func (s *AccountTestService) testOpenAIImageOAuth(c *gin.Context, ctx context.Co
 	if direct {
 		s.sendEvent(c, TestEvent{Type: "content", Text: fmt.Sprintf("Calling Codex /images/generations; image model: %s\n", upstreamModel)})
 	} else {
-		s.sendEvent(c, TestEvent{Type: "content", Text: fmt.Sprintf("Calling Codex /responses image tool; driver: %s; image model: %s\n", openAIImagesResponsesMainModel, upstreamModel)})
+		s.sendEvent(c, TestEvent{Type: "content", Text: fmt.Sprintf("Calling Codex /responses image tool; driver: %s; image model: %s\n", openAIImagesResponsesMainModelValue(), upstreamModel)})
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(responsesBody))
 	if err != nil {
@@ -3134,7 +3146,13 @@ func (s *AccountTestService) testOpenAIImageOAuth(c *gin.Context, ctx context.Co
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Failed to parse image response: %s", err.Error()))
 	}
 	if len(results) == 0 {
-		return s.sendErrorAndEnd(c, "No images returned from image upstream")
+		if textErr := openAIImagesTextFallbackError(body); textErr != nil {
+			return s.sendErrorAndEnd(c, textErr.clientMessage())
+		}
+		if direct {
+			return s.sendErrorAndEnd(c, "No images returned from Codex Images API")
+		}
+		return s.sendErrorAndEnd(c, "No images returned from Codex Responses API")
 	}
 
 	for _, item := range results {
