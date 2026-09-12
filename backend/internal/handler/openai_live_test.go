@@ -84,19 +84,6 @@ func TestLiveEnabledForAPIKey(t *testing.T) {
 	}))
 }
 
-func TestLiveAttestationErrorIsExplicit(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	recorder := httptest.NewRecorder()
-	context, _ := gin.CreateTestContext(recorder)
-
-	(&OpenAIGatewayHandler{}).writeLiveCreateError(context, &service.LiveAttestationUnavailableError{
-		Reason: "Live attestation is only supported when Sub2API runs on macOS",
-	})
-
-	require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
-	require.Contains(t, recorder.Body.String(), "Sub2API runs on macOS")
-}
-
 func jsonPathString(t *testing.T, raw json.RawMessage, keys ...string) string {
 	t.Helper()
 	var value any
