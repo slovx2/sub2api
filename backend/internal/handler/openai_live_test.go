@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -97,4 +98,73 @@ func jsonPathString(t *testing.T, raw json.RawMessage, keys ...string) string {
 	result, ok := current.(string)
 	require.True(t, ok)
 	return result
+}
+
+func TestWriteLiveCreateErrorPassesThroughUpstreamBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := &OpenAIGatewayHandler{}
+
+	t.Run("400 preserves type code param and message", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		context, _ := gin.CreateTestContext(recorder)
+		handler.writeLiveCreateError(context, &service.UpstreamFailoverError{
+			StatusCode:   http.StatusBadRequest,
+			ResponseBody: []byte(`{"error":{"type":"invalid_request_error","code":"invalid_value","param":"session.input","message":"input messages must alternate"}}`),
+		})
+		require.Equal(t, http.StatusBadRequest, recorder.Code)
+		require.JSONEq(t, `{
+			"error":{
+				"type":"invalid_request_error",
+				"code":"invalid_value",
+				"param":"session.input",
+				"message":"input messages must alternate"
+			}
+		}`, recorder.Body.String())
+	})
+
+	t.Run("500 preserves upstream message", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		context, _ := gin.CreateTestContext(recorder)
+		handler.writeLiveCreateError(context, &service.UpstreamFailoverError{
+			StatusCode:   http.StatusInternalServerError,
+			ResponseBody: []byte(`{"error":{"type":"server_error","message":"live create failed internally"}}`),
+		})
+		require.Equal(t, http.StatusInternalServerError, recorder.Code)
+		require.JSONEq(t, `{
+			"error":{
+				"type":"server_error",
+				"message":"live create failed internally"
+			}
+		}`, recorder.Body.String())
+	})
+
+	t.Run("401 does not expose upstream credential body", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		context, _ := gin.CreateTestContext(recorder)
+		handler.writeLiveCreateError(context, &service.UpstreamFailoverError{
+			StatusCode:   http.StatusUnauthorized,
+			ResponseBody: []byte(`{"error":{"message":"Invalid bearer token","refresh_token":"must-not-leak"}}`),
+		})
+		require.Equal(t, http.StatusBadGateway, recorder.Code)
+		require.Contains(t, recorder.Body.String(), "Upstream authentication failed")
+		require.NotContains(t, recorder.Body.String(), "must-not-leak")
+		require.NotContains(t, recorder.Body.String(), "Invalid bearer token")
+	})
+}
+
+func TestWriteLiveCreateErrorKeepsGatewayFailures(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := &OpenAIGatewayHandler{}
+
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	handler.writeLiveCreateError(context, service.ErrLiveUnavailable)
+	require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+	require.Contains(t, recorder.Body.String(), "Live is unavailable")
+
+	recorder = httptest.NewRecorder()
+	context, _ = gin.CreateTestContext(recorder)
+	handler.writeLiveCreateError(context, errors.New("dial timeout"))
+	require.Equal(t, http.StatusBadGateway, recorder.Code)
+	require.JSONEq(t, `{"error":{"type":"api_error","message":"Live upstream request failed"}}`, recorder.Body.String())
 }

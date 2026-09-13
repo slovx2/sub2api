@@ -201,12 +201,54 @@ func (h *OpenAIGatewayHandler) writeLiveCreateError(c *gin.Context, err error) {
 		h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "Live is unavailable")
 	default:
 		var upstreamErr *service.UpstreamFailoverError
-		if errors.As(err, &upstreamErr) && upstreamErr.StatusCode >= 400 && upstreamErr.StatusCode < 500 {
-			h.errorResponse(c, upstreamErr.StatusCode, "invalid_request_error", "Live upstream rejected the request")
+		if errors.As(err, &upstreamErr) {
+			h.writeLiveUpstreamError(c, upstreamErr)
 			return
 		}
 		h.errorResponse(c, http.StatusBadGateway, "api_error", "Live upstream request failed")
 	}
+}
+
+func (h *OpenAIGatewayHandler) writeLiveUpstreamError(c *gin.Context, upstreamErr *service.UpstreamFailoverError) {
+	if upstreamErr == nil {
+		h.errorResponse(c, http.StatusBadGateway, "api_error", "Live upstream request failed")
+		return
+	}
+	statusCode := upstreamErr.StatusCode
+	body := upstreamErr.ResponseBody
+	copyFailoverRetryAfter(c, upstreamErr.ResponseHeaders)
+	if h.errorPassthroughService != nil && len(body) > 0 {
+		if rule := h.errorPassthroughService.MatchRule("openai", statusCode, body); rule != nil {
+			respCode := statusCode
+			if !rule.PassthroughCode && rule.ResponseCode != nil {
+				respCode = *rule.ResponseCode
+			}
+			msg := service.SanitizeUpstreamErrorMessage(service.ExtractUpstreamErrorMessage(body))
+			if !rule.PassthroughBody && rule.CustomMessage != nil {
+				msg = *rule.CustomMessage
+			}
+			if rule.SkipMonitoring {
+				c.Set(service.OpsSkipPassthroughKey, true)
+			}
+			h.errorResponse(c, respCode, "upstream_error", msg)
+			return
+		}
+	}
+	upstreamMsg := service.SanitizeUpstreamErrorMessage(service.ExtractUpstreamErrorMessage(body))
+	service.SetOpsUpstreamError(c, statusCode, upstreamMsg, "")
+	if statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden {
+		h.errorResponse(c, http.StatusBadGateway, "upstream_error", "Upstream authentication failed, please contact administrator")
+		return
+	}
+	if statusCode >= 400 && statusCode <= 599 {
+		service.WriteOpenAIUpstreamClientError(c, statusCode, body, upstreamMsg)
+		return
+	}
+	if upstreamMsg != "" {
+		h.errorResponse(c, http.StatusBadGateway, "api_error", upstreamMsg)
+		return
+	}
+	h.errorResponse(c, http.StatusBadGateway, "api_error", "Live upstream request failed")
 }
 
 func (h *OpenAIGatewayHandler) LiveSideband(c *gin.Context) {
