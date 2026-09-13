@@ -104,6 +104,29 @@ func (s *OpenAIGatewayService) liveMaxSessionDuration() time.Duration {
 	return defaultLiveMaxSessionDuration
 }
 
+// rewriteLiveSessionForChatGPTUpstream 把公开 GPT-Live 的 session.input
+// 改写成 ChatGPT AVAS 的 initial_items，并删除 input。
+func rewriteLiveSessionForChatGPTUpstream(session json.RawMessage) (json.RawMessage, error) {
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(session, &object); err != nil {
+		return nil, err
+	}
+	if object == nil {
+		return session, nil
+	}
+	input, ok := object["input"]
+	if !ok {
+		return session, nil
+	}
+	object["initial_items"] = input
+	delete(object, "input")
+	encoded, err := json.Marshal(object)
+	if err != nil {
+		return nil, err
+	}
+	return encoded, nil
+}
+
 func ValidateLiveCallRequest(request *LiveCallRequest) error {
 	if request == nil || strings.TrimSpace(request.SDP) == "" {
 		return errors.New("sdp is required")
@@ -264,12 +287,16 @@ func (s *OpenAIGatewayService) createUpstreamLiveCall(
 		logLiveCreateStageFailure(ctx, account.ID, "access_token", err)
 		return nil, err
 	}
+	session, err := rewriteLiveSessionForChatGPTUpstream(request.Session)
+	if err != nil {
+		return nil, fmt.Errorf("rewrite live session for upstream: %w", err)
+	}
 	body, err := json.Marshal(struct {
 		SDP     string          `json:"sdp"`
 		Session json.RawMessage `json:"session"`
 	}{
 		SDP:     request.SDP,
-		Session: request.Session,
+		Session: session,
 	})
 	if err != nil {
 		return nil, err

@@ -81,6 +81,31 @@ func TestValidateLiveCallRequestDoesNotRequireDelegation(t *testing.T) {
 	require.NotContains(t, string(request.Session), "delegation")
 }
 
+func TestRewriteLiveSessionForChatGPTUpstreamMapsOfficialInput(t *testing.T) {
+	unchanged, err := rewriteLiveSessionForChatGPTUpstream(json.RawMessage(`{"model":"gpt-live-test","delegation":{"type":"client"}}`))
+	require.NoError(t, err)
+	require.JSONEq(t, `{"model":"gpt-live-test","delegation":{"type":"client"}}`, string(unchanged))
+
+	rewritten, err := rewriteLiveSessionForChatGPTUpstream(json.RawMessage(`{
+		"model":"gpt-live-1-codex",
+		"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}],
+		"initial_items":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"old"}]}]
+	}`))
+	require.NoError(t, err)
+	require.JSONEq(t, `{
+		"model":"gpt-live-1-codex",
+		"initial_items":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}]
+	}`, string(rewritten))
+	var rewrittenObject map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(rewritten, &rewrittenObject))
+	_, hasInput := rewrittenObject["input"]
+	require.False(t, hasInput)
+
+	empty, err := rewriteLiveSessionForChatGPTUpstream(json.RawMessage(`{"model":"gpt-live-test","input":[]}`))
+	require.NoError(t, err)
+	require.JSONEq(t, `{"model":"gpt-live-test","initial_items":[]}`, string(empty))
+}
+
 func TestCreateUpstreamLiveCallPreservesSession(t *testing.T) {
 	upstream := &liveHTTPUpstreamStub{}
 	service := &OpenAIGatewayService{
@@ -118,6 +143,7 @@ func TestCreateUpstreamLiveCallPreservesSession(t *testing.T) {
 	require.NoError(t, json.Unmarshal(upstream.body, &forwarded))
 	require.Equal(t, "v=offer\r\n", forwarded.SDP)
 	require.JSONEq(t, string(session), string(forwarded.Session))
+	require.NotContains(t, string(forwarded.Session), `"input"`)
 	require.Equal(t, "/backend-api/wham/realtime/calls", upstream.request.URL.Path)
 	require.Equal(t, "quicksilver", upstream.request.URL.Query().Get("intent"))
 	require.Equal(t, "avas", upstream.request.URL.Query().Get("architecture"))
@@ -134,6 +160,42 @@ func TestCreateUpstreamLiveCallPreservesSession(t *testing.T) {
 	require.Empty(t, upstream.request.Header.Get("OpenAI-Beta"))
 	require.Equal(t, HTTPUpstreamProfileOpenAI, HTTPUpstreamProfileFromContext(upstream.request.Context()))
 	require.True(t, HTTPUpstreamRedirectsDisabled(upstream.request.Context()))
+}
+
+func TestCreateUpstreamLiveCallMapsOfficialInputToInitialItems(t *testing.T) {
+	upstream := &liveHTTPUpstreamStub{}
+	service := &OpenAIGatewayService{
+		cfg:          &config.Config{},
+		httpUpstream: upstream,
+	}
+	account := &Account{
+		ID:          7,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Concurrency: 2,
+		Credentials: map[string]any{
+			"access_token":       "test-access-token",
+			"chatgpt_account_id": "acct_test",
+		},
+	}
+	created, err := service.createUpstreamLiveCall(context.Background(), account, &LiveCallRequest{
+		SDP: "v=offer\r\n",
+		Session: json.RawMessage(`{
+			"model":"gpt-live-1-codex",
+			"audio":{"output":{"voice":"cove"}},
+			"input":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi"}]}]
+		}`),
+	})
+	require.NoError(t, err)
+	require.Equal(t, "call_test", created.CallID)
+
+	var forwarded struct {
+		Session map[string]any `json:"session"`
+	}
+	require.NoError(t, json.Unmarshal(upstream.body, &forwarded))
+	_, hasInput := forwarded.Session["input"]
+	require.False(t, hasInput)
+	require.JSONEq(t, `[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi"}]}]`, mustJSON(t, forwarded.Session["initial_items"]))
 }
 
 func TestLiveMaxSessionDurationDefaultsAndOverrides(t *testing.T) {
@@ -189,4 +251,11 @@ func TestRequestTypeLive(t *testing.T) {
 	parsed, err := ParseUsageRequestType("live")
 	require.NoError(t, err)
 	require.Equal(t, RequestTypeLive, parsed)
+}
+
+func mustJSON(t *testing.T, value any) string {
+	t.Helper()
+	encoded, err := json.Marshal(value)
+	require.NoError(t, err)
+	return string(encoded)
 }
