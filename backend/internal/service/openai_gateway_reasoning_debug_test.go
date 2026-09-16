@@ -46,17 +46,12 @@ func TestSummarizeOpenAIResponsesReasoningInputTreatsRoleWithoutTypeAsMessage(t 
 }
 
 func TestSummarizeOpenAIResponsesReasoningInputTruncatesLongSequences(t *testing.T) {
-	var sb strings.Builder
-	sb.WriteString(`{"input":[`)
+	items := make([]string, 0, 60)
 	for i := 0; i < 60; i++ {
-		if i > 0 {
-			sb.WriteString(",")
-		}
-		sb.WriteString(`{"type":"function_call","call_id":"c","name":"run","arguments":"{}"}`)
+		items = append(items, `{"type":"function_call","call_id":"c","name":"run","arguments":"{}"}`)
 	}
-	sb.WriteString(`]}`)
 
-	summary, _ := summarizeOpenAIResponsesReasoningInput([]byte(sb.String()), 10)
+	summary, _ := summarizeOpenAIResponsesReasoningInput([]byte(`{"input":[`+strings.Join(items, ",")+`]}`), 10)
 	require.Contains(t, summary, "input_items=60")
 	require.Contains(t, summary, "...(+50)")
 }
