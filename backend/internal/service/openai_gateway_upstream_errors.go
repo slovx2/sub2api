@@ -140,11 +140,8 @@ func summarizeOpenAIResponsesReasoningInput(body []byte, maxItems int) (string, 
 	input.ForEach(func(_, item gjson.Result) bool {
 		index := total
 		total++
-		typ := strings.TrimSpace(item.Get("type").String())
+		typ := responsesInputItemTypeFromJSON(item)
 		role := strings.TrimSpace(item.Get("role").String())
-		if typ == "" && role != "" {
-			typ = "message"
-		}
 		label := fmt.Sprintf("%d:%s", index, typ)
 		switch typ {
 		case "reasoning":
