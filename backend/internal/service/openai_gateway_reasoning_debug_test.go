@@ -62,11 +62,19 @@ func TestSummarizeOpenAIResponsesReasoningInputTruncatesLongSequences(t *testing
 }
 
 func TestIsOpenAIReasoningPassbackError(t *testing.T) {
-	require.True(t, isOpenAIReasoningPassbackError(400,
+	deepseek := &Account{Platform: PlatformDeepseek}
+	require.True(t, isOpenAIReasoningPassbackError(deepseek, 400,
 		"The `reasoning_text` in the thinking mode must be passed back to the API."))
-	require.True(t, isOpenAIReasoningPassbackError(400,
+	require.True(t, isOpenAIReasoningPassbackError(deepseek, 400,
 		"The `reasoning_content` in the thinking mode must be passed back to the API"))
-	require.False(t, isOpenAIReasoningPassbackError(400, "No tool output found for tool call call_1."))
-	require.False(t, isOpenAIReasoningPassbackError(500,
+	require.False(t, isOpenAIReasoningPassbackError(deepseek, 400, "No tool output found for tool call call_1."))
+	require.False(t, isOpenAIReasoningPassbackError(deepseek, 500,
+		"The `reasoning_text` in the thinking mode must be passed back to the API."))
+	// 只对 DeepSeek 账号触发，避免其它平台产生无关日志。
+	for _, platform := range []string{PlatformOpenAI, PlatformKimi, PlatformZhipu} {
+		require.False(t, isOpenAIReasoningPassbackError(&Account{Platform: platform}, 400,
+			"The `reasoning_text` in the thinking mode must be passed back to the API."))
+	}
+	require.False(t, isOpenAIReasoningPassbackError(nil, 400,
 		"The `reasoning_text` in the thinking mode must be passed back to the API."))
 }
