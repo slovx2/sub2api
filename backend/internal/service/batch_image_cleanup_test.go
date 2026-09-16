@@ -4,7 +4,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -223,9 +222,5 @@ func cleanupTestJob(batchID, status string) *BatchImageJob {
 	}
 }
 
-func mustJSON(t *testing.T, v any) string {
-	t.Helper()
-	b, err := json.Marshal(v)
-	require.NoError(t, err)
-	return string(b)
-}
+// mustJSON 复用 openai_live_test.go 中的同包定义：两者签名一致，重复声明会让
+// `go test -tags unit ./internal/service/` 直接编译失败。
