@@ -64,7 +64,13 @@ func logOpenAIInstructionsRequiredDebug(
 
 // isOpenAIReasoningPassbackError 判定上游 400 是否属于「thinking 模式必须回传推理」类错误。
 // DeepSeek 原生 Responses 端点会同时给出 reasoning_text / reasoning_content 两种措辞。
-func isOpenAIReasoningPassbackError(upstreamStatusCode int, upstreamMsg string) bool {
+//
+// 只对 DeepSeek 账号生效：该错误目前仅见于 DeepSeek 原生 Responses 端点，其它平台即使
+// 出现同样文案也无需这条诊断，避免无谓日志。
+func isOpenAIReasoningPassbackError(account *Account, upstreamStatusCode int, upstreamMsg string) bool {
+	if account == nil || account.Platform != PlatformDeepseek {
+		return false
+	}
 	if upstreamStatusCode != http.StatusBadRequest {
 		return false
 	}
@@ -85,7 +91,7 @@ func logOpenAIReasoningPassbackDebug(
 	upstreamMsg string,
 	requestBody []byte,
 ) {
-	if !isOpenAIReasoningPassbackError(upstreamStatusCode, upstreamMsg) {
+	if !isOpenAIReasoningPassbackError(account, upstreamStatusCode, upstreamMsg) {
 		return
 	}
 
