@@ -62,6 +62,130 @@ func logOpenAIInstructionsRequiredDebug(
 	logger.FromContext(ctx).With(fields...).Warn("OpenAI 上游返回 Instructions are required，已记录请求详情用于排查")
 }
 
+// isOpenAIReasoningPassbackError 判定上游 400 是否属于「thinking 模式必须回传推理」类错误。
+// DeepSeek 原生 Responses 端点会同时给出 reasoning_text / reasoning_content 两种措辞。
+func isOpenAIReasoningPassbackError(upstreamStatusCode int, upstreamMsg string) bool {
+	if upstreamStatusCode != http.StatusBadRequest {
+		return false
+	}
+	return strings.Contains(strings.ToLower(upstreamMsg), "must be passed back to the api")
+}
+
+// logOpenAIReasoningPassbackDebug 在上游以「必须回传推理」拒绝请求时，记录发给上游的 input
+// 结构摘要（只含 item 类型/角色/phase，不含任何内容），用于定位是哪一条 assistant 消息
+// 缺了前置 reasoning。
+//
+// 这类 400 在 Codex 侧无法取证：rollout 只记录模型输出，不记录失败请求的入站 input。
+// 摘要里的 unguarded_assistant 是「按网关补齐逻辑应当补占位、但补之前就没有前置明文
+// reasoning」的下标；若它非空而请求仍被拒绝，说明补齐判定与该上游的实际校验不一致。
+func logOpenAIReasoningPassbackDebug(
+	ctx context.Context,
+	account *Account,
+	upstreamStatusCode int,
+	upstreamMsg string,
+	requestBody []byte,
+) {
+	if !isOpenAIReasoningPassbackError(upstreamStatusCode, upstreamMsg) {
+		return
+	}
+
+	accountID := int64(0)
+	accountName := ""
+	platform := ""
+	if account != nil {
+		accountID = account.ID
+		accountName = strings.TrimSpace(account.Name)
+		platform = account.Platform
+	}
+	summary, unguarded := summarizeOpenAIResponsesReasoningInput(requestBody, 48)
+
+	// request_id 由日志中间件注入，这里不再重复取。
+	logger.FromContext(ctx).Warn("OpenAI 上游要求回传推理明文，已记录请求结构用于排查",
+		zap.String("component", "service.openai_gateway"),
+		zap.Int64("account_id", accountID),
+		zap.String("account_name", accountName),
+		zap.String("account_platform", platform),
+		zap.Int("request_body_size", len(requestBody)),
+		zap.Ints("unguarded_assistant_indexes", unguarded),
+		zap.String("input_summary", summary),
+	)
+}
+
+// summarizeOpenAIResponsesReasoningInput 生成 input 的轻量结构摘要：每个 item 记为
+// `下标:类型[/角色][(phase)]`，reasoning 额外标注是否带非空明文。返回的第二个值是
+// 缺少前置明文 reasoning 的 assistant 消息下标。
+//
+// 这里刻意用「有 role 就视作 message」的宽松判定（生产补齐要求 type=message），这样
+// 一旦上游收到的形态省略了 type 字段，摘要能直接暴露出来。
+func summarizeOpenAIResponsesReasoningInput(body []byte, maxItems int) (string, []int) {
+	input := parseRawJSONView(body).Get("input")
+	if !input.IsArray() {
+		return "input=non-array", nil
+	}
+	if maxItems <= 0 {
+		maxItems = 48
+	}
+
+	guarded := false
+	parts := make([]string, 0, maxItems)
+	unguarded := make([]int, 0, 4)
+	total := 0
+	truncated := 0
+	input.ForEach(func(_, item gjson.Result) bool {
+		index := total
+		total++
+		typ := strings.TrimSpace(item.Get("type").String())
+		role := strings.TrimSpace(item.Get("role").String())
+		if typ == "" && role != "" {
+			typ = "message"
+		}
+		label := fmt.Sprintf("%d:%s", index, typ)
+		switch typ {
+		case "reasoning":
+			plain := responsesReasoningTextFromJSON(item) != ""
+			if plain {
+				guarded = true
+			}
+			if plain {
+				label += "(plain)"
+			} else {
+				label += "(no-plain)"
+			}
+		case "message":
+			label += "/" + role
+			if phase := strings.TrimSpace(item.Get("phase").String()); phase != "" {
+				label += "(" + phase + ")"
+			}
+			if role == "assistant" {
+				if guarded {
+					guarded = false
+				} else {
+					unguarded = append(unguarded, index)
+				}
+			} else {
+				guarded = false
+			}
+		case "function_call", "custom_tool_call", "tool_search_call":
+			if name := strings.TrimSpace(item.Get("name").String()); name != "" {
+				label += "(" + name + ")"
+			}
+		}
+		if len(parts) < maxItems {
+			parts = append(parts, label)
+		} else {
+			truncated++
+		}
+		return true
+	})
+
+	summary := fmt.Sprintf("input_items=%d unguarded_assistant=%v seq=[%s", total, unguarded, strings.Join(parts, " "))
+	if truncated > 0 {
+		summary += fmt.Sprintf(" ...(+%d)", truncated)
+	}
+	summary += "]"
+	return summary, unguarded
+}
+
 func isOpenAIInstructionsRequiredError(upstreamStatusCode int, upstreamMsg string, upstreamBody []byte) bool {
 	if upstreamStatusCode != http.StatusBadRequest {
 		return false
@@ -569,6 +693,7 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 	}
 	setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, upstreamDetail)
 	logOpenAIInstructionsRequiredDebug(ctx, c, account, resp.StatusCode, upstreamMsg, requestBody, body)
+	logOpenAIReasoningPassbackDebug(ctx, account, resp.StatusCode, upstreamMsg, requestBody)
 
 	if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
 		logger.LegacyPrintf("service.openai_gateway",
