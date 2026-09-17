@@ -63,10 +63,10 @@ type CNQuotaTier struct {
 
 // CNProviderQuotaProbeResult 是 Coding Plan 额度探测的返回结构（管理端 + UI 消费）。
 type CNProviderQuotaProbeResult struct {
-	Provider        string        `json:"provider"`
-	Source          string        `json:"source"`
-	Success         bool          `json:"success"`
-	CredentialValid bool          `json:"credential_valid"` // false = 401/403 鉴权失败
+	Provider        string `json:"provider"`
+	Source          string `json:"source"`
+	Success         bool   `json:"success"`
+	CredentialValid bool   `json:"credential_valid"` // false = 401/403 鉴权失败
 	// Unsupported 表示上游没有该额度端点（通用窗口规范返回 404）：
 	// 既不是故障也不是鉴权失败，管理端应隐藏窗口单元格而不是报错。
 	Unsupported bool          `json:"unsupported,omitempty"`
