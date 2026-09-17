@@ -154,8 +154,9 @@ func (s *CNProviderBalanceCheckService) runOnce() {
 	}
 
 	// 预算按工作量放大：4 并发 × 15s/批 + payg 每账号 5s，下限 30s 上限 300s。
+	// payg 每账号按 8s 计：除余额探测外还会顺带探一次通用「用量窗口」规范端点。
 	batches := (len(quotaTargets) + cnQuotaProbeConcurrency - 1) / cnQuotaProbeConcurrency
-	timeout := 30*time.Second + time.Duration(batches)*15*time.Second + time.Duration(len(paygTargets))*5*time.Second
+	timeout := 30*time.Second + time.Duration(batches)*15*time.Second + time.Duration(len(paygTargets))*8*time.Second
 	if timeout > 300*time.Second {
 		timeout = 300 * time.Second
 	}
@@ -170,6 +171,14 @@ func (s *CNProviderBalanceCheckService) runOnce() {
 			paused++
 		case cnBalanceCleared:
 			cleared++
+		}
+		// 顺带探一次通用「用量窗口」规范（{base_url}/usage/windows）：拿到快照后账号页
+		// 会显示 5h/weekly 进度条，窗口打满时阈值评估可主动停调。官方主机在服务内直接
+		// 跳过，上游没有该端点则标记 Unsupported —— 都不落快照、不产生错误告警。
+		if s.quotaService != nil {
+			if _, err := s.quotaService.QueryUsageForAccount(ctx, account); err != nil {
+				log.Printf("[CNQuota] usage windows probe for account %d failed: %v", account.ID, err)
+			}
 		}
 	}
 

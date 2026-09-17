@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -36,6 +37,18 @@ const (
 	cnExtraSuffixWeeklyUsed   = "weekly_used_percent"
 	cnExtraSuffixWeeklyReset  = "weekly_reset_at"
 	cnExtraSuffixUsageUpdated = "usage_updated_at"
+
+	// 通用「用量窗口」规范：GET {base_url}/usage/windows（base_url 取自账号的
+	// OpenAI 格式 base，如 https://host/v1 → /v1/usage/windows）。与厂商无关：
+	// 上游支持就返回 200，官方没有这个端点就返回 404 —— 404 视为「不支持」，
+	// 既不落快照也不报错，管理端据此隐藏窗口单元格。
+	//
+	// 200 响应：
+	//   {"object":"usage_windows","is_available":true,
+	//    "windows":[{"window":"5h","used":1.2,"limit":3,"used_percent":40,"reset_at":"RFC3339"}],
+	//    "balance":{"currency":"USD","total":9.97}}
+	cnUsageWindowsPath   = "/usage/windows"
+	cnUsageWindowsSource = "usage_windows"
 )
 
 // cnExtraKey 拼接 provider 维度的 extra 键。
@@ -54,12 +67,15 @@ type CNProviderQuotaProbeResult struct {
 	Source          string        `json:"source"`
 	Success         bool          `json:"success"`
 	CredentialValid bool          `json:"credential_valid"` // false = 401/403 鉴权失败
-	Tiers           []CNQuotaTier `json:"tiers,omitempty"`
-	PlanLevel       string        `json:"plan_level,omitempty"` // 智谱套餐等级
-	StatusCode      int           `json:"status_code,omitempty"`
-	FetchedAt       int64         `json:"fetched_at"`
-	Persisted       bool          `json:"persisted"`
-	Error           string        `json:"error,omitempty"`
+	// Unsupported 表示上游没有该额度端点（通用窗口规范返回 404）：
+	// 既不是故障也不是鉴权失败，管理端应隐藏窗口单元格而不是报错。
+	Unsupported bool          `json:"unsupported,omitempty"`
+	Tiers       []CNQuotaTier `json:"tiers,omitempty"`
+	PlanLevel   string        `json:"plan_level,omitempty"` // 智谱套餐等级
+	StatusCode  int           `json:"status_code,omitempty"`
+	FetchedAt   int64         `json:"fetched_at"`
+	Persisted   bool          `json:"persisted"`
+	Error       string        `json:"error,omitempty"`
 }
 
 // CNProviderQuotaService 探测 Kimi / Zhipu Coding Plan 的滚动窗口用量。
@@ -102,7 +118,7 @@ func (s *CNProviderQuotaService) QueryUsageForAccount(ctx context.Context, accou
 	if s == nil || s.accountRepo == nil || s.httpUpstream == nil {
 		return nil, infraerrors.New(http.StatusInternalServerError, "CN_QUOTA_NOT_CONFIGURED", "cn provider quota service is not configured")
 	}
-	if err := validateCodingPlanAccount(account); err != nil {
+	if err := validateCNQuotaAccount(account); err != nil {
 		return nil, err
 	}
 	key := "cn_quota:" + strconv.FormatInt(account.ID, 10)
@@ -129,8 +145,18 @@ func (s *CNProviderQuotaService) QueryUsageForAccount(ctx context.Context, accou
 
 func (s *CNProviderQuotaService) queryUsageForAccount(ctx context.Context, account *Account) (*CNProviderQuotaProbeResult, error) {
 	provider := account.GetCodingPlanProvider()
+	// 非 kimi/zhipu/minimax Coding Plan（例如 deepseek payg、或挂在国产平台下的自定义中转）
+	// 走通用「用量窗口」规范；上游没有该端点时回 404 → Unsupported，不落快照也不报错。
+	if provider == "" {
+		return s.queryUsageWindows(ctx, account)
+	}
 	if provider != PlatformKimi && provider != PlatformZhipu && provider != PlatformMiniMax {
 		return nil, infraerrors.New(http.StatusBadRequest, "CN_QUOTA_NOT_CODING_PLAN", "account is not a kimi/zhipu/minimax coding plan account")
+	}
+	// Coding Plan 端点只对 coding 账号有效：保留原有的模式校验（入口校验已放宽，
+	// 以便非 coding 账号走通用窗口规范）。
+	if err := validateCodingPlanAccount(account); err != nil {
+		return nil, err
 	}
 
 	apiKey := strings.TrimSpace(account.GetCNAPIKey())
@@ -267,10 +293,144 @@ func (s *CNProviderQuotaService) loadCodingPlanAccount(ctx context.Context, acco
 	if err != nil {
 		return nil, infraerrors.Newf(http.StatusNotFound, "CN_QUOTA_ACCOUNT_NOT_FOUND", "account not found: %v", err)
 	}
-	if err := validateCodingPlanAccount(account); err != nil {
+	if err := validateCNQuotaAccount(account); err != nil {
 		return nil, err
 	}
 	return account, nil
+}
+
+// queryUsageWindows 探测通用「用量窗口」规范 {base_url}/usage/windows。
+// 这是给网关/自定义中转的约定端点（厂商官方没有实现）：官方主机直接跳过，
+// 其余上游 404/501/405 一律视为「不支持」—— 不落快照、不报错，管理端隐藏窗口。
+func (s *CNProviderQuotaService) queryUsageWindows(ctx context.Context, account *Account) (*CNProviderQuotaProbeResult, error) {
+	baseURL := strings.TrimSpace(account.GetOpenAIFormatBaseURL())
+	if isOfficialCNUsageBaseURL(baseURL) {
+		return &CNProviderQuotaProbeResult{
+			Provider:    account.Platform,
+			Source:      cnUsageWindowsSource,
+			Unsupported: true,
+			FetchedAt:   time.Now().UTC().Unix(),
+		}, nil
+	}
+
+	apiKey := strings.TrimSpace(account.GetCNAPIKey())
+	if apiKey == "" {
+		return nil, infraerrors.New(http.StatusBadRequest, "CN_QUOTA_NO_APIKEY", "account api_key is empty")
+	}
+	if baseURL == "" {
+		return nil, infraerrors.New(http.StatusBadRequest, "CN_QUOTA_NO_BASE_URL", "account has no base url for usage windows")
+	}
+	validatedURL, err := cnValidateProbeURL(s.cfg, strings.TrimRight(baseURL, "/")+cnUsageWindowsPath)
+	if err != nil {
+		return nil, infraerrors.New(http.StatusForbidden, "CN_QUOTA_URL_REJECTED", err.Error())
+	}
+
+	callCtx, cancel := context.WithTimeout(ctx, cnQuotaUpstreamTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(callCtx, http.MethodGet, validatedURL, nil)
+	if err != nil {
+		return nil, infraerrors.Newf(http.StatusInternalServerError, "CN_QUOTA_REQUEST_BUILD_FAILED", "build request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Accept", "application/json")
+	account.ApplyHeaderOverrides(req.Header)
+
+	resp, err := s.httpUpstream.Do(req, s.resolveProxyURL(ctx, account), account.ID, maxInt(account.Concurrency, 1))
+	if err != nil {
+		return nil, infraerrors.Newf(http.StatusBadGateway, "CN_QUOTA_REQUEST_FAILED", "upstream request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, cnQuotaMaxBodyBytes))
+
+	now := time.Now().UTC()
+	result := &CNProviderQuotaProbeResult{
+		Provider:   account.Platform,
+		Source:     cnUsageWindowsSource,
+		StatusCode: resp.StatusCode,
+		FetchedAt:  now.Unix(),
+	}
+	// 上游没有这个端点 → 不支持（不是故障）。
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusNotImplemented || resp.StatusCode == http.StatusMethodNotAllowed {
+		result.Unsupported = true
+		return result, nil
+	}
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		result.Error = fmt.Sprintf("Authentication failed (HTTP %d)", resp.StatusCode)
+		return result, nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		result.Error = fmt.Sprintf("API error (HTTP %d): %s", resp.StatusCode, truncate(strings.TrimSpace(string(bodyBytes)), 240))
+		return result, nil
+	}
+
+	tiers := parseUsageWindows(bodyBytes)
+	if len(tiers) == 0 {
+		result.Error = "Invalid usage windows response: no parsable windows"
+		return result, nil
+	}
+	result.Tiers = tiers
+	result.Success = true
+	result.CredentialValid = true
+	if err := s.accountRepo.UpdateExtra(ctx, account.ID, cnQuotaExtraUpdates(account.Platform, tiers, now)); err != nil {
+		slog.Warn("cn_usage_windows_persist_failed", "account_id", account.ID, "provider", account.Platform, "error", err)
+	} else {
+		result.Persisted = true
+	}
+	return result, nil
+}
+
+// parseUsageWindows 解析通用窗口规范的 windows[]（只认 5h / weekly 两档）。
+func parseUsageWindows(body []byte) []CNQuotaTier {
+	var tiers []CNQuotaTier
+	gjson.GetBytes(body, "windows").ForEach(func(_, item gjson.Result) bool {
+		window := strings.ToLower(strings.TrimSpace(item.Get("window").String()))
+		if window != "5h" && window != "weekly" {
+			return true
+		}
+		usedPercent, ok := cnParseF64(item.Get("used_percent").Value())
+		if !ok {
+			return true
+		}
+		tier := CNQuotaTier{Window: window, UsedPercent: usedPercent}
+		if reset := strings.TrimSpace(item.Get("reset_at").String()); reset != "" {
+			if ts, err := time.Parse(time.RFC3339, reset); err == nil {
+				tier.ResetAt = ts.UTC().Format(time.RFC3339)
+			} else {
+				tier.ResetAt = reset
+			}
+		}
+		tiers = append(tiers, tier)
+		return true
+	})
+	return tiers
+}
+
+// cnUsageWindowsOfficialHosts 是各厂商官方 API 主机：官方不实现通用窗口规范，
+// 探测只会拿到 404，故直接跳过，避免对官方 API 发无意义请求（与「自定义中转不得把
+// 第三方 Key 发往厂商官方额度端点」的既有约定一致）。
+var cnUsageWindowsOfficialHosts = []string{
+	"api.deepseek.com",
+	"api.moonshot.cn",
+	"api.kimi.com",
+	"open.bigmodel.cn",
+	"api.z.ai",
+	"api.minimaxi.com",
+	"api.minimax.io",
+	"api.minimax.com",
+}
+
+func isOfficialCNUsageBaseURL(raw string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Host == "" {
+		return false
+	}
+	host := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
+	for _, official := range cnUsageWindowsOfficialHosts {
+		if host == official || strings.HasSuffix(host, "."+official) {
+			return true
+		}
+	}
+	return false
 }
 
 // validateCodingPlanAccount 加载后的非 DB 校验（ForAccount 入口同样复用，
@@ -284,6 +444,20 @@ func validateCodingPlanAccount(account *Account) error {
 	}
 	if !account.IsCodingPlan() {
 		return infraerrors.New(http.StatusBadRequest, "CN_QUOTA_NOT_CODING_PLAN", "account is not a coding plan account")
+	}
+	return nil
+}
+
+// validateCNQuotaAccount 是额度探测的入口校验：kimi/zhipu/minimax 的 Coding Plan 走各自
+// 的额度端点，其余国产供应商账号（deepseek payg、以及任何挂在该平台下的自定义中转）
+// 走通用 /usage/windows 规范 —— 因此这里只要求是国产供应商账号，具体端点由
+// queryUsageForAccount 按平台分派。
+func validateCNQuotaAccount(account *Account) error {
+	if account == nil {
+		return infraerrors.New(http.StatusNotFound, "CN_QUOTA_ACCOUNT_NOT_FOUND", "account not found")
+	}
+	if !account.IsCNProvider() {
+		return infraerrors.New(http.StatusBadRequest, "CN_QUOTA_INVALID_PLATFORM", "account is not a CN provider account")
 	}
 	return nil
 }

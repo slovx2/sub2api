@@ -12,12 +12,15 @@ export interface CNQuotaTier {
   reset_at?: string
 }
 
-/** Coding Plan 额度探测结果（kimi / zhipu），对齐后端 CNProviderQuotaProbeResult。 */
+/** 额度探测结果（kimi / zhipu Coding Plan，或通用 /usage/windows 规范），
+ *  对齐后端 CNProviderQuotaProbeResult。 */
 export interface CNProviderQuotaProbeResult {
   provider: string
   source?: string
   success: boolean
   credential_valid: boolean
+  /** 上游没有该额度端点（通用窗口规范 404）：不是故障，UI 应隐藏窗口而不是报错。 */
+  unsupported?: boolean
   tiers?: CNQuotaTier[]
   plan_level?: string
   status_code?: number

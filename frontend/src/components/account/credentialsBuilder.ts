@@ -371,8 +371,13 @@ export function defaultCNAdaptiveBaseUrls(
 // CNProviderQuotaCell / CNProviderBalanceCell 与 AccountUsageCell 的占位符判定
 // 共用，避免多处复制条件后一处改另一处漏改。
 
-export function cnQuotaCellVisible(platform: string, accountMode: string): boolean {
-  return (platform === 'kimi' || platform === 'zhipu' || platform === 'minimax') && accountMode === 'coding'
+export function cnQuotaCellVisible(platform: string, accountMode: string, hasSnapshot = false): boolean {
+  if ((platform === 'kimi' || platform === 'zhipu' || platform === 'minimax') && accountMode === 'coding') {
+    return true
+  }
+  // deepseek 等 payg 平台的窗口数据来自通用「用量窗口」规范端点（{base_url}/usage/windows），
+  // 上游没有该端点时返回 404 → 不落快照 → 这里就不显示，避免给不支持的账号显示空窗口。
+  return platform === 'deepseek' && hasSnapshot
 }
 
 export function cnBalanceCellVisible(platform: string, accountMode: string): boolean {

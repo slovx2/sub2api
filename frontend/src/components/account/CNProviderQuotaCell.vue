@@ -79,7 +79,11 @@ const readMode = (): string => {
   return typeof mode === 'string' ? mode : ''
 }
 
-const visible = computed(() => cnQuotaCellVisible(props.account.platform, readMode()))
+// payg 平台（deepseek）只有在拿到过快照时才显示：快照存在 = 上游支持通用
+// /usage/windows 规范；上游 404（官方没有该端点）时没有快照，单元格整体隐藏。
+const visible = computed(() =>
+  cnQuotaCellVisible(props.account.platform, readMode(), snapshotData.value !== null)
+)
 
 const loading = ref(false)
 const error = ref<string | null>(null)
@@ -175,6 +179,9 @@ const handleProbe = async () => {
     // 失败时保留已渲染的快照条形图（仅显示错误行），成功才覆盖。
     if (result.success) {
       data.value = result
+    } else if (result.unsupported) {
+      // 上游没有该额度端点（404）：既不是故障也不是鉴权问题，保持隐藏即可，
+      // 不要显示红色错误行，也不要清掉已渲染的快照。
     } else {
       error.value = result.error || t('common.error')
     }
