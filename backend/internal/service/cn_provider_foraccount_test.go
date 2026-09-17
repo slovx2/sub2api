@@ -85,13 +85,22 @@ func TestValidatePayGAccount_Matrix(t *testing.T) {
 }
 
 // 直传入口的校验在 singleflight/上游请求之前：无效账号必须零出站请求。
+// 注意 payg 账号不再是「无效账号」——它走通用窗口规范
+// （{base_url}/usage/windows），厂商官方主机（此处用默认 base）不实现该端点，
+// 因此返回 Unsupported 且同样零出站请求。
 func TestCNProviderQuotaService_QueryUsageForAccount_RejectsInvalidAccount(t *testing.T) {
 	repo := &fakeCNProbeAccountRepo{}
 	upstream := &recordingHTTPUpstream{}
 	svc := NewCNProviderQuotaService(repo, nil, upstream, nil)
 
-	_, err := svc.QueryUsageForAccount(context.Background(), paygAccount(PlatformKimi))
-	requireReason(t, err, "CN_QUOTA_NOT_CODING_PLAN")
+	result, err := svc.QueryUsageForAccount(context.Background(), paygAccount(PlatformKimi))
+	require.NoError(t, err)
+	require.True(t, result.Unsupported, "payg 账号走通用窗口规范；官方主机不支持 → Unsupported")
+	require.False(t, result.Success)
+	require.Zero(t, upstream.calls, "官方主机不得发起窗口探测请求")
+
+	_, err = svc.QueryUsageForAccount(context.Background(), &Account{ID: 5, Platform: PlatformAnthropic})
+	requireReason(t, err, "CN_QUOTA_INVALID_PLATFORM")
 	require.Zero(t, upstream.calls)
 
 	_, err = svc.QueryUsageForAccount(context.Background(), nil)
@@ -113,14 +122,26 @@ func TestCNProviderBalanceService_QueryBalanceForAccount_RejectsInvalidAccount(t
 	require.Zero(t, upstream.calls)
 }
 
-// ID 入口与 ForAccount 入口对同一账号的行为一致（loadCodingPlanAccount 的
-// 加载后校验 = validateCodingPlanAccount；余额侧对称）。
+// ID 入口与 ForAccount 入口对同一账号的行为一致（两个入口共用加载后校验）。
+// payg 账号：两边都进通用窗口规范、都因官方主机不支持而返回 Unsupported；
+// 非国产供应商：两边都在校验阶段被拒。
 func TestCNProviderServices_IDEntryAppliesSameValidation(t *testing.T) {
 	repo := &fakeCNProbeAccountRepo{account: paygAccount(PlatformKimi)}
 	upstream := &recordingHTTPUpstream{}
 	svc := NewCNProviderQuotaService(repo, nil, upstream, nil)
 
-	_, err := svc.QueryUsage(context.Background(), 2)
-	requireReason(t, err, "CN_QUOTA_NOT_CODING_PLAN")
+	byID, err := svc.QueryUsage(context.Background(), 2)
+	require.NoError(t, err)
+	require.True(t, byID.Unsupported)
+	byAccount, err := svc.QueryUsageForAccount(context.Background(), repo.account)
+	require.NoError(t, err)
+	require.True(t, byAccount.Unsupported)
+	require.Zero(t, upstream.calls)
+
+	repo.account = &Account{ID: 9, Platform: PlatformGemini}
+	_, err = svc.QueryUsage(context.Background(), 2)
+	requireReason(t, err, "CN_QUOTA_INVALID_PLATFORM")
+	_, err = svc.QueryUsageForAccount(context.Background(), repo.account)
+	requireReason(t, err, "CN_QUOTA_INVALID_PLATFORM")
 	require.Zero(t, upstream.calls)
 }
