@@ -62,59 +62,117 @@ func logOpenAIInstructionsRequiredDebug(
 	logger.FromContext(ctx).With(fields...).Warn("OpenAI 上游返回 Instructions are required，已记录请求详情用于排查")
 }
 
-// isOpenAIReasoningPassbackError 判定上游 400 是否属于「thinking 模式必须回传推理」类错误。
-// DeepSeek 原生 Responses 端点会同时给出 reasoning_text / reasoning_content 两种措辞。
+// shouldLogDeepSeekResponsesBadRequestDebug 判定是否记录 DeepSeek 上游 400 的结构摘要。
 //
-// 只对 DeepSeek 账号生效：该错误目前仅见于 DeepSeek 原生 Responses 端点，其它平台即使
-// 出现同样文案也无需这条诊断，避免无谓日志。
-func isOpenAIReasoningPassbackError(account *Account, upstreamStatusCode int, upstreamMsg string) bool {
-	if account == nil || account.Platform != PlatformDeepseek {
-		return false
-	}
-	if upstreamStatusCode != http.StatusBadRequest {
-		return false
-	}
-	return strings.Contains(strings.ToLower(upstreamMsg), "must be passed back to the api")
+// 只对 DeepSeek 账号 + 400 生效：这类拒绝在 Codex 侧无法取证（rollout 不记录失败请求的
+// 入站 input），而 DeepSeek 的两种 400（reasoning 未回传、tool 调用与输出不配对）都只能靠
+// 看请求结构定位。其它平台和状态码不记录，避免无谓日志。
+func shouldLogDeepSeekResponsesBadRequestDebug(account *Account, upstreamStatusCode int) bool {
+	return account != nil && account.Platform == PlatformDeepseek && upstreamStatusCode == http.StatusBadRequest
 }
 
-// logOpenAIReasoningPassbackDebug 在上游以「必须回传推理」拒绝请求时，记录发给上游的 input
-// 结构摘要（只含 item 类型/角色/phase，不含任何内容），用于定位是哪一条 assistant 消息
-// 缺了前置 reasoning。
+// logDeepSeekResponsesBadRequestDebug 在 DeepSeek 上游以 400 拒绝请求时，记录发给上游的
+// input 结构摘要（只含 item 类型/角色/phase 与 call_id，不含任何内容）。
 //
 // 这类 400 在 Codex 侧无法取证：rollout 只记录模型输出，不记录失败请求的入站 input。
 // 摘要里的 unguarded_assistant 是「按网关补齐逻辑应当补占位、但补之前就没有前置明文
 // reasoning」的下标；若它非空而请求仍被拒绝，说明补齐判定与该上游的实际校验不一致。
-func logOpenAIReasoningPassbackDebug(
+// tool_pairing 给出 function_call 与 function_call_output 的配对情况，用于定位
+// "No tool output found for tool call ..." 这类跨模型切换后的孤儿调用。
+func logDeepSeekResponsesBadRequestDebug(
 	ctx context.Context,
 	account *Account,
 	upstreamStatusCode int,
 	upstreamMsg string,
 	requestBody []byte,
 ) {
-	if !isOpenAIReasoningPassbackError(account, upstreamStatusCode, upstreamMsg) {
+	if !shouldLogDeepSeekResponsesBadRequestDebug(account, upstreamStatusCode) {
 		return
 	}
 
 	accountID := int64(0)
 	accountName := ""
-	platform := ""
 	if account != nil {
 		accountID = account.ID
 		accountName = strings.TrimSpace(account.Name)
-		platform = account.Platform
 	}
 	summary, unguarded := summarizeOpenAIResponsesReasoningInput(requestBody, 48)
+	toolPairing := summarizeOpenAIResponsesToolPairing(requestBody, 24)
 
 	// request_id 由日志中间件注入，这里不再重复取。
-	logger.FromContext(ctx).Warn("OpenAI 上游要求回传推理明文，已记录请求结构用于排查",
+	logger.FromContext(ctx).Warn("DeepSeek 上游 400，已记录请求结构用于排查",
 		zap.String("component", "service.openai_gateway"),
 		zap.Int64("account_id", accountID),
 		zap.String("account_name", accountName),
-		zap.String("account_platform", platform),
+		zap.String("upstream_error_message", truncateForLog([]byte(upstreamMsg), 256)),
 		zap.Int("request_body_size", len(requestBody)),
 		zap.Ints("unguarded_assistant_indexes", unguarded),
+		zap.String("tool_pairing", toolPairing),
 		zap.String("input_summary", summary),
 	)
+}
+
+// summarizeOpenAIResponsesToolPairing 汇总 input 里 function_call 与 function_call_output
+// 的配对情况：未配对的调用（缺输出）和孤儿输出（缺调用）分别列出 call_id。
+//
+// 跨模型切换后这类失配很常见（上一个模型留下的调用在新上游被严格校验），而错误消息只
+// 会提第一个未配对的调用，必须先看到完整清单才能判断是裁剪、改写还是历史本身缺失。
+func summarizeOpenAIResponsesToolPairing(body []byte, maxIDs int) string {
+	input := parseRawJSONView(body).Get("input")
+	if !input.IsArray() {
+		return "input=non-array"
+	}
+	if maxIDs <= 0 {
+		maxIDs = 24
+	}
+
+	callIDs := make([]string, 0, 8)
+	callSet := make(map[string]struct{}, 8)
+	outputIDs := make([]string, 0, 8)
+	outputSet := make(map[string]struct{}, 8)
+	input.ForEach(func(_, item gjson.Result) bool {
+		switch strings.TrimSpace(item.Get("type").String()) {
+		case "function_call", "custom_tool_call", "tool_search_call":
+			if id := strings.TrimSpace(item.Get("call_id").String()); id != "" {
+				if _, seen := callSet[id]; !seen {
+					callSet[id] = struct{}{}
+					callIDs = append(callIDs, id)
+				}
+			}
+		case "function_call_output", "custom_tool_call_output", "tool_search_output":
+			if id := strings.TrimSpace(item.Get("call_id").String()); id != "" {
+				if _, seen := outputSet[id]; !seen {
+					outputSet[id] = struct{}{}
+					outputIDs = append(outputIDs, id)
+				}
+			}
+		}
+		return true
+	})
+
+	unpairedCalls := make([]string, 0, 4)
+	for _, id := range callIDs {
+		if _, ok := outputSet[id]; !ok {
+			unpairedCalls = append(unpairedCalls, id)
+		}
+	}
+	orphanOutputs := make([]string, 0, 4)
+	for _, id := range outputIDs {
+		if _, ok := callSet[id]; !ok {
+			orphanOutputs = append(orphanOutputs, id)
+		}
+	}
+	return fmt.Sprintf("calls=%d outputs=%d unpaired_calls=%v orphan_outputs=%v",
+		len(callIDs), len(outputIDs), truncateIDs(unpairedCalls, maxIDs), truncateIDs(orphanOutputs, maxIDs))
+}
+
+func truncateIDs(ids []string, maxIDs int) []string {
+	if len(ids) <= maxIDs {
+		return ids
+	}
+	out := make([]string, 0, maxIDs+1)
+	out = append(out, ids[:maxIDs]...)
+	return append(out, fmt.Sprintf("...(+%d)", len(ids)-maxIDs))
 }
 
 // summarizeOpenAIResponsesReasoningInput 生成 input 的轻量结构摘要：每个 item 记为
@@ -696,7 +754,7 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 	}
 	setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, upstreamDetail)
 	logOpenAIInstructionsRequiredDebug(ctx, c, account, resp.StatusCode, upstreamMsg, requestBody, body)
-	logOpenAIReasoningPassbackDebug(ctx, account, resp.StatusCode, upstreamMsg, requestBody)
+	logDeepSeekResponsesBadRequestDebug(ctx, account, resp.StatusCode, upstreamMsg, requestBody)
 
 	if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
 		logger.LegacyPrintf("service.openai_gateway",

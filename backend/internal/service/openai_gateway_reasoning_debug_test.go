@@ -1,6 +1,7 @@
 package service
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -56,20 +57,49 @@ func TestSummarizeOpenAIResponsesReasoningInputTruncatesLongSequences(t *testing
 	require.Contains(t, summary, "...(+50)")
 }
 
-func TestIsOpenAIReasoningPassbackError(t *testing.T) {
+func TestShouldLogDeepSeekResponsesBadRequestDebug(t *testing.T) {
 	deepseek := &Account{Platform: PlatformDeepseek}
-	require.True(t, isOpenAIReasoningPassbackError(deepseek, 400,
-		"The `reasoning_text` in the thinking mode must be passed back to the API."))
-	require.True(t, isOpenAIReasoningPassbackError(deepseek, 400,
-		"The `reasoning_content` in the thinking mode must be passed back to the API"))
-	require.False(t, isOpenAIReasoningPassbackError(deepseek, 400, "No tool output found for tool call call_1."))
-	require.False(t, isOpenAIReasoningPassbackError(deepseek, 500,
-		"The `reasoning_text` in the thinking mode must be passed back to the API."))
+	require.True(t, shouldLogDeepSeekResponsesBadRequestDebug(deepseek, 400))
 	// 只对 DeepSeek 账号触发，避免其它平台产生无关日志。
 	for _, platform := range []string{PlatformOpenAI, PlatformKimi, PlatformZhipu} {
-		require.False(t, isOpenAIReasoningPassbackError(&Account{Platform: platform}, 400,
-			"The `reasoning_text` in the thinking mode must be passed back to the API."))
+		require.False(t, shouldLogDeepSeekResponsesBadRequestDebug(&Account{Platform: platform}, 400))
 	}
-	require.False(t, isOpenAIReasoningPassbackError(nil, 400,
-		"The `reasoning_text` in the thinking mode must be passed back to the API."))
+	require.False(t, shouldLogDeepSeekResponsesBadRequestDebug(nil, 400))
+	// 非 400 不记录。
+	require.False(t, shouldLogDeepSeekResponsesBadRequestDebug(deepseek, 500))
+	require.False(t, shouldLogDeepSeekResponsesBadRequestDebug(deepseek, 429))
+}
+
+func TestSummarizeOpenAIResponsesToolPairing(t *testing.T) {
+	paired := []byte(`{"input":[` +
+		`{"type":"function_call","call_id":"call-1","name":"exec_command","arguments":"{}"},` +
+		`{"type":"function_call_output","call_id":"call-1","output":"ok"}]}`)
+	pairing := summarizeOpenAIResponsesToolPairing(paired, 24)
+	require.Contains(t, pairing, "calls=1 outputs=1")
+	require.Contains(t, pairing, "unpaired_calls=[]")
+	require.Contains(t, pairing, "orphan_outputs=[]")
+
+	missingOutput := []byte(`{"input":[` +
+		`{"type":"function_call","call_id":"call-1","name":"exec_command","arguments":"{}"},` +
+		`{"type":"function_call","call_id":"call-2","name":"exec_command","arguments":"{}"},` +
+		`{"type":"function_call_output","call_id":"call-2","output":"ok"}]}`)
+	pairing = summarizeOpenAIResponsesToolPairing(missingOutput, 24)
+	require.Contains(t, pairing, "calls=2 outputs=1")
+	require.Contains(t, pairing, "unpaired_calls=[call-1]")
+
+	orphanOutput := []byte(`{"input":[` +
+		`{"type":"function_call","call_id":"call-1","name":"exec_command","arguments":"{}"},` +
+		`{"type":"function_call_output","call_id":"call-1","output":"ok"},` +
+		`{"type":"function_call_output","call_id":"call-9","output":"stale"}]}`)
+	pairing = summarizeOpenAIResponsesToolPairing(orphanOutput, 24)
+	require.Contains(t, pairing, "orphan_outputs=[call-9]")
+}
+
+func TestSummarizeOpenAIResponsesToolPairingTruncates(t *testing.T) {
+	items := make([]string, 0, 30)
+	for i := 0; i < 30; i++ {
+		items = append(items, `{"type":"function_call","call_id":"call-`+strconv.Itoa(i)+`","name":"exec_command","arguments":"{}"}`)
+	}
+	pairing := summarizeOpenAIResponsesToolPairing([]byte(`{"input":[`+strings.Join(items, ",")+`]}`), 5)
+	require.Contains(t, pairing, "unpaired_calls=[call-0 call-1 call-2 call-3 call-4 ...(+25)]")
 }
