@@ -175,8 +175,9 @@ func (s *CNProviderBalanceCheckService) runOnce() {
 		// 顺带探一次通用「用量窗口」规范（{base_url}/usage/windows）：拿到快照后账号页
 		// 会显示 5h/weekly 进度条，窗口打满时阈值评估可主动停调。官方主机在服务内直接
 		// 跳过，上游没有该端点则标记 Unsupported —— 都不落快照、不产生错误告警。
+		// 走 cnQuotaProber 接口的 QueryUsage（按账号 ID 加载，singleflight 键与手动探测一致）。
 		if s.quotaService != nil {
-			if _, err := s.quotaService.QueryUsageForAccount(ctx, account); err != nil {
+			if _, err := s.quotaService.QueryUsage(ctx, account.ID); err != nil {
 				log.Printf("[CNQuota] usage windows probe for account %d failed: %v", account.ID, err)
 			}
 		}
