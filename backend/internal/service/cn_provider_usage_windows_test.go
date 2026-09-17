@@ -124,7 +124,7 @@ func TestIsOfficialCNUsageBaseURL(t *testing.T) {
 	require.True(t, isOfficialCNUsageBaseURL("https://api.deepseek.com/v1"))
 	require.True(t, isOfficialCNUsageBaseURL("https://api.moonshot.cn/v1"))
 	require.True(t, isOfficialCNUsageBaseURL("https://relay.api.z.ai/v1"), "子域同样视为官方")
-	require.False(t, isOfficialCNUsageBaseURL("http://commandcode-proxy:3050/v1"))
+	require.False(t, isOfficialCNUsageBaseURL("http://relay.example/v1"), "自定义中转 host 不属于官方主机")
 	require.False(t, isOfficialCNUsageBaseURL(""))
 }
 
