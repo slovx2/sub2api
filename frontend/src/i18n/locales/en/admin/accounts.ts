@@ -669,7 +669,7 @@ export default {
         codexFingerprintFull: 'Full convergence',
         codexTurnTicket: 'Codex 292 / 332 ticket',
         codexTurnTicketDesc: 'Requests harvest missing or expiring tickets before forwarding. Exhausted attempts trigger account cooldown and failover. WebSocket checks run only on connect or reconnect.',
-        codexTurnTicketMissing: 'Awaiting request to harvest',
+        codexTurnTicketMissing: 'Awaiting automatic harvesting',
         codexTurnTicketReady: '{time} left',
         codexTurnTicketPaused: 'Account cooling down; scheduling paused',
         codexImageTool: 'Codex image bridge policy',

@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -24,6 +25,7 @@ func ticketTestAccount(id int64) *Account {
 	return &Account{
 		ID:          id,
 		Status:      StatusActive,
+		Schedulable: true,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeOAuth,
 		Credentials: map[string]any{"access_token": "tok", "chatgpt_account_id": "acc-1"},
@@ -327,7 +329,9 @@ type codexTicketRefreshRepo struct {
 }
 
 func (r *codexTicketRefreshRepo) ListByPlatform(context.Context, string) ([]Account, error) {
-	return r.accounts, nil
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.accounts), nil
 }
 func (r *codexTicketRefreshRepo) GetByID(_ context.Context, id int64) (*Account, error) {
 	r.mu.Lock()

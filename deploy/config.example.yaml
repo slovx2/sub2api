@@ -325,6 +325,7 @@ gateway:
   openai_codex_ticket:
     # 不指定账号时对全部符合条件的账号生效；非空时仅对这些 Sub2API 数字账号 ID 生效。
     # 管理页面保存的账号范围优先；账号删除不会自动扩大范围。
+    # 关闭账号调度时不采票；重新开启后下一轮检查恢复（仍遵守冷却和限流）。
     account_ids: []
     enabled: false
     # 292 / 332 均接受；此配置可额外接受其他目标长度。
@@ -332,7 +333,8 @@ gateway:
     ttl_seconds: 3600
     refresh_before_seconds: 600
     # 后台「系统设置 → 网关 → Codex 设置」可覆盖此值，无需重启。
-    # 设置缓存为 5 秒，下次请求采票使用新代理；没有业务请求时不采票。
+    # 设置缓存为 5 秒，后续采票使用新代理。启动预采；每轮结束后隔 6 秒自动检查，
+    # 无业务请求也会刷新临近过期的票据，冷却结束后自动重试。
     harvest_proxy_url: ""
     harvest_attempt_timeout_seconds: 25
     models:

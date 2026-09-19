@@ -68,7 +68,7 @@ func (s *OpenAIGatewayService) ensureOpenAICodexTicket(ctx context.Context, acco
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if account.Status != StatusActive || s.codexTicketCooldownActive(account) || accountPersistedSchedulingCooldownActive(account) {
+	if account.Status != StatusActive || !account.Schedulable || s.codexTicketCooldownActive(account) || accountPersistedSchedulingCooldownActive(account) {
 		return nil, codexTicketFailover()
 	}
 	policy := s.codexTicketPolicy(ctx)
@@ -177,7 +177,7 @@ func (s *OpenAIGatewayService) runCodexTicketCall(ctx context.Context, account *
 	call.err = codexTicketFailover()
 }
 
-// 每次探测前、落票前均读账号真值，不允许停用或删除后的票据重新生效。
+// 每次探测前、落票前均读账号真值，不允许关闭调度、停用或删除后的票据重新生效。
 func (s *OpenAIGatewayService) checkCodexTicketRequestAccount(ctx context.Context, account *Account, generation uint64) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
@@ -196,25 +196,32 @@ func (s *OpenAIGatewayService) checkCodexTicketRequestAccount(ctx context.Contex
 			return errCodexTicketScopeChanged
 		}
 	}
-	if current.Status != StatusActive || !isOpenAICodexTicketAccount(current) || accountPersistedSchedulingCooldownActive(current) || s.codexTicketCooldownActive(current) {
+	if current.Status != StatusActive || !current.Schedulable || !isOpenAICodexTicketAccount(current) || accountPersistedSchedulingCooldownActive(current) || s.codexTicketCooldownActive(current) {
 		return errCodexTicketScopeChanged
 	}
 	return nil
 }
 
-// 关闭仅取消请求派生的工作，不存在任何定时采票协程。
+// 关闭时同时取消自动采票循环及所有共享采票任务，等待其退出。
 func (s *OpenAIGatewayService) StopOpenAICodexTicketRequests() {
 	if s == nil {
 		return
 	}
 	s.openaiCodexTicketLifecycleMu.Lock()
 	s.openaiCodexTicketStopped = true
+	cancel, done := s.openaiCodexTicketBackgroundCancel, s.openaiCodexTicketBackgroundDone
+	if cancel != nil {
+		cancel()
+	}
 	for _, work := range s.openaiCodexTicketAccounts {
 		for _, call := range work.calls {
 			call.cancel()
 		}
 	}
 	s.openaiCodexTicketLifecycleMu.Unlock()
+	if done != nil {
+		<-done
+	}
 	s.openaiCodexTicketWorkers.Wait()
 }
 

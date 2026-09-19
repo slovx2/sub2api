@@ -747,7 +747,7 @@ export default {
         codexFingerprintFull: '完全收敛',
         codexTurnTicket: 'Codex 292 / 332 门票',
         codexTurnTicketDesc: '无票或临近过期时由请求触发采票，成功注入后继续；采票次数耗尽才冷却账号并切换。WebSocket 仅在建连或重连时检查。',
-        codexTurnTicketMissing: '待请求采票',
+        codexTurnTicketMissing: '待自动采票',
         codexTurnTicketReady: '剩余 {time}',
         codexTurnTicketPaused: '账号冷却中，暂停调度',
         codexImageTool: 'Codex 图片桥接策略',

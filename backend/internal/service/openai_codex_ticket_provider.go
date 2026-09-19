@@ -2,7 +2,7 @@ package service
 
 import "github.com/Wei-Shaw/sub2api/internal/config"
 
-// 只装配依赖；采票由业务请求触发，不在启动时扫描账号。
+// 装配完成后启动自动采票，避免使用尚未注入的日志依赖。
 func ProvideOpenAIGatewayService(
 	accountRepo AccountRepository,
 	usageLogRepo UsageLogRepository,
@@ -33,5 +33,6 @@ func ProvideOpenAIGatewayService(
 		rateLimitService, billingCacheService, httpUpstream, deferredService, openAITokenProvider,
 		grokTokenProvider, resolver, channelService, balanceNotifyService, settingService, userPlatformQuotaRepo)
 	svc.codexTicketLogRepo = logs
+	svc.StartOpenAICodexTicketHarvester()
 	return svc
 }

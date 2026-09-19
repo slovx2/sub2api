@@ -551,12 +551,12 @@ export default {
           refresh: 'Refresh', autoRefresh: 'Auto refresh (15s)', enabled: 'Enabled', disabled: 'Disabled',
           overviewSummary: '{accounts} accounts · {tickets} valid tickets',
           unavailable: 'No valid ticket', remaining: '{minutes} min left', expires: 'Expires',
-          blocked: 'Account cooling down; scheduling paused', pending: 'Awaiting request to harvest', cooldown: 'Cooldown', attempt: 'Attempt number',
+          blocked: 'Account cooling down; scheduling paused', pending: 'Awaiting automatic harvesting', cooldown: 'Cooldown', attempt: 'Attempt number',
           noTickets: 'No account tickets to display.',
           attempts: 'Harvest attempts', success: 'Success', failure: 'Failure', injection_missing: 'Missing injection',
           diagnosticHint: 'Successful and failed harvests are stored permanently across restarts. Counters follow the account filter. Missing injection counts forwarding-stage misses, not scheduler exclusions. No HTTP response is shown as —.',
           problems: 'Problem accounts', logs: 'Recent logs',
-          problemHint: 'Accounts awaiting request-driven harvesting or cooling down. Independent of historical failures.',
+          problemHint: 'Accounts awaiting automatic harvesting or cooling down. Independent of historical failures.',
           noProblems: 'No missing tickets in the current scope, or harvesting is disabled.',
           noLogs: 'No records yet. Future harvest attempts will appear here.',
           loadError: 'Failed to load. Retry; any previously displayed data may be stale.',
@@ -573,11 +573,11 @@ export default {
         },
         ticketPolicy: {
           ttl: 'Ticket lifetime (minutes)', refresh: 'Refresh ahead (minutes)', attempts: 'Maximum attempts (including first)', cooldown: 'Failure cooldown (minutes)',
-          hint: 'Request-driven only; no background harvesting. WebSocket checks run on connect or reconnect. Lifetime applies to new tickets; 0 refreshes only after expiry. Defaults: 3 total attempts, then a 60-minute cooldown and failover. No restart required.',
+          hint: 'Harvest automatically at startup, then check missing, expired or soon-to-expire tickets 6 seconds after each cycle. Retry automatically after cooldown without waiting for traffic. Requests share the same harvesting task; WebSocket injection checks still run only on connect or reconnect. Lifetime applies to new tickets; 0 refreshes only after expiry. Defaults: 3 total attempts, then a 60-minute cooldown. No restart required.',
           invalid: 'Lifetime and cooldown must be 1–1440 minutes; refresh ahead must be nonnegative and shorter than lifetime (whole seconds). Maximum attempts must be an integer from 1 to 10.'
         },
         codexTicketAccounts: 'Ticket account scope',
-        codexTicketAccountsHint: 'No selection applies to all eligible OpenAI accounts, including future accounts. Otherwise only selected accounts use request-driven harvesting, injection and cooldown after exhausted attempts.',
+        codexTicketAccountsHint: 'No selection applies to all eligible OpenAI accounts, including future accounts. Otherwise only selected accounts use automatic harvesting, injection and cooldown after exhausted attempts. Disabling account scheduling stops harvesting; re-enabling resumes it on the next cycle, after any active cooldown or rate limit expires.',
         codexTicketAccountsAll: 'No selection: all eligible accounts',
         codexTicketAccountsSelected: '{count} accounts selected',
         codexTicketAccountsSearch: 'Search account name',
@@ -586,7 +586,7 @@ export default {
         codexTicketAccountsUnavailable: 'Ineligible or inactive',
         codexTicketAccountsLoadError: 'Failed to load accounts. Retry; your saved selection is retained.',
         codexTicketEnabledDesc:
-          "When off, the gateway neither harvests nor injects x-codex-turn-state. When on, requests wait for a ticket when needed, then inject the header before forwarding.",
+          "When off, the gateway neither harvests nor injects x-codex-turn-state. When on, tickets are harvested and refreshed automatically in the background, then injected into business requests. Requests missing a ticket wait for the shared harvesting task.",
         codexTicketHarvestProxy: "Ticket harvest proxy",
         codexTicketHarvestProxyDesc:
           "Used only for minting tickets when the ticket feature is enabled. Changes apply to subsequent probes without a restart. Production traffic still uses each account's residential proxy. Paste a full HTTP or SOCKS5h proxy URL including username and password. The proxy provider must handle IP rotation. Leave blank when saving to keep the stored value.",
