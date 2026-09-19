@@ -15,6 +15,23 @@ type updateServiceCacheStub struct {
 	data string
 }
 
+func TestCompareForkVersions(t *testing.T) {
+	for _, tc := range []struct {
+		current, latest string
+		want            int
+	}{
+		{"0.2.7.1", "0.2.7.2", -1},
+		{"0.2.7.9", "0.2.7.10", -1},
+		{"v0.2.7.2", "0.2.7.1", 1},
+		{"0.2.7", "0.2.7.1", -1},
+		{"0.2.7.99", "0.2.8.1", -1},
+		{"0.1.1147", "0.2.7.1", -1},
+		{"0.2.7.1", "0.2.7.1", 0},
+	} {
+		require.Equal(t, tc.want, compareVersions(tc.current, tc.latest), "%s -> %s", tc.current, tc.latest)
+	}
+}
+
 func (s *updateServiceCacheStub) GetUpdateInfo(context.Context) (string, error) {
 	if s.data == "" {
 		return "", errors.New("cache miss")

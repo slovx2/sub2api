@@ -46,3 +46,25 @@ func TestMatchesSemverRange(t *testing.T) {
 	assert.False(t, matchesSemverRange("dev", ">=0.1.0"))
 	assert.False(t, matchesSemverRange("0.1.179", "^0.1.0"))
 }
+
+func TestPluginCompatibilityForkHostVersion(t *testing.T) {
+	manifest := testPluginManifest(nil)
+	manifest.Requires.Sub2API = ">=0.2.7 <0.3.0"
+	manifest.Requires.TestedSub2APIVersions = []string{"0.2.7"}
+	for _, version := range []string{"0.2.7.1", "v0.2.7.2", "0.2.7.10"} {
+		t.Run(version, func(t *testing.T) {
+			result := EvaluatePluginCompatibility(manifest, PluginHostInfo{Version: version})
+			require.True(t, result.Compatible)
+			// 上游已测试不等于分支已测试，仍保留管理员确认。
+			require.False(t, result.Tested)
+			require.Equal(t, version, result.CurrentSub2API)
+		})
+	}
+	for _, version := range []string{"0.2.6.99", "0.3.0.1", "0.2.7.bad", "0.2.7.1.2", "0.2.7.01"} {
+		t.Run(version, func(t *testing.T) {
+			require.False(t, EvaluatePluginCompatibility(manifest, PluginHostInfo{Version: version}).Compatible)
+		})
+	}
+	// 插件自己的 version 仍必须符合标准 semver，不放宽签名清单规范。
+	require.Empty(t, normalizeSemver("0.2.7.1"))
+}

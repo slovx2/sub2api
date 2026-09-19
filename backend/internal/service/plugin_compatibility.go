@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	pluginv1 "github.com/Wei-Shaw/sub2api/pkg/pluginapi/v1"
@@ -29,7 +30,8 @@ func EvaluatePluginCompatibility(manifest PluginManifest, host PluginHostInfo) P
 		result.Message = "插件协议版本与当前 Sub2API 不兼容"
 		return result
 	}
-	if !matchesSemverRange(host.Version, manifest.Requires.Sub2API) {
+	// 分支第四段是本地修订号；插件声明的宿主范围仍按上游三段版本检查。
+	if !matchesSemverRange(pluginHostBaseVersion(host.Version), manifest.Requires.Sub2API) {
 		result.Status = "incompatible"
 		result.Message = fmt.Sprintf("当前 Sub2API %s 不满足插件要求 %s", host.Version, manifest.Requires.Sub2API)
 		return result
@@ -49,6 +51,15 @@ func EvaluatePluginCompatibility(manifest PluginManifest, host PluginHostInfo) P
 		result.Message = "版本范围兼容，但插件未声明已测试当前 Sub2API 版本"
 	}
 	return result
+}
+
+var forkHostVersionPattern = regexp.MustCompile(`^v?((?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))\.(?:0|[1-9][0-9]*)$`)
+
+func pluginHostBaseVersion(version string) string {
+	if match := forkHostVersionPattern.FindStringSubmatch(strings.TrimSpace(version)); match != nil {
+		return match[1]
+	}
+	return version
 }
 
 func normalizeSemver(version string) string {
