@@ -7,6 +7,7 @@
 package proxyurl
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -39,10 +40,11 @@ func Parse(raw string) (trimmed string, parsed *url.URL, err error) {
 		return "", nil, nil
 	}
 
+	trimmed = escapeUserinfo(trimmed)
 	parsed, err = url.Parse(trimmed)
 	if err != nil {
-		// 不使用 %w 包装，避免 url.Parse 的底层错误消息泄漏原始 URL（可能含凭据）
-		return "", nil, fmt.Errorf("invalid proxy URL: %v", err)
+		// url.Error 包含原始 URL；不能将其拼入响应或日志，避免泄漏凭据。
+		return "", nil, errors.New("invalid proxy URL")
 	}
 
 	if parsed.Host == "" || parsed.Hostname() == "" {
@@ -63,4 +65,38 @@ func Parse(raw string) (trimmed string, parsed *url.URL, err error) {
 	}
 
 	return trimmed, parsed, nil
+}
+
+// escapeUserinfo 允许直接粘贴含 Unicode 或空格的代理凭据。
+// 仅编码认证部分，保留已有百分号编码，避免改变密码或 URL 分隔符的含义。
+func escapeUserinfo(raw string) string {
+	schemeEnd := strings.Index(raw, "://")
+	if schemeEnd < 0 {
+		return raw
+	}
+	start := schemeEnd + 3
+	end := len(raw)
+	if i := strings.IndexAny(raw[start:], "/?#"); i >= 0 {
+		end = start + i
+	}
+	at := strings.LastIndexByte(raw[start:end], '@')
+	if at < 0 {
+		return raw
+	}
+	end = start + at
+	var encoded strings.Builder
+	encoded.WriteString(raw[:start])
+	const hex = "0123456789ABCDEF"
+	for i := start; i < end; i++ {
+		b := raw[i]
+		if b >= 0x80 || b == ' ' {
+			encoded.WriteByte('%')
+			encoded.WriteByte(hex[b>>4])
+			encoded.WriteByte(hex[b&15])
+		} else {
+			encoded.WriteByte(b)
+		}
+	}
+	encoded.WriteString(raw[end:])
+	return encoded.String()
 }

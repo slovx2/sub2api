@@ -492,6 +492,13 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	settings.OpenAICodexTicketAccountIDs = accountIDs
 	accountIDsJSON, _ := json.Marshal(accountIDs)
 	updates[SettingKeyOpenAICodexTicketAccountIDs] = string(accountIDsJSON)
+	if settings.OpenAICodexTicketPolicy != nil {
+		if err := settings.OpenAICodexTicketPolicy.Validate(); err != nil {
+			return nil, infraerrors.BadRequest("INVALID_CODEX_TICKET_POLICY", err.Error())
+		}
+		raw, _ := json.Marshal(settings.OpenAICodexTicketPolicy)
+		updates[SettingKeyOpenAICodexTicketPolicy] = string(raw)
+	}
 	updates[SettingKeyOpenAICodexTicketEnabled] = strconv.FormatBool(settings.OpenAICodexTicketEnabled)
 	if err := ValidateOpenAICodexTicketHarvestProxyURL(settings.OpenAICodexTicketHarvestProxyURL); err != nil {
 		return nil, infraerrors.BadRequest("INVALID_CODEX_HARVEST_PROXY", err.Error())
@@ -751,8 +758,8 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 	// 版本号缓存只做失效，不在此重算：生效值还取决于自动同步写入的 synced 键，
 	// 这里没有它的最新值，重算会把同步结果覆盖成陈旧值。
 	s.InvalidateOpenAICodexClientVersionCache()
-	s.InvalidateOpenAICodexTicketEnabledCache()
-	s.InvalidateOpenAICodexTicketAccountsCache()
+	s.refreshCodexTicketScopeAfterSettings(settings)
+	s.InvalidateOpenAICodexTicketPolicyCache()
 	s.InvalidateOpenAICodexTicketHarvestProxyCache()
 	openAIAdvancedSchedulerSettingSF.Forget(openAIAdvancedSchedulerSettingKey)
 	openAIAdvancedSchedulerSettingCache.Store(&cachedOpenAIAdvancedSchedulerSetting{

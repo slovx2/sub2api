@@ -551,12 +551,12 @@ export default {
           refresh: 'Refresh', autoRefresh: 'Auto refresh (15s)', enabled: 'Enabled', disabled: 'Disabled',
           overviewSummary: '{accounts} accounts · {tickets} valid tickets',
           unavailable: 'No valid ticket', remaining: '{minutes} min left', expires: 'Expires',
-          blocked: 'No valid ticket; blocked by policy', passthrough: 'No valid ticket; normal forwarding allowed',
+          blocked: 'Account cooling down; scheduling paused', pending: 'Awaiting request to harvest', cooldown: 'Cooldown', attempt: 'Attempt number',
           noTickets: 'No account tickets to display.',
           attempts: 'Harvest attempts', success: 'Success', failure: 'Failure', injection_missing: 'Missing injection',
           diagnosticHint: 'Successful and failed harvests are stored permanently across restarts. Counters follow the account filter. Missing injection counts forwarding-stage misses, not scheduler exclusions. No HTTP response is shown as —.',
           problems: 'Problem accounts', logs: 'Recent logs',
-          problemHint: 'Selected active accounts missing a valid ticket for at least one target model. Independent of historical failures.',
+          problemHint: 'Accounts awaiting request-driven harvesting or cooling down. Independent of historical failures.',
           noProblems: 'No missing tickets in the current scope, or harvesting is disabled.',
           noLogs: 'No records yet. Future harvest attempts will appear here.',
           loadError: 'Failed to load. Retry; any previously displayed data may be stale.',
@@ -567,11 +567,17 @@ export default {
             accepted: 'Accepted and cached', token_error: 'Account credential unavailable', request_error: 'Network or request error',
             http_error: 'Upstream HTTP error', missing_state: 'Ticket header missing', invalid_length: 'Unexpected ticket length',
             invalid_format: 'Invalid ticket format', scope_changed_or_cancelled: 'Scope changed, feature disabled or request cancelled; discarded',
-            no_valid_ticket: 'No valid ticket during injection'
+            no_valid_ticket: 'No valid ticket during injection', harvest_not_configured: 'Harvest proxy or transport is not configured',
+            attempts_exhausted: 'Attempts exhausted; account cooled down and failed over', cooldown_persist_failed: 'Cooldown persistence failed; this instance still blocks scheduling'
           }
         },
+        ticketPolicy: {
+          ttl: 'Ticket lifetime (minutes)', refresh: 'Refresh ahead (minutes)', attempts: 'Maximum attempts (including first)', cooldown: 'Failure cooldown (minutes)',
+          hint: 'Request-driven only; no background harvesting. WebSocket checks run on connect or reconnect. Lifetime applies to new tickets; 0 refreshes only after expiry. Defaults: 3 total attempts, then a 60-minute cooldown and failover. No restart required.',
+          invalid: 'Lifetime and cooldown must be 1–1440 minutes; refresh ahead must be nonnegative and shorter than lifetime (whole seconds). Maximum attempts must be an integer from 1 to 10.'
+        },
         codexTicketAccounts: 'Ticket account scope',
-        codexTicketAccountsHint: 'No selection applies to all eligible OpenAI accounts, including future accounts. Otherwise only selected accounts are harvested, injected and gated when tickets are missing.',
+        codexTicketAccountsHint: 'No selection applies to all eligible OpenAI accounts, including future accounts. Otherwise only selected accounts use request-driven harvesting, injection and cooldown after exhausted attempts.',
         codexTicketAccountsAll: 'No selection: all eligible accounts',
         codexTicketAccountsSelected: '{count} accounts selected',
         codexTicketAccountsSearch: 'Search account name',
@@ -580,7 +586,7 @@ export default {
         codexTicketAccountsUnavailable: 'Ineligible or inactive',
         codexTicketAccountsLoadError: 'Failed to load accounts. Retry; your saved selection is retained.',
         codexTicketEnabledDesc:
-          "When off, the gateway neither harvests nor injects x-codex-turn-state and forwards traffic as usual. When on, it harvests tickets in the background and overwrites that header on production requests.",
+          "When off, the gateway neither harvests nor injects x-codex-turn-state. When on, requests wait for a ticket when needed, then inject the header before forwarding.",
         codexTicketHarvestProxy: "Ticket harvest proxy",
         codexTicketHarvestProxyDesc:
           "Used only for minting tickets when the ticket feature is enabled. Changes apply to subsequent probes without a restart. Production traffic still uses each account's residential proxy. Paste a full HTTP or SOCKS5h proxy URL including username and password. The proxy provider must handle IP rotation. Leave blank when saving to keep the stored value.",

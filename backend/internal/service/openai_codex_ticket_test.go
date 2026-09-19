@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -24,6 +23,7 @@ func fakeCodexTicketState(n int) string {
 func ticketTestAccount(id int64) *Account {
 	return &Account{
 		ID:          id,
+		Status:      StatusActive,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeOAuth,
 		Credentials: map[string]any{"access_token": "tok", "chatgpt_account_id": "acc-1"},
@@ -46,7 +46,6 @@ func TestApplyOpenAICodexTicket_ReplacesHeader(t *testing.T) {
 		Enabled:      true,
 		TargetLength: 292,
 		TTLSeconds:   3600,
-		FailClosed:   true,
 	}, nil)
 	account := ticketTestAccount(41)
 	svc.storeOpenAICodexTicket(context.Background(), account, &openAICodexTicket{
@@ -71,7 +70,6 @@ func TestApplyOpenAICodexTicket_DoesNotReuseOtherModelOrAccount(t *testing.T) {
 		Enabled:         true,
 		TargetLength:    292,
 		TTLSeconds:      3600,
-		FailClosed:      true,
 		HarvestProxyURL: "socks5h://harvest",
 	}, &httpUpstreamRecorder{err: io.EOF})
 	a := ticketTestAccount(41)
@@ -91,9 +89,9 @@ func TestApplyOpenAICodexTicket_DoesNotReuseOtherModelOrAccount(t *testing.T) {
 	err := svc.applyOpenAICodexTicket(context.Background(), a, "gpt-5.5", h)
 	require.NoError(t, err)
 	require.Equal(t, "keep-ungated", h.Get(openAICodexTurnStateHeader))
-	require.False(t, svc.openAICodexTicketBlocksAccount(a, "gpt-5.5"))
-	require.True(t, svc.openAICodexTicketBlocksAccount(b, "gpt-6-astra"))
-	require.False(t, svc.openAICodexTicketBlocksAccount(a, "gpt-6-astra"))
+	require.False(t, svc.codexTicketCooldownActive(a))
+	require.False(t, svc.codexTicketCooldownActive(b))
+	require.False(t, svc.codexTicketCooldownActive(a))
 
 	h = http.Header{}
 	err = svc.applyOpenAICodexTicket(context.Background(), b, "gpt-6-astra", h)
@@ -133,7 +131,6 @@ func TestApplyOpenAICodexTicket_ExpiredNotInjected(t *testing.T) {
 		Enabled:         true,
 		TargetLength:    292,
 		TTLSeconds:      3600,
-		FailClosed:      true,
 		HarvestProxyURL: "socks5h://harvest",
 	}, &httpUpstreamRecorder{err: io.EOF})
 	account := ticketTestAccount(41)
@@ -156,7 +153,6 @@ func TestApplyOpenAICodexTicket_WrongLengthNotInjected(t *testing.T) {
 		Enabled:      true,
 		TargetLength: 292,
 		TTLSeconds:   3600,
-		FailClosed:   true,
 	}, nil)
 	account := ticketTestAccount(41)
 	svc.storeOpenAICodexTicket(context.Background(), account, &openAICodexTicket{
@@ -173,21 +169,20 @@ func TestApplyOpenAICodexTicket_WrongLengthNotInjected(t *testing.T) {
 	require.Empty(t, h.Get(openAICodexTurnStateHeader))
 }
 
-func TestApplyOpenAICodexTicket_FailOpenSkipsInject(t *testing.T) {
+func TestApplyOpenAICodexTicket_MissingTicketAlwaysFailsOver(t *testing.T) {
 	svc := ticketTestService(t, config.OpenAICodexTicketConfig{
-		Enabled:    true,
-		FailClosed: false,
+		Enabled: true,
 	}, nil)
 	h := http.Header{}
 	h.Set(openAICodexTurnStateHeader, "client-state")
 	err := svc.applyOpenAICodexTicket(context.Background(), ticketTestAccount(41), "gpt-6-astra", h)
-	require.NoError(t, err)
+	require.ErrorIs(t, err, ErrOpenAICodexTicketUnavailable)
 	require.Equal(t, "client-state", h.Get(openAICodexTurnStateHeader))
-	require.False(t, svc.openAICodexTicketBlocksAccount(ticketTestAccount(41), "gpt-6-astra"))
+	require.True(t, svc.codexTicketCooldownActive(ticketTestAccount(41)))
 }
 
 func TestApplyOpenAICodexTicket_DisabledNoop(t *testing.T) {
-	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: false, FailClosed: true}, nil)
+	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: false}, nil)
 	h := http.Header{}
 	h.Set(openAICodexTurnStateHeader, "client-state")
 	err := svc.applyOpenAICodexTicket(context.Background(), ticketTestAccount(41), "gpt-6-astra", h)
@@ -222,13 +217,12 @@ func TestHarvestOpenAICodexTicket_StopsAt292AndUsesHarvestProxy(t *testing.T) {
 		TTLSeconds:                   3600,
 		HarvestProxyURL:              "socks5h://user:pass@harvest.example:31",
 		HarvestAttemptTimeoutSeconds: 5,
-		FailClosed:                   true,
 	}, upstream)
 	account := ticketTestAccount(41)
 
-	svc.probeOnceOpenAICodexTicket(context.Background(), account, "gpt-6-astra")
+	svc.probeCodexTicketForTest(context.Background(), account, "gpt-6-astra")
 	require.Nil(t, svc.lookupOpenAICodexTicket(account, "gpt-6-astra"))
-	svc.probeOnceOpenAICodexTicket(context.Background(), account, "gpt-6-astra")
+	svc.probeCodexTicketForTest(context.Background(), account, "gpt-6-astra")
 	ticket := svc.lookupOpenAICodexTicket(account, "gpt-6-astra")
 	require.NotNil(t, ticket)
 	require.Equal(t, state292, ticket.State)
@@ -267,12 +261,11 @@ func TestHarvestOpenAICodexTicket_HTTP503DoesNotAbortHunt(t *testing.T) {
 		TTLSeconds:                   3600,
 		HarvestProxyURL:              "socks5h://harvest.example:31",
 		HarvestAttemptTimeoutSeconds: 5,
-		FailClosed:                   true,
 	}, upstream)
 	account := ticketTestAccount(41)
-	svc.probeOnceOpenAICodexTicket(context.Background(), account, "gpt-6-astra")
+	svc.probeCodexTicketForTest(context.Background(), account, "gpt-6-astra")
 	require.Nil(t, svc.lookupOpenAICodexTicket(account, "gpt-6-astra"))
-	svc.probeOnceOpenAICodexTicket(context.Background(), account, "gpt-6-astra")
+	svc.probeCodexTicketForTest(context.Background(), account, "gpt-6-astra")
 	ticket := svc.lookupOpenAICodexTicket(account, "gpt-6-astra")
 	require.NotNil(t, ticket)
 	require.Equal(t, state292, ticket.State)
@@ -310,7 +303,7 @@ func TestOpenAICodexTicketStatuses_ReportsRemainingTTL(t *testing.T) {
 		},
 	}
 	now := time.Now()
-	got := OpenAICodexTicketStatuses(account, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}, now)
+	got := OpenAICodexTicketStatuses(account, config.OpenAICodexTicketConfig{Enabled: true}, now)
 	require.Len(t, got, 2)
 	require.Equal(t, "gpt-6-astra", got[0].Model)
 	require.True(t, got[0].Ready)
@@ -325,8 +318,7 @@ func TestExtractOpenAICodexTicketModel(t *testing.T) {
 	require.Empty(t, extractOpenAICodexTicketModel([]byte(`{}`)))
 }
 
-// These stubs exercise the real continuous refresh path with both default models
-// completing together. Run under -race to catch writes to the shared account maps.
+// 请求采票测试共用的账号仓储，支持状态重查及冷却写入。
 type codexTicketRefreshRepo struct {
 	AccountRepository
 	accounts []Account
@@ -336,6 +328,27 @@ type codexTicketRefreshRepo struct {
 
 func (r *codexTicketRefreshRepo) ListByPlatform(context.Context, string) ([]Account, error) {
 	return r.accounts, nil
+}
+func (r *codexTicketRefreshRepo) GetByID(_ context.Context, id int64) (*Account, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, account := range r.accounts {
+		if account.ID == id {
+			return &account, nil
+		}
+	}
+	return nil, ErrAccountNotFound
+}
+func (r *codexTicketRefreshRepo) SetTempUnschedulable(_ context.Context, id int64, until time.Time, reason string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i := range r.accounts {
+		if r.accounts[i].ID == id {
+			r.accounts[i].TempUnschedulableUntil = &until
+			r.accounts[i].TempUnschedulableReason = reason
+		}
+	}
+	return nil
 }
 func (r *codexTicketRefreshRepo) UpdateExtra(_ context.Context, _ int64, updates map[string]any) error {
 	r.mu.Lock()
@@ -349,46 +362,6 @@ func (r *codexTicketRefreshRepo) UpdateExtra(_ context.Context, _ int64, updates
 	return nil
 }
 
-type codexTicketConcurrentUpstream struct {
-	HTTPUpstream
-	started atomic.Int64
-	ready   chan struct{}
-}
-
-func (u *codexTicketConcurrentUpstream) Do(req *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
-	if u.started.Add(1) == 2 {
-		close(u.ready)
-	}
-	select {
-	case <-u.ready:
-	case <-req.Context().Done():
-		return nil, req.Context().Err()
-	}
-	h := http.Header{}
-	h.Set(openAICodexTurnStateHeader, fakeCodexTicketState(292))
-	return &http.Response{StatusCode: 200, Header: h, Body: io.NopCloser(strings.NewReader("data: {}\n\n"))}, nil
-}
-func TestRefreshOpenAICodexTickets_ConcurrentModelsPreserveAccountSnapshot(t *testing.T) {
-	account := ticketTestAccount(41)
-	account.Status = StatusActive
-	account.Extra = map[string]any{"existing": true}
-	repo := &codexTicketRefreshRepo{accounts: []Account{*account}}
-	upstream := &codexTicketConcurrentUpstream{ready: make(chan struct{})}
-	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, HarvestProxyURL: "socks5h://proxy.example.com:1080"}, upstream)
-	svc.accountRepo = repo
-	svc.refreshOpenAICodexTickets(context.Background())
-	require.Equal(t, int64(2), upstream.started.Load())
-	require.Equal(t, map[string]any{"existing": true}, account.Extra)
-	require.Len(t, repo.updates, 2)
-	for _, model := range []string{openAICodexTicketDefaultModel, openAICodexTicketDefaultSolModel} {
-		ticket := svc.lookupOpenAICodexTicket(account, model)
-		require.NotNil(t, ticket)
-		require.True(t, ticket.valid(time.Now(), 292))
-	}
-	// Valid tickets do not produce another probe on the next cycle.
-	svc.refreshOpenAICodexTickets(context.Background())
-	require.Equal(t, int64(2), upstream.started.Load())
-}
 func TestOpenAICodexTicketStatuses_RespectRuntimeConfiguration(t *testing.T) {
 	account := ticketTestAccount(41)
 	require.Empty(t, OpenAICodexTicketStatuses(account, config.OpenAICodexTicketConfig{}, time.Now()))
@@ -397,8 +370,7 @@ func TestOpenAICodexTicketStatuses_RespectRuntimeConfiguration(t *testing.T) {
 	require.Len(t, status, 1)
 	require.Equal(t, "custom-model", status[0].Model)
 	require.False(t, status[0].Blocked)
-	cfg.FailClosed = true
-	require.True(t, OpenAICodexTicketStatuses(account, cfg, time.Now())[0].Blocked)
+	require.False(t, OpenAICodexTicketStatuses(account, cfg, time.Now())[0].Blocked)
 }
 func TestProbeOpenAICodexTicket_RejectsInvalidState(t *testing.T) {
 	for _, state := range []string{fakeCodexTicketState(312), strings.Repeat("X", 292), ""} {
@@ -407,7 +379,7 @@ func TestProbeOpenAICodexTicket_RejectsInvalidState(t *testing.T) {
 		upstream := &httpUpstreamRecorder{responses: []*http.Response{{StatusCode: 200, Header: h, Body: io.NopCloser(strings.NewReader(""))}}}
 		svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, HarvestProxyURL: "http://proxy.example.com:8080"}, upstream)
 		account := ticketTestAccount(41)
-		svc.probeOnceOpenAICodexTicket(context.Background(), account, "gpt-6-astra")
+		svc.probeCodexTicketForTest(context.Background(), account, "gpt-6-astra")
 		require.Nil(t, svc.lookupOpenAICodexTicket(account, "gpt-6-astra"))
 	}
 }
@@ -421,7 +393,7 @@ func TestOpenAICodexTicket_RequiresActualLengthAndExpiry(t *testing.T) {
 
 // /responses/compact 的出站模型被 Forward 改写为 gateway.openai_compact_model
 // （默认非空），门票门控必须按该出站模型判定。否则对门控模型发 compact 请求时，
-// 所有无票账号都会被 fail_closed 误判为不可调度，而这些请求实际不需要票。
+// 这些请求实际不需要票；按请求采票不能重新引入调度阶段的无票拦截。
 func TestOpenAICodexTicketGate_CompactRequestUsesForwardOutboundModel(t *testing.T) {
 	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
 		OpenAICompactModel: "gpt-5.5",
@@ -429,22 +401,17 @@ func TestOpenAICodexTicketGate_CompactRequestUsesForwardOutboundModel(t *testing
 			Enabled:      true,
 			TargetLength: 292,
 			TTLSeconds:   3600,
-			FailClosed:   true,
 			Models:       []string{"gpt-6-astra"},
 		},
 	}}}
 	account := ticketTestAccount(41) // 无票
 
-	// 出站模型预测必须与 Forward 的解析链一致。
-	require.Equal(t, "gpt-6-astra", svc.openAICodexTicketOutboundModel(account, "gpt-6-astra", false))
-	require.Equal(t, "gpt-5.5", svc.openAICodexTicketOutboundModel(account, "gpt-6-astra", true))
-
-	// 普通请求：出站仍是门控模型且无票 → fail_closed 必须拦号。
-	require.True(t, svc.isOpenAIAccountRequestRuntimeBlocked(account, "gpt-6-astra", false))
+	// 普通请求无票时仍应允许调度，进入请求路径再采票。
+	require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(account, "gpt-6-astra", false))
 
 	// compact 请求：出站已被改写成非门控的 gpt-5.5 → 不得拦号。
 	require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(account, "gpt-6-astra", true))
 
-	// 回归锚点：按客户端原始模型判定（旧实现的口径）在 compact 下必然误拦。
-	require.True(t, svc.openAICodexTicketBlocksAccount(account, canonicalOpenAIAccountSchedulingModel(account, "gpt-6-astra")))
+	// 真正发出的非门控模型不触发采票。
+	requestTicket(t, svc, account, "gpt-5.5")
 }

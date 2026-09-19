@@ -1174,6 +1174,8 @@ export interface Account {
     ready: boolean
     remaining_seconds: number
     blocked: boolean
+    cooldown_until?: string
+    cooldown_reason?: string
     expires_at?: string
   }>
   // Extra fields including Codex usage, OpenAI compact capability, and model-level rate limits.

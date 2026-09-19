@@ -64,12 +64,12 @@ func TestCodexTicketManagementHarvestResults(t *testing.T) {
 				}
 				return resp, nil
 			}}
-			svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true, HarvestProxyURL: "http://proxy:8080"}, upstream)
+			svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, HarvestProxyURL: "http://proxy:8080"}, upstream)
 			svc.codexTicketLogRepo = logs
 			account := ticketTestAccount(41)
 			account.Name, account.Status = "test account", StatusActive
 			svc.accountRepo = &codexTicketRefreshRepo{accounts: []Account{*account}}
-			svc.probeOnceOpenAICodexTicket(context.Background(), account, "gpt-6-astra")
+			svc.probeCodexTicketForTest(context.Background(), account, "gpt-6-astra")
 			require.Len(t, logs.items, 1)
 			e := logs.items[0]
 			require.Equal(t, tc.success, e.Success)
@@ -84,7 +84,7 @@ func TestCodexTicketManagementHarvestResults(t *testing.T) {
 			require.NoError(t, err)
 			require.NotContains(t, string(encoded), "secret")
 			require.NotContains(t, string(encoded), "gAAAAA")
-			require.Equal(t, !tc.success, svc.openAICodexTicketBlocksAccount(account, "gpt-6-astra"))
+			require.False(t, svc.codexTicketCooldownActive(account))
 			if tc.success {
 				h := http.Header{}
 				require.NoError(t, svc.applyOpenAICodexTicket(context.Background(), account, "gpt-6-astra", h))
@@ -104,7 +104,7 @@ func TestCodexTicketManagementHarvestResults(t *testing.T) {
 }
 
 func TestCodexTicketManagementOverviewScopeAndPagination(t *testing.T) {
-	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true, AccountIDs: []int64{41, 42}}, nil)
+	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, AccountIDs: []int64{41, 42}}, nil)
 	a, b, c := ticketTestAccount(41), ticketTestAccount(42), ticketTestAccount(43)
 	a.Status, b.Status, c.Status = StatusActive, "disabled", StatusActive
 	svc.accountRepo = &codexTicketRefreshRepo{accounts: []Account{*a, *b, *c}}
@@ -115,21 +115,20 @@ func TestCodexTicketManagementOverviewScopeAndPagination(t *testing.T) {
 	require.Equal(t, 2, result.Total)
 	require.Len(t, result.Items, 1)
 	require.Equal(t, int64(41), result.Items[0].AccountID)
-	require.True(t, result.Items[0].Blocked)
+	require.False(t, result.Items[0].Blocked)
 	result, err = svc.CodexTicketOverview(context.Background(), 3, 1, true)
 	require.NoError(t, err)
 	require.Empty(t, result.Items)
 }
 
-func TestCodexTicketManagementInjectionMissingAndCancelledLog(t *testing.T) {
-	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true, AccountIDs: []int64{41}}, nil)
+func TestCodexTicketManagementCancelledRequestDoesNotHarvestOrCooldown(t *testing.T) {
+	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, AccountIDs: []int64{41}}, nil)
 	logs := &ticketLogMemoryRepo{}
 	svc.codexTicketLogRepo = logs
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	require.ErrorIs(t, svc.applyOpenAICodexTicket(ctx, ticketTestAccount(41), "gpt-6-astra", http.Header{}), ErrOpenAICodexTicketUnavailable)
+	require.ErrorIs(t, svc.applyOpenAICodexTicket(ctx, ticketTestAccount(41), "gpt-6-astra", http.Header{}), context.Canceled)
 	require.NoError(t, svc.applyOpenAICodexTicket(ctx, ticketTestAccount(42), "gpt-6-astra", http.Header{}))
-	require.Len(t, logs.items, 1)
-	require.Equal(t, "injection_missing", logs.items[0].Kind)
-	require.Equal(t, "no_valid_ticket", logs.items[0].Reason)
+	require.Empty(t, logs.items)
+	require.False(t, svc.codexTicketCooldownActive(ticketTestAccount(41)))
 }

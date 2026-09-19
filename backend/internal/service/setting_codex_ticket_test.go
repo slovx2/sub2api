@@ -26,7 +26,7 @@ func (r *codexTicketSettingRepo) GetValue(ctx context.Context, key string) (stri
 func TestCodexTicketEnabledRuntimeSettingOverridesYaml(t *testing.T) {
 	repo := &codexTicketSettingRepo{codexPolicyMigrationRepoStub: &codexPolicyMigrationRepoStub{values: map[string]string{}}}
 	settings := NewSettingService(repo, &config.Config{})
-	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: false, FailClosed: true}, nil)
+	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: false}, nil)
 	svc.settingService = settings
 	account := ticketTestAccount(41)
 	svc.storeOpenAICodexTicket(context.Background(), account, &openAICodexTicket{
@@ -61,14 +61,14 @@ func TestCodexTicketEnabledRuntimeSettingOverridesYaml(t *testing.T) {
 	require.Equal(t, "client-state", h.Get(openAICodexTurnStateHeader))
 }
 
-func TestRefreshOpenAICodexTickets_DisabledSkipsHarvest(t *testing.T) {
+func TestRequestOpenAICodexTickets_DisabledSkipsHarvest(t *testing.T) {
 	upstream := &httpUpstreamRecorder{}
 	svc := ticketTestService(t, config.OpenAICodexTicketConfig{
 		Enabled:         false,
 		HarvestProxyURL: "socks5h://proxy.example.com:1080",
 	}, upstream)
 	svc.accountRepo = &codexTicketRefreshRepo{accounts: []Account{*ticketTestAccount(41)}}
-	svc.refreshOpenAICodexTickets(context.Background())
+	requestTicket(t, svc, ticketTestAccount(41), "gpt-6-astra")
 	require.Empty(t, upstream.requests)
 }
 

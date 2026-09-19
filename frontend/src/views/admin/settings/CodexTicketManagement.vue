@@ -57,7 +57,7 @@ function move(section: 'overview' | 'problems' | 'logs', delta: number) {
 
 const pages = (total = 0, size = 20) => Math.max(1, Math.ceil(total / size))
 const date = (value?: string) => value ? new Date(value).toLocaleString() : '—'
-const reasons = new Set(['accepted', 'token_error', 'request_error', 'http_error', 'missing_state', 'invalid_length', 'invalid_format', 'scope_changed_or_cancelled', 'no_valid_ticket'])
+const reasons = new Set(['accepted', 'token_error', 'request_error', 'http_error', 'missing_state', 'invalid_length', 'invalid_format', 'scope_changed_or_cancelled', 'no_valid_ticket', 'harvest_not_configured', 'attempts_exhausted', 'cooldown_persist_failed'])
 const reason = (value: string) => reasons.has(value) ? tr(`reasons.${value}`) : value
 
 onMounted(() => {
@@ -85,8 +85,9 @@ onBeforeUnmount(() => { controller?.abort(); clearInterval(timer) })
               <span :class="ticket.ready ? 'bg-teal-600 text-white' : 'bg-gray-200 text-gray-700'" class="rounded-full px-2 text-sm font-semibold">{{ ticket.ready ? ticket.length : tr('unavailable') }}</span>
             </div>
             <p class="my-2 font-mono text-sm break-all">{{ ticket.model }}</p>
-            <p v-if="ticket.ready" class="text-sm text-teal-600">{{ tr('remaining', { minutes: Math.ceil(ticket.remaining_seconds / 60) }) }} · {{ tr('expires') }} {{ date(ticket.expires_at) }}</p>
-            <p v-else class="text-sm text-amber-600">{{ ticket.blocked ? tr('blocked') : tr('passthrough') }}</p>
+            <p v-if="ticket.blocked" class="text-sm text-amber-600">{{ tr('blocked') }} · {{ date(ticket.cooldown_until) }}<br />{{ ticket.cooldown_reason }}</p>
+            <p v-else-if="ticket.ready" class="text-sm text-teal-600">{{ tr('remaining', { minutes: Math.ceil(ticket.remaining_seconds / 60) }) }} · {{ tr('expires') }} {{ date(ticket.expires_at) }}</p>
+            <p v-else class="text-sm text-amber-600">{{ tr('pending') }}</p>
           </article>
         </div>
         <p v-if="!overview.items.length" class="py-4 text-sm text-gray-500">{{ tr('noTickets') }}</p>
@@ -120,7 +121,7 @@ onBeforeUnmount(() => { controller?.abort(); clearInterval(timer) })
       <template v-if="tab === 'problems' && problems">
         <p class="mb-3 text-sm text-gray-500">{{ tr('problemHint') }}</p>
         <div v-for="item in problems.items" :key="`${item.account_id}-${item.model}`" class="flex flex-wrap gap-3 border-b border-gray-100 py-3 text-sm dark:border-dark-700">
-          <span>{{ item.account_name }} (#{{ item.account_id }})</span><span class="font-mono">{{ item.model }}</span><span class="text-amber-600">{{ item.blocked ? tr('blocked') : tr('passthrough') }}</span>
+          <span>{{ item.account_name }} (#{{ item.account_id }})</span><span class="font-mono">{{ item.model }}</span><span class="text-amber-600">{{ item.blocked ? tr('blocked') : tr('pending') }}<template v-if="item.blocked"> · {{ date(item.cooldown_until) }} · {{ item.cooldown_reason }}</template></span>
         </div>
         <p v-if="!problems.items.length" class="py-6 text-center text-gray-500">{{ tr('noProblems') }}</p>
         <div v-if="problems.total > 12" class="mt-4 flex items-center gap-3">
@@ -139,10 +140,10 @@ onBeforeUnmount(() => { controller?.abort(); clearInterval(timer) })
         </div>
         <div class="overflow-x-auto">
           <table class="w-full whitespace-nowrap text-left text-sm">
-            <thead><tr><th v-for="key in ['time', 'account', 'model', 'length', 'http', 'result', 'reason']" :key="key" class="px-2 py-3">{{ tr(key) }}</th></tr></thead>
+            <thead><tr><th v-for="key in ['time', 'account', 'model', 'attempt', 'length', 'http', 'result', 'reason']" :key="key" class="px-2 py-3">{{ tr(key) }}</th></tr></thead>
             <tbody><tr v-for="entry in logs?.items" :key="entry.id" class="border-t border-gray-100 dark:border-dark-700">
               <td class="px-2 py-3">{{ date(entry.created_at) }}</td><td class="px-2">{{ entry.account_name }} (#{{ entry.account_id }})</td><td class="px-2 font-mono">{{ entry.model }}</td>
-              <td class="px-2">{{ entry.length }}</td><td class="px-2">{{ entry.http_status || '—' }}</td><td class="px-2" :class="entry.success ? 'text-green-600' : 'text-amber-600'">{{ entry.kind === 'injection_missing' ? tr('injection_missing') : entry.success ? tr('success') : tr('failure') }}</td><td class="px-2">{{ reason(entry.reason) }}</td>
+              <td class="px-2">{{ entry.attempt || '—' }}</td><td class="px-2">{{ entry.length }}</td><td class="px-2">{{ entry.http_status || '—' }}</td><td class="px-2" :class="entry.success ? 'text-green-600' : 'text-amber-600'">{{ entry.kind === 'cooldown' ? tr('cooldown') : entry.kind === 'injection_missing' ? tr('injection_missing') : entry.success ? tr('success') : tr('failure') }}</td><td class="px-2">{{ reason(entry.reason) }}</td>
             </tr></tbody>
           </table>
         </div>

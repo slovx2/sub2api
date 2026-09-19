@@ -20,6 +20,7 @@ func TestCodexTicketLogsPersistencePaginationAndFilters(t *testing.T) {
 	})
 	for i := 0; i < 23; i++ {
 		event := &service.CodexTicketEvent{AccountID: accountID, AccountName: "deleted-account", Model: "gpt-6-astra", Kind: "harvest", Length: 332, HTTPStatus: 200, Success: i%2 == 0, Reason: "accepted", CreatedAt: time.Now()}
+		event.Attempt = i%3 + 1
 		if i == 22 {
 			event.Kind, event.Success, event.Reason = "injection_missing", false, "no_valid_ticket"
 		}
@@ -30,6 +31,7 @@ func TestCodexTicketLogsPersistencePaginationAndFilters(t *testing.T) {
 	first, err := repo.List(ctx, service.CodexTicketLogFilter{Page: 1, PageSize: 20, AccountID: accountID})
 	require.NoError(t, err)
 	require.Len(t, first.Items, 20)
+	require.Equal(t, 2, first.Items[0].Attempt)
 	require.EqualValues(t, 23, first.Total)
 	require.Equal(t, service.CodexTicketLogSummary{Attempts: 22, Success: 11, Failure: 11, InjectionMissing: 1}, first.Summary)
 	second, err := repo.List(ctx, service.CodexTicketLogFilter{Page: 2, PageSize: 20, AccountID: accountID})
@@ -46,4 +48,11 @@ func TestCodexTicketLogsPersistencePaginationAndFilters(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, empty.Items)
 	require.Zero(t, empty.Total)
+	require.NoError(t, repo.Create(ctx, &service.CodexTicketEvent{AccountID: accountID, AccountName: "deleted-account", Model: "gpt-6-astra", Kind: "cooldown", Reason: "attempts_exhausted", Attempt: 3, CreatedAt: time.Now()}))
+	withCooldown, err := repo.List(ctx, service.CodexTicketLogFilter{AccountID: accountID})
+	require.NoError(t, err)
+	require.EqualValues(t, 24, withCooldown.Total)
+	require.Equal(t, "cooldown", withCooldown.Items[0].Kind)
+	require.Equal(t, 3, withCooldown.Items[0].Attempt)
+	require.Equal(t, first.Summary, withCooldown.Summary, "冷却事件不能重复计入采票次数")
 }

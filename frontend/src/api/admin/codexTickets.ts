@@ -7,6 +7,8 @@ export interface CodexTicketOverviewItem {
   length?: number
   ready: boolean
   blocked: boolean
+  cooldown_until?: string
+  cooldown_reason?: string
   remaining_seconds: number
   expires_at?: string
 }
@@ -25,7 +27,8 @@ export interface CodexTicketEvent {
   account_id: number
   account_name: string
   model: string
-  kind: 'harvest' | 'injection_missing'
+  kind: 'harvest' | 'injection_missing' | 'cooldown'
+  attempt: number
   length: number
   http_status: number
   success: boolean

@@ -544,12 +544,12 @@ export default {
           refresh: '刷新', autoRefresh: '自动刷新（15 秒）', enabled: '已开启', disabled: '已关闭',
           overviewSummary: '{accounts} 个账号 · {tickets} 张有效票据',
           unavailable: '无有效票', remaining: '剩余 {minutes} 分', expires: '到期',
-          blocked: '无有效票据，按原策略拦截', passthrough: '无有效票据，允许原链路转发',
+          blocked: '账号冷却中，暂停调度', pending: '待请求采票', cooldown: '进入冷却', attempt: '尝试序号',
           noTickets: '当前没有可展示的账号票据。',
           attempts: '采票尝试', success: '成功', failure: '失败', injection_missing: '注入缺失',
           diagnosticHint: '记录成功及失败采票（永久保存，重启不清空）。统计按账号筛选；注入缺失为转发注入阶段无可用票据，不含调度前跳过。HTTP 未收到响应时显示 —。',
           problems: '问题账号', logs: '最近日志',
-          problemHint: '当前已选中且激活的账号中，至少一个目标模型缺少有效票据的账号。与历史失败记录分别统计。',
+          problemHint: '显示缺票待请求采票或处于冷却的账号，与历史失败记录分别统计。',
           noProblems: '当前范围内没有缺票账号，或打票功能未开启。',
           noLogs: '暂无记录。启用后发生的采票会记录在这里。',
           loadError: '加载失败，请重试；如有旧数据，当前显示的不是最新状态。',
@@ -560,11 +560,17 @@ export default {
             accepted: '已接受并缓存', token_error: '获取账号凭证失败', request_error: '网络或请求错误',
             http_error: '上游 HTTP 异常', missing_state: '响应缺少票据', invalid_length: '票据长度不符',
             invalid_format: '票据格式不符', scope_changed_or_cancelled: '范围已变更、功能已关闭或请求取消，结果丢弃',
-            no_valid_ticket: '注入时缺少有效票据'
+            no_valid_ticket: '注入时缺少有效票据', harvest_not_configured: '未配置采票代理或传输服务',
+            attempts_exhausted: '采票次数耗尽，账号进入冷却并切换账号', cooldown_persist_failed: '冷却持久化失败，本实例仍暂停调度'
           }
         },
+        ticketPolicy: {
+          ttl: '票据有效期（分钟）', refresh: '提前刷新量（分钟）', attempts: '最多采票次数（含首次）', cooldown: '失败后账号冷却（分钟）',
+          hint: '仅收到请求时采票，不后台自动刷新；WebSocket 仅建连或重连时检查。有效期只影响新票；提前量 0 表示过期后再采。默认最多采票 3 次，失败后冷却 60 分钟并切换账号。保存后无需重启。',
+          invalid: '有效期及冷却须为 1～1440 分钟；提前量须大于等于 0 且小于有效期（时间精确到整秒）；最多采票次数须为 1～10 的整数。'
+        },
         codexTicketAccounts: '打票账号范围',
-        codexTicketAccountsHint: '不指定账号时，对全部符合条件的 OpenAI 账号生效（含后续新增账号）。勾选后，仅对选中账号采票、注入和执行无票拦截。',
+        codexTicketAccountsHint: '不指定账号时，对全部符合条件的 OpenAI 账号生效（含后续新增账号）。勾选后，仅对选中账号按请求采票、注入，并在采票失败耗尽时冷却。',
         codexTicketAccountsAll: '当前未指定账号：全部生效',
         codexTicketAccountsSelected: '已指定 {count} 个账号',
         codexTicketAccountsSearch: '搜索账号名称',
@@ -573,7 +579,7 @@ export default {
         codexTicketAccountsUnavailable: '不适用或未激活',
         codexTicketAccountsLoadError: '账号加载失败，请重试；已保存的选择不会被清空。',
         codexTicketEnabledDesc:
-          '关闭后不打票、不注入 x-codex-turn-state，按原链路转发。开启后后台打票，并在业务请求中覆盖该头。',
+          '关闭后不打票、不注入 x-codex-turn-state，按原链路转发。开启后在请求需要票据时采票，拿到票据后覆盖该头再转发。',
         codexTicketHarvestProxy: '打票代理',
         codexTicketHarvestProxyDesc:
           '仅在门票功能开启时用于打票，保存后后续探测会使用新代理，无需重启。日常业务仍走账号自己的住宅代理。填写完整代理 URL（http 或 socks5h，含用户名和密码）。代理服务商需自行负责出口 IP 轮换。留空并保存表示不改已保存的值。',

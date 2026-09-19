@@ -16,8 +16,8 @@ func NewCodexTicketLogRepository(db *sql.DB) service.CodexTicketLogRepository {
 
 func (r *codexTicketLogRepo) Create(ctx context.Context, e *service.CodexTicketEvent) error {
 	_, err := r.db.ExecContext(ctx, `INSERT INTO codex_ticket_logs
-		(account_id, account_name, model, kind, length, http_status, success, reason, created_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, e.AccountID, e.AccountName, e.Model, e.Kind, e.Length, e.HTTPStatus, e.Success, e.Reason, e.CreatedAt)
+		(account_id, account_name, model, kind, length, http_status, success, reason, created_at, attempt)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, e.AccountID, e.AccountName, e.Model, e.Kind, e.Length, e.HTTPStatus, e.Success, e.Reason, e.CreatedAt, e.Attempt)
 	return err
 }
 
@@ -62,7 +62,7 @@ func (r *codexTicketLogRepo) List(ctx context.Context, filter service.CodexTicke
 		return nil, err
 	}
 	args = append(args, filter.PageSize, (filter.Page-1)*filter.PageSize)
-	query := `SELECT id, account_id, account_name, model, kind, length, http_status, success, reason, created_at
+	query := `SELECT id, account_id, account_name, model, kind, length, http_status, success, reason, created_at, attempt
 		FROM codex_ticket_logs` + where + fmt.Sprintf(" ORDER BY id DESC LIMIT $%d OFFSET $%d", len(args)-1, len(args))
 	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -71,7 +71,7 @@ func (r *codexTicketLogRepo) List(ctx context.Context, filter service.CodexTicke
 	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var e service.CodexTicketEvent
-		if err = rows.Scan(&e.ID, &e.AccountID, &e.AccountName, &e.Model, &e.Kind, &e.Length, &e.HTTPStatus, &e.Success, &e.Reason, &e.CreatedAt); err != nil {
+		if err = rows.Scan(&e.ID, &e.AccountID, &e.AccountName, &e.Model, &e.Kind, &e.Length, &e.HTTPStatus, &e.Success, &e.Reason, &e.CreatedAt, &e.Attempt); err != nil {
 			return nil, err
 		}
 		out.Items = append(out.Items, e)

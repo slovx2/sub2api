@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +11,28 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+func TestSettingsCodexTicketPolicyRoundTripAndOmission(t *testing.T) {
+	key := service.SettingKeyOpenAICodexTicketPolicy
+	h, repo := newStepUpSwitchTestHandler(t, map[string]string{})
+	policy := service.CodexTicketPolicy{TTLSeconds: 7200, RefreshBeforeSeconds: 0, MaxAttempts: 5, FailureCooldownSeconds: 1800}
+	rec := doUpdateSettings(t, h, map[string]any{key: policy}, nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	raw, _ := json.Marshal(policy)
+	require.JSONEq(t, string(raw), repo.values[key])
+	require.Equal(t, policy, h.settingService.GetOpenAICodexTicketPolicy(context.Background()))
+	for _, body := range []map[string]any{{"site_name": "another change"}, {key: nil}} {
+		rec = doUpdateSettings(t, h, body, nil)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		require.JSONEq(t, string(raw), repo.values[key])
+		require.Contains(t, rec.Body.String(), `"max_attempts":5`)
+	}
+	for _, bad := range []any{map[string]any{}, service.CodexTicketPolicy{TTLSeconds: 3600, RefreshBeforeSeconds: 3600, MaxAttempts: 3, FailureCooldownSeconds: 3600}, map[string]any{"ttl_seconds": 3600, "refresh_before_seconds": 600, "max_attempts": 1.5, "failure_cooldown_seconds": 3600}} {
+		rec = doUpdateSettings(t, h, map[string]any{key: bad}, nil)
+		require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+		require.JSONEq(t, string(raw), repo.values[key])
+	}
+}
 
 func TestSettingsCodexTicketProxyWriteReadAndHotReload(t *testing.T) {
 	key := service.SettingKeyOpenAICodexTicketHarvestProxyURL
@@ -45,6 +68,29 @@ func TestSettingsCodexTicketRejectInvalidProxyWithoutLeakingPassword(t *testing.
 	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 	require.NotContains(t, rec.Body.String(), "invalid-secret")
 	require.Equal(t, "http://previous.example.com:8080", repo.values[key])
+}
+
+func TestSettingsCodexTicketUnicodeProxyRoundTrip(t *testing.T) {
+	key := service.SettingKeyOpenAICodexTicketHarvestProxyURL
+	for _, scheme := range []string{"http", "https", "socks5", "socks5h"} {
+		t.Run(scheme, func(t *testing.T) {
+			h, repo := newStepUpSwitchTestHandler(t, map[string]string{})
+			raw := scheme + "://region-Skåne:påss%40word@proxy.example.com:1080"
+			rec := doUpdateSettings(t, h, map[string]any{key: raw}, nil)
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			require.Equal(t, raw, repo.values[key])
+			require.Equal(t, raw, h.settingService.GetOpenAICodexTicketHarvestProxyURL(context.Background()))
+			require.NotContains(t, rec.Body.String(), "påss")
+			require.NotContains(t, rec.Body.String(), "p%C3%A5ss")
+			masked := service.MaskProxyURL(raw)
+			require.True(t, service.IsMaskedProxyURL(masked))
+			require.Contains(t, rec.Body.String(), masked)
+			// 用脱敏回显再次保存时，必须保留原始密码及字符。
+			rec = doUpdateSettings(t, h, map[string]any{key: masked}, nil)
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			require.Equal(t, raw, repo.values[key])
+		})
+	}
 }
 
 func TestSettingsCodexTicketAccountSelection(t *testing.T) {

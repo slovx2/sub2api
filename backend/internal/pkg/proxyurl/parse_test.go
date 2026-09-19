@@ -1,9 +1,77 @@
 package proxyurl
 
 import (
+	"net/url"
 	"strings"
 	"testing"
 )
+
+func TestParse_UnicodeCredentials(t *testing.T) {
+	for _, scheme := range []string{"http", "https", "socks5", "socks5h"} {
+		for _, credentials := range []string{"region-Skåne:påss", "region-Sk%C3%A5ne:p%C3%A5ss", "region-Skåne:p%40ss"} {
+			t.Run(scheme+"/"+credentials, func(t *testing.T) {
+				normalized, parsed, err := Parse(scheme + "://" + credentials + "@proxy.example.com:1080")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if parsed.User.Username() != "region-Skåne" {
+					t.Fatalf("用户名被改变：%q", parsed.User.Username())
+				}
+				want := "påss"
+				if strings.Contains(credentials, "%40") {
+					want = "p@ss"
+				}
+				if password, _ := parsed.User.Password(); password != want {
+					t.Fatal("密码被改变")
+				}
+				if _, err := url.Parse(normalized); err != nil {
+					t.Fatal("规范化后的 URL 应可直接供传输层解析")
+				}
+			})
+		}
+	}
+}
+
+func TestParse_UserinfoEncodingBoundaries(t *testing.T) {
+	for _, raw := range []string{
+		"http://Skåne:secret word@proxy.example.com:8080",
+		"http://Sk%C3%A5ne:secret%20word@proxy.example.com:8080",
+	} {
+		normalized, parsed, err := Parse(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if parsed.User.Username() != "Skåne" {
+			t.Fatal("用户名未保留")
+		}
+		if password, _ := parsed.User.Password(); password != "secret word" {
+			t.Fatal("密码未保留")
+		}
+		again, _, err := Parse(normalized)
+		if err != nil || again != normalized {
+			t.Fatal("重复解析不得重复编码")
+		}
+	}
+	for _, raw := range []string{
+		"http://proxy.example.com/Skåne@path",
+		"http://proxy.example.com?city=Skåne@query",
+		"http://proxy.example.com#Skåne@fragment",
+	} {
+		normalized, parsed, err := Parse(raw)
+		if err != nil || normalized != raw || parsed.User != nil {
+			t.Fatal("路径、查询和片段不得被误当成凭据")
+		}
+	}
+	for _, raw := range []string{
+		"http://Skåne:secret%zz@proxy.example.com:8080",
+		"http://Skåne:secret\nword@proxy.example.com:8080",
+	} {
+		_, _, err := Parse(raw)
+		if err == nil || strings.Contains(err.Error(), "secret") {
+			t.Fatal("畸形 URL 应拒绝且不泄漏凭据")
+		}
+	}
+}
 
 func TestParse_空字符串直连(t *testing.T) {
 	trimmed, parsed, err := Parse("")

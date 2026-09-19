@@ -1,13 +1,43 @@
 package proxyutil
 
 import (
+	"encoding/base64"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/proxyurl"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestConfigureTransportProxy_UnicodeAuthentication(t *testing.T) {
+	auth := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth <- r.Header.Get("Proxy-Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	_, parsed, err := proxyurl.Parse("http://region-Skåne:påss%40word@" + strings.TrimPrefix(server.URL, "http://"))
+	require.NoError(t, err)
+	transport := &http.Transport{}
+	defer transport.CloseIdleConnections()
+	require.NoError(t, ConfigureTransportProxy(transport, parsed))
+	client := &http.Client{Transport: transport, Timeout: 3 * time.Second}
+	resp, err := client.Get("http://upstream.invalid/test")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	select {
+	case got := <-auth:
+		require.Equal(t, "Basic "+base64.StdEncoding.EncodeToString([]byte("region-Skåne:påss@word")), got)
+	default:
+		t.Fatal("请求未经过代理")
+	}
+}
 
 func TestConfigureTransportProxy_Nil(t *testing.T) {
 	transport := &http.Transport{}

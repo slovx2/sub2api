@@ -68,102 +68,6 @@ func TestCodexTicketProbeBypassesPluginDuringWiring(t *testing.T) {
 	require.Equal(t, int64(20), calls.Load())
 }
 
-type codexTicketLifecycleRepo struct {
-	AccountRepository
-	account Account
-	list    func(context.Context) ([]Account, error)
-	persist func(context.Context) error
-}
-
-func (r *codexTicketLifecycleRepo) ListByPlatform(ctx context.Context, _ string) ([]Account, error) {
-	if r.list != nil {
-		return r.list(ctx)
-	}
-	return []Account{r.account}, nil
-}
-func (r *codexTicketLifecycleRepo) UpdateExtra(ctx context.Context, _ int64, _ map[string]any) error {
-	if r.persist != nil {
-		return r.persist(ctx)
-	}
-	return nil
-}
-
-type codexTicketLifecycleSettings struct {
-	SettingRepository
-	get func(context.Context, string) (string, error)
-}
-
-func (r *codexTicketLifecycleSettings) GetValue(ctx context.Context, key string) (string, error) {
-	return r.get(ctx, key)
-}
-
-func TestCodexTicketHarvesterStopCancelsInFlightWork(t *testing.T) {
-	for _, stage := range []string{"settings-enabled", "settings-proxy", "accounts", "upstream", "persist"} {
-		t.Run(stage, func(t *testing.T) {
-			started := make(chan struct{})
-			cancelled := make(chan struct{})
-			var once sync.Once
-			block := func(ctx context.Context) error {
-				once.Do(func() { close(started) })
-				<-ctx.Done()
-				close(cancelled)
-				return ctx.Err()
-			}
-			account := ticketTestAccount(41)
-			account.Status = StatusActive
-			repo := &codexTicketLifecycleRepo{account: *account}
-			upstream := &codexTicketFuncUpstream{do: func(req *http.Request) (*http.Response, error) {
-				if stage == "upstream" {
-					return nil, block(req.Context())
-				}
-				return codexTicketResponse(), nil
-			}}
-			svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, HarvestProxyURL: "http://proxy.example.com:8080", HarvestAttemptTimeoutSeconds: 25, Models: []string{"gpt-6-astra"}}, upstream)
-			svc.accountRepo = repo
-			if stage == "accounts" {
-				repo.list = func(ctx context.Context) ([]Account, error) { return nil, block(ctx) }
-			}
-			if stage == "persist" {
-				repo.persist = block
-			}
-			if strings.HasPrefix(stage, "settings-") {
-				svc.settingService = NewSettingService(&codexTicketLifecycleSettings{get: func(ctx context.Context, key string) (string, error) {
-					if stage == "settings-enabled" && key == SettingKeyOpenAICodexTicketEnabled || stage == "settings-proxy" && key == SettingKeyOpenAICodexTicketHarvestProxyURL {
-						return "", block(ctx)
-					}
-					if key == SettingKeyOpenAICodexTicketEnabled {
-						return "true", nil
-					}
-					return "", ErrSettingNotFound
-				}}, svc.cfg)
-			}
-			svc.StartOpenAICodexTicketHarvester()
-			t.Cleanup(svc.StopOpenAICodexTicketHarvester)
-			select {
-			case <-started:
-			case <-time.After(3 * time.Second):
-				t.Fatal("harvester did not reach " + stage)
-			}
-			// Repeated start must not create a second loop or overwrite the cancellation state.
-			svc.StartOpenAICodexTicketHarvester()
-			stopped := make(chan struct{})
-			go func() { svc.StopOpenAICodexTicketHarvester(); close(stopped) }()
-			select {
-			case <-stopped:
-			case <-time.After(time.Second):
-				t.Fatal("stop waited for the probe timeout")
-			}
-			select {
-			case <-cancelled:
-			case <-time.After(time.Second):
-				t.Fatal("in-flight operation did not receive cancellation")
-			}
-			svc.StopOpenAICodexTicketHarvester()
-			svc.StartOpenAICodexTicketHarvester()
-		})
-	}
-}
-
 type codexTicketHeaderOnlyBody struct{ reads, closes int }
 
 func (b *codexTicketHeaderOnlyBody) Read([]byte) (int, error) { b.reads++; return 0, io.EOF }
@@ -187,21 +91,21 @@ func TestCodexTicketPolicyExemptsCredentialShadows(t *testing.T) {
 	shadow := ticketTestAccount(42)
 	shadow.ParentAccountID = &parentID
 	shadow.Status = StatusActive
-	cfg := config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true, HarvestProxyURL: "http://proxy.example.com:8080"}
+	cfg := config.OpenAICodexTicketConfig{Enabled: true, HarvestProxyURL: "http://proxy.example.com:8080"}
 	upstream := &httpUpstreamRecorder{}
 	svc := ticketTestService(t, cfg, upstream)
 	svc.accountRepo = &codexTicketRefreshRepo{accounts: []Account{*shadow}}
-	require.True(t, svc.openAICodexTicketBlocksAccount(parent, "gpt-6-astra"))
+	require.False(t, svc.codexTicketCooldownActive(parent))
 	for _, accountType := range []string{AccountTypeOAuth, AccountTypeSetupToken} {
 		shadow.Type = accountType
-		require.False(t, svc.openAICodexTicketBlocksAccount(shadow, "gpt-6-astra"))
+		require.False(t, svc.codexTicketCooldownActive(shadow))
 		headers := http.Header{}
 		headers.Set(openAICodexTurnStateHeader, "client-state")
 		require.NoError(t, svc.applyOpenAICodexTicket(context.Background(), shadow, "gpt-6-astra", headers))
 		require.Equal(t, "client-state", headers.Get(openAICodexTurnStateHeader))
 		require.Empty(t, OpenAICodexTicketStatuses(shadow, cfg, time.Now()))
-		svc.probeOnceOpenAICodexTicket(context.Background(), shadow, "gpt-6-astra")
+		svc.probeCodexTicketForTest(context.Background(), shadow, "gpt-6-astra")
 	}
-	svc.refreshOpenAICodexTickets(context.Background())
+	requestTicket(t, svc, shadow, "gpt-6-astra")
 	require.Empty(t, upstream.requests)
 }

@@ -746,10 +746,10 @@ export default {
         codexFingerprintSession: '设备+会话',
         codexFingerprintFull: '完全收敛',
         codexTurnTicket: 'Codex 292 / 332 门票',
-        codexTurnTicketDesc: '显示已配置模型的门票状态。仅在启用缺票拦截时，没有有效门票的模型才会暂停调度。',
-        codexTurnTicketMissing: '暂无有效门票，仍允许请求',
+        codexTurnTicketDesc: '无票或临近过期时由请求触发采票，成功注入后继续；采票次数耗尽才冷却账号并切换。WebSocket 仅在建连或重连时检查。',
+        codexTurnTicketMissing: '待请求采票',
         codexTurnTicketReady: '剩余 {time}',
-        codexTurnTicketPaused: '无有效门票，该模型已暂停',
+        codexTurnTicketPaused: '账号冷却中，暂停调度',
         codexImageTool: 'Codex 图片桥接策略',
         codexImageToolDesc:
           '统一控制 Codex /responses 文本请求的 hosted image_generation 桥接和客户端图片工具声明。hosted 工具自动注入仅适用于非 Responses Lite 请求；账号级策略优先于渠道和全局配置，不影响独立图片生成接口。',

@@ -332,11 +332,9 @@ gateway:
     ttl_seconds: 3600
     refresh_before_seconds: 600
     # 后台「系统设置 → 网关 → Codex 设置」可覆盖此值，无需重启。
-    # 后台值的读取缓存为 5 秒，下个探测周期使用新代理；代理服务商自行负责轮换 IP。
+    # 设置缓存为 5 秒，下次请求采票使用新代理；没有业务请求时不采票。
     harvest_proxy_url: ""
-    harvest_probe_interval_seconds: 6
     harvest_attempt_timeout_seconds: 25
-    fail_closed: true
     models:
       - gpt-6-astra
       - gpt-5.6-sol

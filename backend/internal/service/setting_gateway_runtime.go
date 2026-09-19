@@ -328,6 +328,14 @@ func (s *SettingService) InvalidateOpenAICodexTicketEnabledCache() {
 	if s == nil {
 		return
 	}
+	s.InvalidateOpenAICodexTicketAccountsCache()
+	s.invalidateOpenAICodexTicketEnabledValueCache()
+}
+
+func (s *SettingService) invalidateOpenAICodexTicketEnabledValueCache() {
+	if s == nil {
+		return
+	}
 	s.openAICodexTicketEnabledSF.Forget(SettingKeyOpenAICodexTicketEnabled)
 	s.openAICodexTicketEnabledCache.Store(&cachedOpenAICodexTicketEnabled{expiresAt: 0})
 }

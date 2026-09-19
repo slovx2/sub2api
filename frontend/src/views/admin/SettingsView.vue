@@ -4517,6 +4517,7 @@
                   />
                 </div>
                 <CodexTicketAccountSelector v-model="form.openai_codex_ticket_account_ids" />
+                <CodexTicketPolicySettings v-model="form.openai_codex_ticket_policy" />
                 <div>
                   <h3 class="text-base font-semibold text-gray-900 dark:text-white">
                     {{ t("admin.settings.gatewayForwarding.codexTicketHarvestProxy") }}
@@ -8915,6 +8916,8 @@ import EmailTemplateEditor from "@/views/admin/settings/EmailTemplateEditor.vue"
 import OpenAIFastPolicyUserSelector from "@/views/admin/settings/OpenAIFastPolicyUserSelector.vue";
 import CodexTicketAccountSelector from "@/views/admin/settings/CodexTicketAccountSelector.vue";
 import CodexTicketManagementDialog from "@/views/admin/settings/CodexTicketManagementDialog.vue";
+import CodexTicketPolicySettings from "@/views/admin/settings/CodexTicketPolicySettings.vue";
+import { validCodexTicketPolicy } from "@/utils/codexTicketPolicy";
 import { useClipboard } from "@/composables/useClipboard";
 import {
   useStepUp,
@@ -9883,6 +9886,7 @@ const form = reactive<SettingsForm>({
   openai_codex_version_auto_sync_enabled: true,
   openai_codex_ticket_enabled: false,
   openai_codex_ticket_account_ids: [] as number[],
+  openai_codex_ticket_policy: { ttl_seconds: 3600, refresh_before_seconds: 600, max_attempts: 3, failure_cooldown_seconds: 3600 },
   openai_codex_ticket_harvest_proxy_url: "",
   openai_codex_ticket_harvest_proxy_configured: false,
   // codex_cli_only 加固
@@ -11138,6 +11142,10 @@ const siteBillingModeHint = computed(() =>
 async function saveSettings() {
   saving.value = true;
   try {
+    if (!validCodexTicketPolicy(form.openai_codex_ticket_policy)) {
+      appStore.showError(t("admin.settings.gatewayForwarding.ticketPolicy.invalid"));
+      return;
+    }
     const normalizedTableDefaultPageSize = Math.floor(
       Number(form.table_default_page_size),
     );
@@ -11493,6 +11501,7 @@ async function saveSettings() {
         form.openai_codex_version_auto_sync_enabled,
       openai_codex_ticket_enabled: form.openai_codex_ticket_enabled,
       openai_codex_ticket_account_ids: form.openai_codex_ticket_account_ids,
+      openai_codex_ticket_policy: form.openai_codex_ticket_policy,
       openai_codex_ticket_harvest_proxy_url:
         form.openai_codex_ticket_harvest_proxy_url?.trim() || "",
       min_codex_version: form.min_codex_version?.trim() || "",

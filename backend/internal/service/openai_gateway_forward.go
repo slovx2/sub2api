@@ -925,6 +925,10 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			if wsErr == nil {
 				break
 			}
+			// 采票已经完成账号级重试；直接交给外层换号，不能写出错误或重试 WS。
+			if errors.Is(wsErr, ErrOpenAICodexTicketUnavailable) {
+				return nil, wsErr
+			}
 			if c != nil && c.Writer != nil && c.Writer.Written() {
 				break
 			}
@@ -1055,6 +1059,10 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	rejectedFieldRetryState := openAIResponsesRejectedFieldRetryStateForRequest(c, body)
 	for {
 		// Build upstream request
+		// 在脱离客户端取消及启动首输出计时前等待采票。
+		if err := s.applyOpenAICodexTicket(ctx, account, extractOpenAICodexTicketModel(body), http.Header{}); err != nil {
+			return nil, err
+		}
 		upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
 		var headerGuard *openAIFirstOutputHeaderGuard
 		if firstOutputTimeout > 0 {
@@ -1459,7 +1467,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	// 客户端回带的 x-codex-turn-state 若已知由其他账号铸造（failover 换号），
 	// 剥离后再出站——异账号 blob 与本账号的（指纹收敛后）出站身份自相矛盾。
 	s.guardOpenAICodexTurnStateEcho(c, account, req.Header)
-	if err := s.applyOpenAICodexTicket(ctx, account, extractOpenAICodexTicketModel(body), req.Header); err != nil {
+	if err := s.applyOpenAICodexTicketForRequest(ctx, c, account, extractOpenAICodexTicketModel(body), req.Header); err != nil {
 		return nil, err
 	}
 	if account.UsesOpenAICodexProtocol() {

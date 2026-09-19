@@ -771,6 +771,18 @@ func (s *HTTPUpstreamSuite) TestNormalizeProxyURL_Canonicalizes() {
 	require.Equal(s.T(), key1, key2, "expected normalized proxy keys to match")
 }
 
+func TestNormalizeProxyURL_UnicodeCredentials(t *testing.T) {
+	key, parsed, err := normalizeProxyURL("http://region-Skåne:påss%40word@proxy.local:8080")
+	require.NoError(t, err)
+	require.Equal(t, "region-Skåne", parsed.User.Username())
+	password, ok := parsed.User.Password()
+	require.True(t, ok)
+	require.Equal(t, "påss@word", password)
+	encodedKey, _, err := normalizeProxyURL("http://region-Sk%C3%A5ne:p%C3%A5ss%40word@proxy.local:8080")
+	require.NoError(t, err)
+	require.Equal(t, key, encodedKey, "原文和编码后的代理凭据应使用同一连接池键")
+}
+
 // TestAcquireClient_OverLimitReturnsError 测试连接池缓存上限保护
 // 验证超限且无可淘汰条目时返回错误
 func (s *HTTPUpstreamSuite) TestAcquireClient_OverLimitReturnsError() {

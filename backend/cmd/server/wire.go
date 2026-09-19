@@ -332,9 +332,9 @@ func provideCleanup(
 				}
 				return nil
 			}},
-			{"OpenAICodexTicketHarvester", func() error {
+			{"OpenAICodexTicketRequests", func() error {
 				if openAIGateway != nil {
-					openAIGateway.StopOpenAICodexTicketHarvester()
+					openAIGateway.StopOpenAICodexTicketRequests()
 				}
 				return nil
 			}},

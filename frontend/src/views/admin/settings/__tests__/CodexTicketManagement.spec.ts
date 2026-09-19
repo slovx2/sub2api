@@ -7,6 +7,18 @@ vi.mock('@/api/admin/codexTickets', () => ({ getCodexTicketOverview: mocks.overv
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key.split('.').at(-1) }) }))
 
 describe('CodexTicketManagement', () => {
+  it('distinguishes waiting for a request from account cooldown', async () => {
+    mocks.overview.mockResolvedValue({ enabled: true, accounts: 2, valid_tickets: 0, problem_accounts: 2, total: 2, items: [
+      { account_id: 7, account_name: 'waiting', model: 'gpt-6-astra', ready: false, blocked: false, remaining_seconds: 0 },
+      { account_id: 8, account_name: 'cooling', model: 'gpt-6-astra', ready: false, blocked: true, remaining_seconds: 0, cooldown_until: '2026-09-19T15:00:00Z', cooldown_reason: 'attempts exhausted' }
+    ] })
+    const wrapper = mount(CodexTicketManagement)
+    await flushPromises()
+    expect(wrapper.text()).toContain('pending')
+    expect(wrapper.text()).toContain('blocked')
+    expect(wrapper.text()).toContain('attempts exhausted')
+    wrapper.unmount()
+  })
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.overview.mockResolvedValue({ enabled: true, accounts: 1, valid_tickets: 2, problem_accounts: 0, total: 2, items: [

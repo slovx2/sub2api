@@ -13,6 +13,7 @@ const SettingKeyOpenAICodexTicketAccountIDs = "openai_codex_ticket_account_ids"
 
 type cachedCodexTicketAccounts struct {
 	ids        []int64
+	enabled    bool
 	expiresAt  time.Time
 	generation uint64
 }
@@ -81,10 +82,17 @@ func (s *SettingService) codexTicketAccountsSnapshot(ctx context.Context) ([]int
 			return []int64{-1}, generation
 		}
 	}
+	enabled := s.cfg != nil && s.cfg.Gateway.OpenAICodexTicket.Enabled
+	if previous != nil {
+		enabled = previous.enabled
+	}
+	if cached, ok := s.openAICodexTicketEnabledCache.Load().(*cachedOpenAICodexTicketEnabled); ok && cached != nil && time.Now().UnixNano() < cached.expiresAt {
+		enabled = cached.value
+	}
 	if previous == nil || !slices.Equal(previous.ids, ids) {
 		generation++
 	}
-	s.openAICodexTicketAccounts = &cachedCodexTicketAccounts{ids: ids, generation: generation, expiresAt: time.Now().Add(5 * time.Second)}
+	s.openAICodexTicketAccounts = &cachedCodexTicketAccounts{ids: ids, enabled: enabled, generation: generation, expiresAt: time.Now().Add(5 * time.Second)}
 	return slices.Clone(ids), generation
 }
 
@@ -100,6 +108,24 @@ func (s *SettingService) InvalidateOpenAICodexTicketAccountsCache() {
 		s.openAICodexTicketAccounts.expiresAt = time.Time{}
 		s.openAICodexTicketAccounts.generation++
 	}
+}
+
+// 更新其他设置（例如重试策略）不能取消正在执行的采票轮次。
+func (s *SettingService) refreshCodexTicketScopeAfterSettings(settings *SystemSettings) {
+	s.openAICodexTicketAccountsMu.Lock()
+	defer s.openAICodexTicketAccountsMu.Unlock()
+	if scope := s.openAICodexTicketAccounts; scope != nil {
+		enabled := scope.enabled
+		if cached, ok := s.openAICodexTicketEnabledCache.Load().(*cachedOpenAICodexTicketEnabled); ok && cached != nil && time.Now().UnixNano() < cached.expiresAt {
+			enabled = cached.value
+		}
+		if enabled != settings.OpenAICodexTicketEnabled || !slices.Equal(scope.ids, settings.OpenAICodexTicketAccountIDs) {
+			scope.generation++
+		}
+		scope.enabled = settings.OpenAICodexTicketEnabled
+		scope.expiresAt = time.Time{}
+	}
+	s.invalidateOpenAICodexTicketEnabledValueCache()
 }
 
 func codexTicketAccountSelected(ids []int64, accountID int64) bool {

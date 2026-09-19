@@ -2263,11 +2263,12 @@
         <div class="mt-3 space-y-1.5">
           <div v-for="ticket in codexTurnTickets" :key="ticket.model" class="flex items-center justify-between text-sm">
             <span class="font-medium">{{ ticket.model }}</span>
-            <span v-if="ticket.ready" class="text-emerald-600 dark:text-emerald-400">
-              {{ t('admin.accounts.openai.codexTurnTicketReady', { time: formatCodexTicketRemaining(ticket.remaining_seconds) }) }}
-            </span>
-            <span v-else-if="ticket.blocked" class="text-amber-600 dark:text-amber-400">
+            <span v-if="ticket.blocked" :title="ticket.cooldown_reason" class="text-amber-600 dark:text-amber-400">
               {{ t('admin.accounts.openai.codexTurnTicketPaused') }}
+              <template v-if="ticket.cooldown_until"> · {{ new Date(ticket.cooldown_until).toLocaleString() }}</template>
+            </span>
+            <span v-else-if="ticket.ready" class="text-emerald-600 dark:text-emerald-400">
+              {{ t('admin.accounts.openai.codexTurnTicketReady', { time: formatCodexTicketRemaining(ticket.remaining_seconds) }) }}
             </span>
             <span v-else class="text-gray-500">{{ t('admin.accounts.openai.codexTurnTicketMissing') }}</span>
           </div>

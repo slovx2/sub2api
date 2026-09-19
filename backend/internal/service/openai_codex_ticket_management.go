@@ -21,6 +21,7 @@ type CodexTicketEvent struct {
 	HTTPStatus  int       `json:"http_status"`
 	Success     bool      `json:"success"`
 	Reason      string    `json:"reason"`
+	Attempt     int       `json:"attempt"`
 	CreatedAt   time.Time `json:"created_at"`
 }
 
@@ -121,8 +122,15 @@ func (s *OpenAIGatewayService) CodexTicketOverview(ctx context.Context, page, pa
 			} else {
 				problem = true
 			}
-			status.Blocked = cfg.FailClosed && !status.Ready
-			if !problemsOnly || !status.Ready {
+			setCodexTicketCooldownStatus(&status, account, now)
+			if until, active := s.codexTicketCooldownUntil(account.ID); active {
+				if status.CooldownUntil == nil || until.After(*status.CooldownUntil) {
+					status.CooldownUntil, status.CooldownReason = &until, "codex ticket attempts exhausted"
+				}
+				status.Blocked = true
+			}
+			problem = problem || status.Blocked
+			if !problemsOnly || !status.Ready || status.Blocked {
 				items = append(items, CodexTicketOverviewItem{AccountID: account.ID, AccountName: account.Name, OpenAICodexTicketStatus: status})
 			}
 		}
@@ -142,4 +150,13 @@ func (s *OpenAIGatewayService) CodexTicketOverview(ctx context.Context, page, pa
 		out.Items = items[start:min(start+pageSize, len(items))]
 	}
 	return out, nil
+}
+
+func setCodexTicketCooldownStatus(status *OpenAICodexTicketStatus, account *Account, now time.Time) {
+	if account != nil && account.TempUnschedulableUntil != nil && now.Before(*account.TempUnschedulableUntil) {
+		status.Blocked = true
+		until := *account.TempUnschedulableUntil
+		status.CooldownUntil = &until
+		status.CooldownReason = account.TempUnschedulableReason
+	}
 }

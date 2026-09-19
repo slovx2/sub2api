@@ -742,6 +742,24 @@ describe("admin SettingsView payment visible method controls", () => {
     wrapper.unmount();
   });
 
+  it("loads, saves and validates the request-driven Codex ticket policy", async () => {
+    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse, openai_codex_ticket_enabled: true,
+      openai_codex_ticket_policy: { ttl_seconds: 7200, refresh_before_seconds: 0, max_attempts: 5, failure_cooldown_seconds: 1800 } });
+    const wrapper = mountView();
+    await flushPromises();
+    expect((wrapper.get('#codex-ticket-max_attempts').element as HTMLInputElement).value).toBe('5');
+    await wrapper.get('#codex-ticket-max_attempts').setValue('2');
+    await wrapper.find('form').trigger('submit.prevent');
+    await flushPromises();
+    expect(updateSettings.mock.calls[0]?.[0].openai_codex_ticket_policy).toEqual({ ttl_seconds: 7200, refresh_before_seconds: 0, max_attempts: 2, failure_cooldown_seconds: 1800 });
+    updateSettings.mockClear();
+    await wrapper.get('#codex-ticket-max_attempts').setValue('');
+    await wrapper.find('form').trigger('submit.prevent');
+    await flushPromises();
+    expect(updateSettings).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
   it("loads and submits the Codex ticket account scope without expanding it", async () => {
     getSettings.mockResolvedValueOnce({
       ...baseSettingsResponse,

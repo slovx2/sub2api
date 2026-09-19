@@ -486,6 +486,10 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if !slices.Equal(before.OpenAICodexTicketAccountIDs, after.OpenAICodexTicketAccountIDs) {
 		changed = append(changed, "openai_codex_ticket_account_ids")
 	}
+	if req.OpenAICodexTicketPolicy != nil && ((before.OpenAICodexTicketPolicy == nil) != (after.OpenAICodexTicketPolicy == nil) ||
+		(before.OpenAICodexTicketPolicy != nil && after.OpenAICodexTicketPolicy != nil && *before.OpenAICodexTicketPolicy != *after.OpenAICodexTicketPolicy)) {
+		changed = append(changed, "openai_codex_ticket_policy")
+	}
 	if before.OpenAICodexTicketEnabled != after.OpenAICodexTicketEnabled {
 		changed = append(changed, "openai_codex_ticket_enabled")
 	}
