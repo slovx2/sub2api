@@ -8,7 +8,7 @@ import zhCommon from "@/i18n/locales/zh/common";
 import zhSettings from "@/i18n/locales/zh/admin/settings";
 import SettingsView from "../SettingsView.vue";
 
-vi.mock('@/views/admin/settings/CodexTicketManagement.vue', () => ({ default: { template: '<div data-testid="ticket-management-stub" />' } }))
+vi.mock('@/views/admin/settings/CodexTicketManagementDialog.vue', () => ({ default: { template: '<div data-testid="ticket-management-stub" />' } }))
 
 const {
   getSettings,

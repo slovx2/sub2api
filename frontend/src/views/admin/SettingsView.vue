@@ -4539,7 +4539,7 @@
                     {{ t("admin.settings.gatewayForwarding.codexTicketHarvestProxyConfigured") }}
                   </p>
                 </div>
-                <CodexTicketManagement />
+                <CodexTicketManagementDialog />
                 <div>
                   <h3 class="text-base font-semibold text-gray-900 dark:text-white">
                     {{ t("admin.settings.gatewayForwarding.codexClientRestrictionTitle") }}
@@ -8914,7 +8914,7 @@ import BackupSettings from "@/views/admin/BackupView.vue";
 import EmailTemplateEditor from "@/views/admin/settings/EmailTemplateEditor.vue";
 import OpenAIFastPolicyUserSelector from "@/views/admin/settings/OpenAIFastPolicyUserSelector.vue";
 import CodexTicketAccountSelector from "@/views/admin/settings/CodexTicketAccountSelector.vue";
-import CodexTicketManagement from "@/views/admin/settings/CodexTicketManagement.vue";
+import CodexTicketManagementDialog from "@/views/admin/settings/CodexTicketManagementDialog.vue";
 import { useClipboard } from "@/composables/useClipboard";
 import {
   useStepUp,

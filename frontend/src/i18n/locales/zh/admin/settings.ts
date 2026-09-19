@@ -538,6 +538,7 @@ export default {
         codexHardeningTitle: 'Codex 设置',
         codexTicketEnabled: '292 / 332 打票',
         ticketManagement: {
+          open: '打票管理',
           overview: '账号打票总览', diagnostics: '打票日志与诊断',
           savedPolicy: '以下展示已保存配置的实时状态；修改账号范围后请先保存，再刷新。292 / 332 均视为有效长度，仍须通过格式、HTTP 状态及过期校验。',
           refresh: '刷新', autoRefresh: '自动刷新（15 秒）', enabled: '已开启', disabled: '已关闭',

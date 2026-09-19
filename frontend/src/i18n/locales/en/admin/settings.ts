@@ -545,6 +545,7 @@ export default {
         codexHardeningTitle: "Codex Settings",
         codexTicketEnabled: "292 / 332 ticket harvest",
         ticketManagement: {
+          open: 'Ticket management',
           overview: 'Account ticket overview', diagnostics: 'Harvest logs & diagnostics',
           savedPolicy: 'Live status uses saved settings. Save scope changes before refreshing. Both 292 and 332 are accepted lengths; format, HTTP status and expiration checks still apply.',
           refresh: 'Refresh', autoRefresh: 'Auto refresh (15s)', enabled: 'Enabled', disabled: 'Disabled',

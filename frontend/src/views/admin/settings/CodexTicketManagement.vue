@@ -68,7 +68,7 @@ onBeforeUnmount(() => { controller?.abort(); clearInterval(timer) })
 </script>
 
 <template>
-  <div class="space-y-6 border-t border-gray-100 pt-6 dark:border-dark-700" data-testid="codex-ticket-management" :aria-busy="loading">
+  <div class="space-y-6" data-testid="codex-ticket-management" :aria-busy="loading">
     <p class="text-sm text-gray-500">{{ tr('savedPolicy') }}</p>
     <p v-if="error" role="alert" class="text-sm text-red-600">{{ tr('loadError') }}</p>
     <section class="rounded-2xl border border-gray-200 p-5 dark:border-dark-600">
