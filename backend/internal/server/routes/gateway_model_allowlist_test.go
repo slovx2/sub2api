@@ -158,6 +158,10 @@ func TestGatewayRoutesGroupModelAllowlistCoversRootAliasRoutes(t *testing.T) {
 		{http.MethodPost, "/v1/images/generations", `{"model":"gpt-4.1"}`},
 		{http.MethodPost, "/v1/videos/generations", `{"model":"gpt-4.1"}`},
 		{http.MethodPost, "/v1/live/sessions", `{"session":{"model":"gpt-4.1"},"transport":{"type":"webrtc","sdp":"v=0"}}`},
+		{http.MethodPost, "/api/v3/contents/generations/tasks", `{"model":"gpt-4.1","content":[{"type":"text","text":"waves"}]}`},
+		{http.MethodPost, "/v3/contents/generations/tasks", `{"model":"gpt-4.1","content":[{"type":"text","text":"waves"}]}`},
+		{http.MethodPost, "/v1/contents/generations/tasks", `{"model":"gpt-4.1","content":[{"type":"text","text":"waves"}]}`},
+		{http.MethodPost, "/contents/generations/tasks", `{"model":"gpt-4.1","content":[{"type":"text","text":"waves"}]}`},
 		{http.MethodPost, "/backend-api/codex/responses", `{"model":"gpt-4.1"}`},
 		{http.MethodPost, "/antigravity/v1/messages", `{"model":"gemini-2.5-pro","messages":[]}`},
 	}
