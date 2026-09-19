@@ -84,19 +84,17 @@ func escapeUserinfo(raw string) string {
 		return raw
 	}
 	end = start + at
-	var encoded strings.Builder
-	encoded.WriteString(raw[:start])
+	encoded := make([]byte, 0, len(raw))
+	encoded = append(encoded, raw[:start]...)
 	const hex = "0123456789ABCDEF"
 	for i := start; i < end; i++ {
 		b := raw[i]
 		if b >= 0x80 || b == ' ' {
-			encoded.WriteByte('%')
-			encoded.WriteByte(hex[b>>4])
-			encoded.WriteByte(hex[b&15])
+			encoded = append(encoded, '%', hex[b>>4], hex[b&15])
 		} else {
-			encoded.WriteByte(b)
+			encoded = append(encoded, b)
 		}
 	}
-	encoded.WriteString(raw[end:])
-	return encoded.String()
+	encoded = append(encoded, raw[end:]...)
+	return string(encoded)
 }

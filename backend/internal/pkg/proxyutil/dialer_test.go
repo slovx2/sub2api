@@ -29,7 +29,7 @@ func TestConfigureTransportProxy_UnicodeAuthentication(t *testing.T) {
 	client := &http.Client{Transport: transport, Timeout: 3 * time.Second}
 	resp, err := client.Get("http://upstream.invalid/test")
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { require.NoError(t, resp.Body.Close()) }()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	select {
 	case got := <-auth:
