@@ -1480,6 +1480,8 @@ export default {
       reAuthorizedSuccess: 'Account re-authorized successfully',
       // Test Modal
       testAccountConnection: 'Test Account Connection',
+      ticketLength: 'Ticket length: {length}',
+      ticketNotReturned: 'Ticket length: 0 (no ticket returned in this response)',
       errorPrefix: 'Error: {message}',
       imagePreviewAlt: 'Test image {index}',
       imageLightboxAlt: 'Image preview',

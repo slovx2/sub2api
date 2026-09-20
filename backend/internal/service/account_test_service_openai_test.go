@@ -53,6 +53,58 @@ func newJSONResponse(status int, body string) *http.Response {
 
 // --- test functions ---
 
+func TestAccountTestService_OpenAITicketLength(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		length int
+		status int
+		apiKey bool
+	}{
+		{name: "292票据", length: 292, status: http.StatusOK},
+		{name: "312票据", length: 312, status: http.StatusOK},
+		{name: "未返回票据", status: http.StatusOK},
+		{name: "错误响应仍显示长度", length: 312, status: http.StatusForbidden},
+		{name: "API密钥不展示Codex票据", length: 292, status: http.StatusOK, apiKey: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, recorder := newTestContext()
+			resp := newJSONResponse(tc.status, "data: {\"type\":\"response.completed\"}\n\n")
+			state := ""
+			if tc.length > 0 {
+				state = "gAAAAA" + strings.Repeat("x", tc.length-6)
+				resp.Header.Set("x-codex-turn-state", state)
+			}
+			upstream := &queuedHTTPUpstream{responses: []*http.Response{resp}}
+			svc := &AccountTestService{httpUpstream: upstream, cfg: &config.Config{}}
+			account := &Account{
+				ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth,
+				Credentials: map[string]any{"access_token": "test-token"},
+			}
+			if tc.apiKey {
+				account.Type = AccountTypeAPIKey
+				account.Credentials = map[string]any{"api_key": "test-key"}
+			}
+			err := svc.testOpenAIAccountConnection(ctx, account, "gpt-5.4", "", "")
+			if tc.status == http.StatusOK {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+			require.Len(t, upstream.requests, 1, "展示长度不能新增上游请求")
+			output := recorder.Body.String()
+			if tc.apiKey {
+				require.NotContains(t, output, "ticket_length")
+			} else {
+				require.Contains(t, output, fmt.Sprintf(`"ticket_length":%d`, tc.length))
+				require.Contains(t, output, `"type":"ticket"`)
+			}
+			if state != "" {
+				require.NotContains(t, output, state, "不可泄露票据内容")
+			}
+		})
+	}
+}
+
 func newTestContext() (*gin.Context, *httptest.ResponseRecorder) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()

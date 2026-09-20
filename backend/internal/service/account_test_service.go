@@ -57,12 +57,13 @@ type TestEvent struct {
 	Code     string `json:"code,omitempty"`
 	ImageURL string `json:"image_url,omitempty"`
 	// AudioURL / VideoURL are data: or https URLs for in-browser media players.
-	AudioURL string `json:"audio_url,omitempty"`
-	VideoURL string `json:"video_url,omitempty"`
-	MimeType string `json:"mime_type,omitempty"`
-	Data     any    `json:"data,omitempty"`
-	Success  bool   `json:"success,omitempty"`
-	Error    string `json:"error,omitempty"`
+	AudioURL     string `json:"audio_url,omitempty"`
+	VideoURL     string `json:"video_url,omitempty"`
+	MimeType     string `json:"mime_type,omitempty"`
+	Data         any    `json:"data,omitempty"`
+	Success      bool   `json:"success,omitempty"`
+	Error        string `json:"error,omitempty"`
+	TicketLength *int   `json:"ticket_length,omitempty"`
 }
 
 // AccountTestOptions carries optional media for admin connectivity tests.
@@ -913,6 +914,9 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	if isOAuth {
+		s.sendCodexTicketLength(c, resp.Header)
+	}
 	if isOAuth && s.accountRepo != nil {
 		if updates, err := extractOpenAICodexProbeUpdates(resp); err == nil && len(updates) > 0 {
 			_ = s.accountRepo.UpdateExtra(ctx, account.ID, updates)
@@ -2257,6 +2261,9 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 	defer func() { _ = resp.Body.Close() }()
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if isOAuth {
+		s.sendCodexTicketLength(c, resp.Header)
+	}
 	body = redactAgentIdentitySensitiveBodyForAccount(ctx, s.accountRepo, credentialAccount, body)
 	if !agentIdentityTaskRecoveryWasTried(ctx) && credentialAccount.IsOpenAIAgentIdentity() && isAgentIdentityTaskInvalidHTTPResponse(resp.StatusCode, body) {
 		expectedTaskID := credentialAccount.GetCredential("task_id")
@@ -3160,6 +3167,7 @@ func (s *AccountTestService) testOpenAIImageOAuth(c *gin.Context, ctx context.Co
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Image upstream request failed: %s", err.Error()))
 	}
+	s.sendCodexTicketLength(c, resp.Header)
 	defer func() {
 		if resp != nil && resp.Body != nil {
 			_ = resp.Body.Close()
@@ -3217,6 +3225,12 @@ func (s *AccountTestService) testOpenAIImageOAuth(c *gin.Context, ctx context.Co
 
 	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 	return nil
+}
+
+// 仅报告本次响应的票据长度，不暴露票据内容，也不额外发送采票请求。
+func (s *AccountTestService) sendCodexTicketLength(c *gin.Context, headers http.Header) {
+	length := len(extractOpenAICodexTurnState(headers))
+	s.sendEvent(c, TestEvent{Type: "ticket", TicketLength: &length})
 }
 
 func (s *AccountTestService) sendEvent(c *gin.Context, event TestEvent) {

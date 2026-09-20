@@ -1538,6 +1538,8 @@ export default {
       reAuthorizedSuccess: '账号重新授权成功',
       // Test Modal
       testAccountConnection: '测试账号连接',
+      ticketLength: '票据长度：{length}',
+      ticketNotReturned: '票据长度：0（本次响应未返回票据）',
       errorPrefix: '错误：{message}',
       imagePreviewAlt: '测试图片 {index}',
       imageLightboxAlt: '图片预览',
