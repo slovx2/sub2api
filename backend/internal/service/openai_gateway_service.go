@@ -509,7 +509,7 @@ type OpenAIGatewayService struct {
 	openaiCodexTicketLifecycleMu      sync.Mutex
 	openaiCodexTicketAccounts         map[int64]*codexTicketAccountWork
 	openaiCodexTicketWorkers          sync.WaitGroup
-	openaiCodexTicketCooldowns        sync.Map // accountID → time.Time，持久化失败时仍阻止本实例调度
+	openaiCodexTicketFailures         sync.Map // accountID → *codexTicketFailureState
 	openaiCodexTicketStopped          bool
 	openaiCodexTicketBackgroundCancel context.CancelFunc
 	openaiCodexTicketBackgroundDone   chan struct{}

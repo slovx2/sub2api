@@ -12,19 +12,19 @@ import (
 )
 
 func TestCodexTicketPolicyValidation(t *testing.T) {
-	base := CodexTicketPolicy{TTLSeconds: 3600, RefreshBeforeSeconds: 600, MaxAttempts: 3, FailureCooldownSeconds: 3600}
+	base := CodexTicketPolicy{TTLSeconds: 3600, RefreshBeforeSeconds: 600, MaxConsecutiveFailures: 3, HarvestIntervalSeconds: 3600}
 	require.NoError(t, base.Validate())
 	for _, modify := range []func(*CodexTicketPolicy){
 		func(p *CodexTicketPolicy) { p.TTLSeconds = 59 }, func(p *CodexTicketPolicy) { p.TTLSeconds = 86401 },
 		func(p *CodexTicketPolicy) { p.RefreshBeforeSeconds = -1 }, func(p *CodexTicketPolicy) { p.RefreshBeforeSeconds = 3600 },
-		func(p *CodexTicketPolicy) { p.MaxAttempts = 0 }, func(p *CodexTicketPolicy) { p.MaxAttempts = 11 },
-		func(p *CodexTicketPolicy) { p.FailureCooldownSeconds = 59 }, func(p *CodexTicketPolicy) { p.FailureCooldownSeconds = 86401 },
+		func(p *CodexTicketPolicy) { p.MaxConsecutiveFailures = 0 }, func(p *CodexTicketPolicy) { p.MaxConsecutiveFailures = 10001 },
+		func(p *CodexTicketPolicy) { p.HarvestIntervalSeconds = 0 }, func(p *CodexTicketPolicy) { p.HarvestIntervalSeconds = 86401 },
 	} {
 		value := base
 		modify(&value)
 		require.Error(t, value.Validate())
 	}
-	for _, value := range []CodexTicketPolicy{{60, 0, 1, 60}, {86400, 86399, 10, 86400}} {
+	for _, value := range []CodexTicketPolicy{{60, 0, 1, 1}, {86400, 86399, 86400, 10000}} {
 		require.NoError(t, value.Validate())
 	}
 }
@@ -33,7 +33,7 @@ func TestCodexTicketPolicyReloadAndReadFailure(t *testing.T) {
 	ctx := context.Background()
 	repo := &codexTicketSettingRepo{codexPolicyMigrationRepoStub: &codexPolicyMigrationRepoStub{values: map[string]string{}}}
 	s := NewSettingService(repo, &config.Config{})
-	require.Equal(t, CodexTicketPolicy{3600, 600, 3, 3600}, s.GetOpenAICodexTicketPolicy(ctx))
+	require.Equal(t, CodexTicketPolicy{3600, 600, 20, 30}, s.GetOpenAICodexTicketPolicy(ctx))
 	custom := CodexTicketPolicy{7200, 0, 5, 1800}
 	raw, _ := json.Marshal(custom)
 	repo.values[SettingKeyOpenAICodexTicketPolicy] = string(raw)

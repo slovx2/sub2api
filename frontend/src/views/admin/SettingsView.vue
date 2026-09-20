@@ -9886,7 +9886,7 @@ const form = reactive<SettingsForm>({
   openai_codex_version_auto_sync_enabled: true,
   openai_codex_ticket_enabled: false,
   openai_codex_ticket_account_ids: [] as number[],
-  openai_codex_ticket_policy: { ttl_seconds: 3600, refresh_before_seconds: 600, max_attempts: 3, failure_cooldown_seconds: 3600 },
+  openai_codex_ticket_policy: { ttl_seconds: 3600, refresh_before_seconds: 600, harvest_interval_seconds: 20, max_consecutive_failures: 30 },
   openai_codex_ticket_harvest_proxy_url: "",
   openai_codex_ticket_harvest_proxy_configured: false,
   // codex_cli_only 加固

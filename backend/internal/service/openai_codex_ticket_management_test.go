@@ -84,7 +84,7 @@ func TestCodexTicketManagementHarvestResults(t *testing.T) {
 			require.NoError(t, err)
 			require.NotContains(t, string(encoded), "secret")
 			require.NotContains(t, string(encoded), "gAAAAA")
-			require.False(t, svc.codexTicketCooldownActive(account))
+			require.False(t, svc.codexTicketErrorActive(account))
 			if tc.success {
 				h := http.Header{}
 				require.NoError(t, svc.applyOpenAICodexTicket(context.Background(), account, "gpt-6-astra", h))
@@ -130,5 +130,5 @@ func TestCodexTicketManagementCancelledRequestDoesNotHarvestOrCooldown(t *testin
 	require.ErrorIs(t, svc.applyOpenAICodexTicket(ctx, ticketTestAccount(41), "gpt-6-astra", http.Header{}), context.Canceled)
 	require.NoError(t, svc.applyOpenAICodexTicket(ctx, ticketTestAccount(42), "gpt-6-astra", http.Header{}))
 	require.Empty(t, logs.items)
-	require.False(t, svc.codexTicketCooldownActive(ticketTestAccount(41)))
+	require.False(t, svc.codexTicketErrorActive(ticketTestAccount(41)))
 }

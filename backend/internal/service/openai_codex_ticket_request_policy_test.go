@@ -35,6 +35,7 @@ func TestCodexTicketRequestRefreshBoundaries(t *testing.T) {
 			svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, HarvestProxyURL: "http://proxy:8080"}, upstream)
 			a := ticketTestAccount(41)
 			svc.storeOpenAICodexTicket(context.Background(), a, &openAICodexTicket{Model: "gpt-6-astra", State: fakeCodexTicketState(332), Length: 332, ExpiresAt: time.Now().Add(remaining)})
+			require.NoError(t, harvestTicketForTest(svc, context.Background(), a, "gpt-6-astra"))
 			h := requestTicket(t, svc, a, "gpt-6-astra")
 			if remaining == time.Hour {
 				require.Zero(t, calls.Load())
@@ -64,7 +65,7 @@ func TestCodexTicketRequestsCancelAllAndShutdown(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			done := make(chan error, 1)
-			go func() { done <- svc.applyOpenAICodexTicket(ctx, a, "gpt-6-astra", http.Header{}) }()
+			go func() { done <- harvestTicketForTest(svc, ctx, a, "gpt-6-astra") }()
 			<-started
 			if shutdown {
 				svc.StopOpenAICodexTicketRequests()
@@ -78,7 +79,7 @@ func TestCodexTicketRequestsCancelAllAndShutdown(t *testing.T) {
 				t.Fatal("采票未被取消")
 			}
 			svc.StopOpenAICodexTicketRequests()
-			require.False(t, svc.codexTicketCooldownActive(a))
+			require.False(t, svc.codexTicketErrorActive(a))
 			require.Nil(t, svc.lookupOpenAICodexTicket(a, "gpt-6-astra"))
 			require.Equal(t, int32(1), calls.Load())
 		})
@@ -97,7 +98,6 @@ func TestCodexTicketRequestsPolicySnapshotAndNoIdleHarvest(t *testing.T) {
 			case <-req.Context().Done():
 				return nil, req.Context().Err()
 			}
-			return nil, errors.New("first fails")
 		}
 		return codexTicketResponse(), nil
 	}}
@@ -109,19 +109,19 @@ func TestCodexTicketRequestsPolicySnapshotAndNoIdleHarvest(t *testing.T) {
 	require.NoError(t, err)
 	require.Zero(t, calls.Load(), "打开总览不会采票")
 	done := make(chan error, 1)
-	go func() { done <- svc.applyOpenAICodexTicket(context.Background(), a, "gpt-6-astra", http.Header{}) }()
+	go func() { done <- harvestTicketForTest(svc, context.Background(), a, "gpt-6-astra") }()
 	<-started
 	setTicketPolicyForTest(svc, CodexTicketPolicy{3600, 0, 1, 60})
 	close(finish)
 	require.NoError(t, <-done)
 	ticket := svc.lookupOpenAICodexTicket(a, "gpt-6-astra")
-	require.Equal(t, 2, ticket.Attempts)
+	require.Equal(t, 1, ticket.Attempts)
 	require.Equal(t, 2*time.Hour, ticket.ExpiresAt.Sub(ticket.CapturedAt))
-	requestTicket(t, svc, ticketTestAccount(42), "gpt-6-astra")
+	require.NoError(t, harvestTicketForTest(svc, context.Background(), ticketTestAccount(42), "gpt-6-astra"))
 	other := svc.lookupOpenAICodexTicket(ticketTestAccount(42), "gpt-6-astra")
 	require.Equal(t, time.Hour, other.ExpiresAt.Sub(other.CapturedAt))
 	svc.StopOpenAICodexTicketRequests()
-	require.Equal(t, int32(3), calls.Load())
+	require.Equal(t, int32(2), calls.Load())
 }
 
 func TestCodexTicketRequestsAccountDisabledOrDeletedDuringProbe(t *testing.T) {
@@ -140,32 +140,37 @@ func TestCodexTicketRequestsAccountDisabledOrDeletedDuringProbe(t *testing.T) {
 		}}
 		svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, HarvestProxyURL: "http://proxy:8080"}, upstream)
 		svc.accountRepo = repo
-		require.Error(t, svc.applyOpenAICodexTicket(context.Background(), a, "gpt-6-astra", http.Header{}))
+		require.Error(t, harvestTicketForTest(svc, context.Background(), a, "gpt-6-astra"))
 		require.Nil(t, svc.lookupOpenAICodexTicket(a, "gpt-6-astra"))
-		require.False(t, svc.codexTicketCooldownActive(a))
+		require.False(t, svc.codexTicketErrorActive(a))
 	}
 }
 
-type failedTicketCooldownRepo struct{ *codexTicketRefreshRepo }
+type failedTicketErrorRepo struct{ *codexTicketRefreshRepo }
 
-func (r *failedTicketCooldownRepo) SetTempUnschedulable(context.Context, int64, time.Time, string) error {
+func (r *failedTicketErrorRepo) SetError(context.Context, int64, string) error {
 	return errors.New("db unavailable")
 }
 
-func TestCodexTicketRequestsCooldownWriteFailureAndRecovery(t *testing.T) {
+func TestCodexTicketErrorWriteFailureAndRecovery(t *testing.T) {
 	a := ticketTestAccount(41)
 	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, HarvestProxyURL: "http://proxy:8080"}, &codexTicketFuncUpstream{do: func(*http.Request) (*http.Response, error) { return nil, errors.New("failed") }})
-	svc.accountRepo = &failedTicketCooldownRepo{&codexTicketRefreshRepo{accounts: []Account{*a}}}
+	svc.accountRepo = &failedTicketErrorRepo{&codexTicketRefreshRepo{accounts: []Account{*a}}}
 	logs := &ticketLogMemoryRepo{}
 	svc.codexTicketLogRepo = logs
-	setTicketPolicyForTest(svc, CodexTicketPolicy{3600, 600, 2, 60})
-	require.Error(t, svc.applyOpenAICodexTicket(context.Background(), a, "gpt-6-astra", http.Header{}))
+	setTicketPolicyForTest(svc, CodexTicketPolicy{3600, 600, 20, 1})
+	require.Error(t, harvestTicketForTest(svc, context.Background(), a, "gpt-6-astra"))
 	require.True(t, svc.isOpenAIAccountRequestRuntimeBlocked(a, "other-model", false))
 	page, _ := logs.List(context.Background(), CodexTicketLogFilter{})
+	require.Len(t, page.Items, 2)
+	require.Equal(t, "error_persist_failed", page.Items[1].Reason)
+	svc.retryCodexTicketErrors(context.Background())
+	page, _ = logs.List(context.Background(), CodexTicketLogFilter{})
 	require.Len(t, page.Items, 3)
-	require.Equal(t, "cooldown_persist_failed", page.Items[2].Reason)
-	svc.ClearAccountSchedulingBlock(a.ID)
-	require.False(t, svc.codexTicketCooldownActive(a))
-	svc.openaiCodexTicketCooldowns.Store(a.ID, time.Now().Add(-time.Second))
-	require.False(t, svc.codexTicketCooldownActive(a))
+	require.Equal(t, "account_error_write_failed", page.Items[2].Kind)
+	require.NoError(t, svc.RecoverCodexTicketAccount(context.Background(), a.ID))
+	require.False(t, svc.codexTicketErrorActive(a))
+	current, err := svc.accountRepo.GetByID(context.Background(), a.ID)
+	require.NoError(t, err)
+	require.False(t, current.Schedulable)
 }

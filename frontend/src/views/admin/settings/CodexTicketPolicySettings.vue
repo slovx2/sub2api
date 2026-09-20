@@ -10,8 +10,8 @@ const tr = (key: string) => t(`admin.settings.gatewayForwarding.ticketPolicy.${k
 const fields = [
   { key: 'ttl_seconds', label: 'ttl', unit: 60, min: 1, max: 1440, step: 'any' },
   { key: 'refresh_before_seconds', label: 'refresh', unit: 60, min: 0, max: 1440, step: 'any' },
-  { key: 'max_attempts', label: 'attempts', unit: 1, min: 1, max: 10, step: '1' },
-  { key: 'failure_cooldown_seconds', label: 'cooldown', unit: 60, min: 1, max: 1440, step: 'any' }
+  { key: 'harvest_interval_seconds', label: 'interval', unit: 1, min: 1, max: 86400, step: '1' },
+  { key: 'max_consecutive_failures', label: 'failures', unit: 1, min: 1, max: 10000, step: '1' }
 ] as const
 const valid = computed(() => validCodexTicketPolicy(props.modelValue))
 

@@ -552,11 +552,12 @@ export default {
           overviewSummary: '{accounts} accounts · {tickets} valid tickets',
           unavailable: 'No valid ticket', remaining: '{minutes} min left', expires: 'Expires',
           blocked: 'Account cooling down; scheduling paused', pending: 'Awaiting automatic harvesting', cooldown: 'Cooldown', attempt: 'Attempt number',
+          schedulingDisabled: 'Scheduling disabled', consecutiveFailures: '{count} consecutive failures', account_error: 'Account marked as error', account_error_write_failed: 'Error persistence failed (blocked locally)',
           noTickets: 'No account tickets to display.',
           attempts: 'Harvest attempts', success: 'Success', failure: 'Failure', injection_missing: 'Missing injection',
           diagnosticHint: 'Successful and failed harvests are stored permanently across restarts. Counters follow the account filter. Missing injection counts forwarding-stage misses, not scheduler exclusions. No HTTP response is shown as —.',
           problems: 'Problem accounts', logs: 'Recent logs',
-          problemHint: 'Accounts awaiting automatic harvesting or cooling down. Independent of historical failures.',
+          problemHint: 'Accounts missing tickets, with scheduling disabled, cooling down or in error. Independent of historical failures.',
           noProblems: 'No missing tickets in the current scope, or harvesting is disabled.',
           noLogs: 'No records yet. Future harvest attempts will appear here.',
           loadError: 'Failed to load. Retry; any previously displayed data may be stale.',
@@ -564,6 +565,7 @@ export default {
           time: 'Time', account: 'Account', model: 'Requested model', length: 'Ticket length', http: 'HTTP status', reason: 'Diagnosis',
           total: '{total} records', previous: 'Previous page', next: 'Next page',
           reasons: {
+            consecutive_failures: 'Failure threshold reached; account marked as error and scheduling disabled', error_persist_failed: 'Error persistence failed; retrying writes at the configured interval without harvesting',
             accepted: 'Accepted and cached', token_error: 'Account credential unavailable', request_error: 'Network or request error',
             http_error: 'Upstream HTTP error', missing_state: 'Ticket header missing', invalid_length: 'Unexpected ticket length',
             invalid_format: 'Invalid ticket format', scope_changed_or_cancelled: 'Scope changed, feature disabled or request cancelled; discarded',
@@ -572,12 +574,12 @@ export default {
           }
         },
         ticketPolicy: {
-          ttl: 'Ticket lifetime (minutes)', refresh: 'Refresh ahead (minutes)', attempts: 'Maximum attempts (including first)', cooldown: 'Failure cooldown (minutes)',
-          hint: 'Harvest automatically at startup, then check missing, expired or soon-to-expire tickets 6 seconds after each cycle. Retry automatically after cooldown without waiting for traffic. Requests share the same harvesting task; WebSocket injection checks still run only on connect or reconnect. Lifetime applies to new tickets; 0 refreshes only after expiry. Defaults: 3 total attempts, then a 60-minute cooldown. No restart required.',
-          invalid: 'Lifetime and cooldown must be 1–1440 minutes; refresh ahead must be nonnegative and shorter than lifetime (whole seconds). Maximum attempts must be an integer from 1 to 10.'
+          ttl: 'Ticket lifetime (minutes)', refresh: 'Refresh ahead (minutes)', interval: 'Harvest cycle interval (seconds)', failures: 'Consecutive failure threshold',
+          hint: 'Harvest at startup, at most once per account/model each cycle, then wait the configured interval. Business requests only inject unexpired tickets and fail over immediately when missing. Any model reaching the consecutive failure threshold marks the entire account as error and disables scheduling. After manual recovery, scheduling must be re-enabled manually. Lifetime applies to new tickets; 0 refreshes only after expiry. No restart required.',
+          invalid: 'Lifetime must be 1–1440 minutes; refresh ahead must be nonnegative and shorter than lifetime (whole seconds). Interval must be an integer from 1 to 86400 seconds; failure threshold must be an integer from 1 to 10000.'
         },
         codexTicketAccounts: 'Ticket account scope',
-        codexTicketAccountsHint: 'No selection applies to all eligible OpenAI accounts, including future accounts. Otherwise only selected accounts use automatic harvesting, injection and cooldown after exhausted attempts. Disabling account scheduling stops harvesting; re-enabling resumes it on the next cycle, after any active cooldown or rate limit expires.',
+        codexTicketAccountsHint: 'No selection applies to all eligible OpenAI accounts, including future accounts. Otherwise only selected accounts use harvesting and injection. Only active, schedulable accounts are harvested. Disabling scheduling pauses harvesting; re-enabling resumes it next cycle. Other cooldowns and rate limits still apply.',
         codexTicketAccountsAll: 'No selection: all eligible accounts',
         codexTicketAccountsSelected: '{count} accounts selected',
         codexTicketAccountsSearch: 'Search account name',
@@ -586,7 +588,7 @@ export default {
         codexTicketAccountsUnavailable: 'Ineligible or inactive',
         codexTicketAccountsLoadError: 'Failed to load accounts. Retry; your saved selection is retained.',
         codexTicketEnabledDesc:
-          "When off, the gateway neither harvests nor injects x-codex-turn-state. When on, tickets are harvested and refreshed automatically in the background, then injected into business requests. Requests missing a ticket wait for the shared harvesting task.",
+          "When off, the gateway neither harvests nor injects x-codex-turn-state. When on, background harvesting refreshes tickets. Business requests only inject valid tickets and immediately fail over when missing.",
         codexTicketHarvestProxy: "Ticket harvest proxy",
         codexTicketHarvestProxyDesc:
           "Used only for minting tickets when the ticket feature is enabled. Changes apply to subsequent probes without a restart. Production traffic still uses each account's residential proxy. Paste a full HTTP or SOCKS5h proxy URL including username and password. The proxy provider must handle IP rotation. Leave blank when saving to keep the stored value.",

@@ -1285,6 +1285,13 @@ func (s *adminServiceImpl) RefreshAccountCredentials(ctx context.Context, id int
 }
 
 func (s *adminServiceImpl) ClearAccountError(ctx context.Context, id int64) (*Account, error) {
+	if recovery, ok := s.runtimeBlocker.(interface {
+		RecoverCodexTicketAccount(context.Context, int64) error
+	}); ok {
+		if err := recovery.RecoverCodexTicketAccount(ctx, id); err != nil {
+			return nil, err
+		}
+	}
 	if err := s.accountRepo.ClearError(ctx, id); err != nil {
 		return nil, err
 	}

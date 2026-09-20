@@ -7,6 +7,25 @@ vi.mock('@/api/admin/codexTickets', () => ({ getCodexTicketOverview: mocks.overv
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key.split('.').at(-1) }) }))
 
 describe('CodexTicketManagement', () => {
+  it('shows disabled scheduling, per-model failures and error events', async () => {
+    mocks.overview.mockResolvedValue({ enabled: true, accounts: 2, valid_tickets: 0, problem_accounts: 2, total: 2, items: [
+      { account_id: 7, account_name: 'disabled-account', model: 'gpt-6-astra', ready: false, blocked: true, scheduling_disabled: true, consecutive_failures: 4 },
+      { account_id: 8, account_name: 'error-account', model: 'gpt-5.6-sol', ready: false, blocked: true, account_error: 'model=gpt-5.6-sol consecutive_failures=30', consecutive_failures: 30 }
+    ] })
+    mocks.logs.mockResolvedValue({ total: 2, summary: { attempts: 0, success: 0, failure: 0, injection_missing: 0 }, items: [
+      { id: 1, account_id: 8, kind: 'account_error', reason: 'consecutive_failures', success: false },
+      { id: 2, account_id: 8, kind: 'account_error_write_failed', reason: 'error_persist_failed', success: false }
+    ] })
+    const wrapper = mount(CodexTicketManagement)
+    await flushPromises()
+    expect(wrapper.text()).toContain('schedulingDisabled')
+    expect(wrapper.text()).toContain('consecutiveFailures')
+    expect(wrapper.text()).toContain('model=gpt-5.6-sol consecutive_failures=30')
+    const rows = wrapper.findAll('tbody tr')
+    expect(rows[0]!.text()).toContain('account_error')
+    expect(rows[1]!.text()).toContain('account_error_write_failed')
+    wrapper.unmount()
+  })
   it('distinguishes waiting for a request from account cooldown', async () => {
     mocks.overview.mockResolvedValue({ enabled: true, accounts: 2, valid_tickets: 0, problem_accounts: 2, total: 2, items: [
       { account_id: 7, account_name: 'waiting', model: 'gpt-6-astra', ready: false, blocked: false, remaining_seconds: 0 },

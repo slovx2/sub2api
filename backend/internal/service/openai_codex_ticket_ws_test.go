@@ -39,6 +39,10 @@ func TestCodexTicketWSChecksOnlyOnDialAndReconnect(t *testing.T) {
 		HeadersFactory: func(ctx context.Context, h http.Header) (http.Header, error) {
 			return h, svc.applyOpenAICodexTicket(ctx, a, "gpt-6-astra", h)
 		}}
+	_, err := pool.Acquire(context.Background(), req)
+	require.Error(t, err)
+	require.Zero(t, calls.Load(), "缺票建连只换号，不现场采票")
+	require.NoError(t, harvestTicketForTest(svc, context.Background(), a, "gpt-6-astra"))
 	first, err := pool.Acquire(context.Background(), req)
 	require.NoError(t, err)
 	require.Equal(t, int32(1), calls.Load())
@@ -54,6 +58,10 @@ func TestCodexTicketWSChecksOnlyOnDialAndReconnect(t *testing.T) {
 	require.Equal(t, int32(1), calls.Load())
 	second.MarkBroken()
 	second.Release()
+	_, err = pool.Acquire(context.Background(), req)
+	require.Error(t, err, "重连缺票也不能现场采票")
+	require.Equal(t, int32(1), calls.Load())
+	require.NoError(t, harvestTicketForTest(svc, context.Background(), a, "gpt-6-astra"))
 	third, err := pool.Acquire(context.Background(), req)
 	require.NoError(t, err)
 	require.False(t, third.Reused())
@@ -67,7 +75,7 @@ func TestCodexTicketWSBackgroundDialNeverHarvests(t *testing.T) {
 	ctx := context.WithValue(context.Background(), openAIWSBackgroundDialKey{}, true)
 	require.Error(t, svc.applyOpenAICodexTicket(ctx, ticketTestAccount(41), "gpt-6-astra", http.Header{}))
 	require.Zero(t, calls.Load())
-	require.False(t, svc.codexTicketCooldownActive(ticketTestAccount(41)))
+	require.False(t, svc.codexTicketErrorActive(ticketTestAccount(41)))
 }
 
 func TestCodexTicketHTTPOverWSNewTicketRequiresNewHandshake(t *testing.T) {

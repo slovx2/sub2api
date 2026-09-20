@@ -39,9 +39,9 @@ func TestCodexTicketBackgroundSchedulingToggle(t *testing.T) {
 		time.Sleep(time.Minute)
 		synctest.Wait()
 		require.Zero(t, calls.Load(), "关闭调度的账号不能自动采票")
-		require.False(t, svc.codexTicketCooldownActive(a))
+		require.False(t, svc.codexTicketErrorActive(a))
 		setTicketSchedulingForTest(repo, true)
-		time.Sleep(codexTicketBackgroundInterval)
+		time.Sleep(20 * time.Second)
 		synctest.Wait()
 		require.Equal(t, int32(1), calls.Load(), "开启调度后下一轮自动采票")
 		setTicketSchedulingForTest(repo, false)
@@ -49,7 +49,7 @@ func TestCodexTicketBackgroundSchedulingToggle(t *testing.T) {
 		synctest.Wait()
 		require.Equal(t, int32(1), calls.Load(), "关闭期间票据过期也不能刷新")
 		setTicketSchedulingForTest(repo, true)
-		time.Sleep(codexTicketBackgroundInterval)
+		time.Sleep(20 * time.Second)
 		synctest.Wait()
 		require.Equal(t, int32(2), calls.Load(), "再次开启后能恢复刷新")
 	})
@@ -72,7 +72,7 @@ func TestCodexTicketSchedulingDisabledDuringProbe(t *testing.T) {
 			svc.refreshOpenAICodexTickets(context.Background())
 			require.Equal(t, int32(1), calls.Load())
 			require.Nil(t, svc.lookupOpenAICodexTicket(a, "gpt-6-astra"))
-			require.False(t, svc.codexTicketCooldownActive(a))
+			require.False(t, svc.codexTicketErrorActive(a))
 		})
 	}
 }
@@ -89,7 +89,7 @@ func TestCodexTicketRequestCannotHarvestWithDisabledScheduling(t *testing.T) {
 	a.Schedulable = false
 	require.Error(t, svc.applyOpenAICodexTicket(context.Background(), a, "gpt-6-astra", http.Header{}))
 	require.Zero(t, calls.Load())
-	require.False(t, svc.codexTicketCooldownActive(a))
+	require.False(t, svc.codexTicketErrorActive(a))
 }
 
 func TestCodexTicketSchedulingDisabledDuringPersistence(t *testing.T) {
@@ -104,5 +104,5 @@ func TestCodexTicketSchedulingDisabledDuringPersistence(t *testing.T) {
 	svc.refreshOpenAICodexTickets(context.Background())
 	require.Nil(t, svc.lookupOpenAICodexTicket(a, "gpt-6-astra"))
 	require.Nil(t, repo.updates[openAICodexTicketExtraKey("gpt-6-astra")], "写库期间关闭调度，刚写入的结果也须丢弃")
-	require.False(t, svc.codexTicketCooldownActive(a))
+	require.False(t, svc.codexTicketErrorActive(a))
 }

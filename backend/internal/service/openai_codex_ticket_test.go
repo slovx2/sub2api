@@ -91,9 +91,9 @@ func TestApplyOpenAICodexTicket_DoesNotReuseOtherModelOrAccount(t *testing.T) {
 	err := svc.applyOpenAICodexTicket(context.Background(), a, "gpt-5.5", h)
 	require.NoError(t, err)
 	require.Equal(t, "keep-ungated", h.Get(openAICodexTurnStateHeader))
-	require.False(t, svc.codexTicketCooldownActive(a))
-	require.False(t, svc.codexTicketCooldownActive(b))
-	require.False(t, svc.codexTicketCooldownActive(a))
+	require.False(t, svc.codexTicketErrorActive(a))
+	require.False(t, svc.codexTicketErrorActive(b))
+	require.False(t, svc.codexTicketErrorActive(a))
 
 	h = http.Header{}
 	err = svc.applyOpenAICodexTicket(context.Background(), b, "gpt-6-astra", h)
@@ -180,7 +180,7 @@ func TestApplyOpenAICodexTicket_MissingTicketAlwaysFailsOver(t *testing.T) {
 	err := svc.applyOpenAICodexTicket(context.Background(), ticketTestAccount(41), "gpt-6-astra", h)
 	require.ErrorIs(t, err, ErrOpenAICodexTicketUnavailable)
 	require.Equal(t, "client-state", h.Get(openAICodexTurnStateHeader))
-	require.True(t, svc.codexTicketCooldownActive(ticketTestAccount(41)))
+	require.False(t, svc.codexTicketErrorActive(ticketTestAccount(41)))
 }
 
 func TestApplyOpenAICodexTicket_DisabledNoop(t *testing.T) {
@@ -333,6 +333,42 @@ func (r *codexTicketRefreshRepo) ListByPlatform(context.Context, string) ([]Acco
 	defer r.mu.Unlock()
 	return slices.Clone(r.accounts), nil
 }
+func (r *codexTicketRefreshRepo) ListAllWithFilters(ctx context.Context, _, _, _, _ string, _ int64, _ string) ([]Account, error) {
+	return r.ListByPlatform(ctx, PlatformOpenAI)
+}
+func (r *codexTicketRefreshRepo) SetError(_ context.Context, id int64, message string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i := range r.accounts {
+		if r.accounts[i].ID == id {
+			r.accounts[i].Status = StatusError
+			r.accounts[i].ErrorMessage = message
+			r.accounts[i].Schedulable = false
+		}
+	}
+	return nil
+}
+func (r *codexTicketRefreshRepo) ClearError(_ context.Context, id int64) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i := range r.accounts {
+		if r.accounts[i].ID == id {
+			r.accounts[i].Status = StatusActive
+			r.accounts[i].ErrorMessage = ""
+		}
+	}
+	return nil
+}
+func (r *codexTicketRefreshRepo) SetSchedulable(_ context.Context, id int64, enabled bool) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i := range r.accounts {
+		if r.accounts[i].ID == id {
+			r.accounts[i].Schedulable = enabled
+		}
+	}
+	return nil
+}
 func (r *codexTicketRefreshRepo) GetByID(_ context.Context, id int64) (*Account, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -397,7 +433,7 @@ func TestOpenAICodexTicket_RequiresActualLengthAndExpiry(t *testing.T) {
 
 // /responses/compact 的出站模型被 Forward 改写为 gateway.openai_compact_model
 // （默认非空），门票门控必须按该出站模型判定。否则对门控模型发 compact 请求时，
-// 这些请求实际不需要票；按请求采票不能重新引入调度阶段的无票拦截。
+// 这些请求实际不需要票；不能按原始模型错误拦截 compact 调度。
 func TestOpenAICodexTicketGate_CompactRequestUsesForwardOutboundModel(t *testing.T) {
 	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
 		OpenAICompactModel: "gpt-5.5",
@@ -410,8 +446,8 @@ func TestOpenAICodexTicketGate_CompactRequestUsesForwardOutboundModel(t *testing
 	}}}
 	account := ticketTestAccount(41) // 无票
 
-	// 普通请求无票时仍应允许调度，进入请求路径再采票。
-	require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(account, "gpt-6-astra", false))
+	// 普通请求无票时排除账号，compact 按真正出站模型判断。
+	require.True(t, svc.isOpenAIAccountRequestRuntimeBlocked(account, "gpt-6-astra", false))
 
 	// compact 请求：出站已被改写成非门控的 gpt-5.5 → 不得拦号。
 	require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(account, "gpt-6-astra", true))

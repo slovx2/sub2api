@@ -31,7 +31,7 @@ type codexTicketCall struct {
 
 var errCodexTicketScopeChanged = errors.New("codex ticket scope changed or account unavailable")
 
-// 转发为完整计费可能使用脱离取消的上游 context；等票必须仍受原请求控制。
+// 转发可能使用脱离取消的上游 context；注入前仍检查原请求是否已取消。
 func (s *OpenAIGatewayService) applyOpenAICodexTicketForRequest(ctx context.Context, c *gin.Context, account *Account, model string, headers http.Header) error {
 	if c != nil && c.Request != nil {
 		ctx = c.Request.Context()
@@ -64,14 +64,13 @@ func codexTicketFailover() error {
 	})
 }
 
-func (s *OpenAIGatewayService) ensureOpenAICodexTicket(ctx context.Context, account *Account, model string) (*openAICodexTicket, error) {
+func (s *OpenAIGatewayService) harvestOpenAICodexTicket(ctx context.Context, account *Account, model string, policy CodexTicketPolicy) (*openAICodexTicket, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if account.Status != StatusActive || !account.Schedulable || s.codexTicketCooldownActive(account) || accountPersistedSchedulingCooldownActive(account) {
+	if account.Status != StatusActive || !account.Schedulable || s.codexTicketErrorActive(account) || accountPersistedSchedulingCooldownActive(account) {
 		return nil, codexTicketFailover()
 	}
-	policy := s.codexTicketPolicy(ctx)
 	cfg := s.openAICodexTicketConfig()
 	s.openaiCodexTicketLifecycleMu.Lock()
 	if s.openaiCodexTicketStopped {
@@ -146,7 +145,7 @@ func (s *OpenAIGatewayService) runCodexTicketCall(ctx context.Context, account *
 	case work.gate <- struct{}{}:
 	}
 	defer func() { <-work.gate }()
-	if s.codexTicketCooldownActive(account) {
+	if s.codexTicketErrorActive(account) {
 		call.err = codexTicketFailover()
 		return
 	}
@@ -156,23 +155,23 @@ func (s *OpenAIGatewayService) runCodexTicketCall(ctx context.Context, account *
 		return
 	}
 	_, generation := s.codexTicketAccountScope(ctx)
-	for attempt := 1; attempt <= policy.MaxAttempts; attempt++ {
-		if err := s.checkCodexTicketRequestAccount(ctx, account, generation); err != nil {
-			call.err = codexTicketFailover()
-			return
-		}
-		ticket, err := s.probeOpenAICodexTicketAttempt(ctx, account, model, policy, cfg, generation, attempt)
-		if err == nil {
-			call.ticket = ticket
-			return
-		}
-		if ctx.Err() != nil || errors.Is(err, errCodexTicketScopeChanged) {
-			call.err = codexTicketFailover()
-			return
-		}
+	if err := s.checkCodexTicketRequestAccount(ctx, account, generation); err != nil {
+		call.err = codexTicketFailover()
+		return
 	}
-	if err := s.checkCodexTicketRequestAccount(ctx, account, generation); err == nil {
-		s.cooldownCodexTicketAccount(ctx, account, model, policy)
+	state := s.codexTicketFailureState(account.ID)
+	state.mu.Lock()
+	epoch := state.epoch
+	state.mu.Unlock()
+	ticket, err := s.probeOpenAICodexTicketAttempt(ctx, account, model, policy, cfg, generation, 1)
+	if ctx.Err() != nil || errors.Is(err, errCodexTicketScopeChanged) || s.checkCodexTicketRequestAccount(ctx, account, generation) != nil {
+		call.err = codexTicketFailover()
+		return
+	}
+	s.finishCodexTicketHarvest(ctx, account, model, policy, generation, epoch, err)
+	if err == nil {
+		call.ticket = ticket
+		return
 	}
 	call.err = codexTicketFailover()
 }
@@ -196,7 +195,7 @@ func (s *OpenAIGatewayService) checkCodexTicketRequestAccount(ctx context.Contex
 			return errCodexTicketScopeChanged
 		}
 	}
-	if current.Status != StatusActive || !current.Schedulable || !isOpenAICodexTicketAccount(current) || accountPersistedSchedulingCooldownActive(current) || s.codexTicketCooldownActive(current) {
+	if current.Status != StatusActive || !current.Schedulable || !isOpenAICodexTicketAccount(current) || accountPersistedSchedulingCooldownActive(current) || s.codexTicketErrorActive(current) {
 		return errCodexTicketScopeChanged
 	}
 	return nil
@@ -233,11 +232,11 @@ func (s *OpenAIGatewayService) probeOpenAICodexTicketAttempt(ctx context.Context
 	proxyURL := s.openAICodexTicketHarvestProxyURLContext(attemptCtx)
 	if proxyURL == "" || s.httpUpstream == nil {
 		event.Reason = "harvest_not_configured"
-		return nil, ErrOpenAICodexTicketUnavailable
+		return nil, fmt.Errorf("%w: harvest_not_configured", ErrOpenAICodexTicketUnavailable)
 	}
 	token, _, err := s.GetAccessToken(attemptCtx, account)
 	if err != nil || strings.TrimSpace(token) == "" {
-		return nil, ErrOpenAICodexTicketUnavailable
+		return nil, fmt.Errorf("%w: token_error", ErrOpenAICodexTicketUnavailable)
 	}
 	state, status, err := s.fireOpenAICodexTicketProbe(attemptCtx, account, token, model, proxyURL, time.Duration(cfg.HarvestAttemptTimeoutSeconds)*time.Second)
 	event.HTTPStatus, event.Length = status, len(state)
@@ -281,7 +280,7 @@ func (s *OpenAIGatewayService) probeOpenAICodexTicketAttempt(ctx context.Context
 		event.Success, event.Reason = true, "accepted"
 		return ticket, nil
 	}
-	return nil, ErrOpenAICodexTicketUnavailable
+	return nil, fmt.Errorf("%w: %s (http=%d, length=%d)", ErrOpenAICodexTicketUnavailable, event.Reason, event.HTTPStatus, event.Length)
 }
 
 func (s *OpenAIGatewayService) publishCodexTicket(ctx context.Context, ticket *openAICodexTicket, generation uint64) error {
@@ -299,51 +298,4 @@ func (s *OpenAIGatewayService) publishCodexTicket(ctx context.Context, ticket *o
 	}
 	s.openaiCodexTickets.Store(openAICodexTicketKey(ticket.AccountID, ticket.Model), ticket)
 	return nil
-}
-
-func (s *OpenAIGatewayService) codexTicketCooldownActive(account *Account) bool {
-	if s == nil || account == nil {
-		return false
-	}
-	_, active := s.codexTicketCooldownUntil(account.ID)
-	return active
-}
-
-func (s *OpenAIGatewayService) codexTicketCooldownUntil(accountID int64) (time.Time, bool) {
-	value, ok := s.openaiCodexTicketCooldowns.Load(accountID)
-	if !ok {
-		return time.Time{}, false
-	}
-	until, ok := value.(time.Time)
-	if !ok {
-		return time.Time{}, false
-	}
-	if time.Now().Before(until) {
-		return until, true
-	}
-	s.openaiCodexTicketCooldowns.CompareAndDelete(accountID, value)
-	return time.Time{}, false
-}
-
-func (s *OpenAIGatewayService) cooldownCodexTicketAccount(ctx context.Context, account *Account, model string, policy CodexTicketPolicy) {
-	if ctx.Err() != nil {
-		return
-	}
-	until := time.Now().Add(time.Duration(policy.FailureCooldownSeconds) * time.Second)
-	if account.TempUnschedulableUntil != nil && account.TempUnschedulableUntil.After(until) {
-		until = *account.TempUnschedulableUntil
-	}
-	// 独立的本地冷却不能被旧调度快照清除。管理员恢复通过 ClearAccountSchedulingBlock 清理。
-	s.openaiCodexTicketCooldowns.Store(account.ID, until)
-	s.BlockAccountScheduling(account, until, "codex_ticket_failed")
-	reason := "codex ticket attempts exhausted"
-	event := &CodexTicketEvent{AccountID: account.ID, AccountName: account.Name, Model: model, Kind: "cooldown", Reason: "attempts_exhausted", Attempt: policy.MaxAttempts}
-	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-	defer cancel()
-	if s.accountRepo == nil {
-		event.Reason = "cooldown_persist_failed"
-	} else if err := s.accountRepo.SetTempUnschedulable(writeCtx, account.ID, until, reason); err != nil {
-		event.Reason = "cooldown_persist_failed"
-	}
-	s.recordCodexTicketEvent(writeCtx, event)
 }

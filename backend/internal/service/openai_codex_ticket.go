@@ -97,14 +97,17 @@ func (s *OpenAIGatewayService) openAICodexTicketGatedModel(model string) bool {
 
 // OpenAICodexTicketStatus 是给管理端看的门票摘要，不含 state blob。
 type OpenAICodexTicketStatus struct {
-	Model            string     `json:"model"`
-	Length           int        `json:"length,omitempty"`
-	Ready            bool       `json:"ready"`
-	RemainingSeconds int64      `json:"remaining_seconds"`
-	Blocked          bool       `json:"blocked"`
-	CooldownUntil    *time.Time `json:"cooldown_until,omitempty"`
-	CooldownReason   string     `json:"cooldown_reason,omitempty"`
-	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
+	Model               string     `json:"model"`
+	Length              int        `json:"length,omitempty"`
+	Ready               bool       `json:"ready"`
+	RemainingSeconds    int64      `json:"remaining_seconds"`
+	Blocked             bool       `json:"blocked"`
+	CooldownUntil       *time.Time `json:"cooldown_until,omitempty"`
+	CooldownReason      string     `json:"cooldown_reason,omitempty"`
+	ExpiresAt           *time.Time `json:"expires_at,omitempty"`
+	SchedulingDisabled  bool       `json:"scheduling_disabled"`
+	ConsecutiveFailures int        `json:"consecutive_failures"`
+	AccountError        string     `json:"account_error,omitempty"`
 }
 
 func OpenAICodexTicketStatuses(account *Account, cfg config.OpenAICodexTicketConfig, now time.Time) []OpenAICodexTicketStatus {
@@ -296,7 +299,7 @@ func (s *OpenAIGatewayService) persistOpenAICodexTicket(ctx context.Context, acc
 }
 
 // applyOpenAICodexTicket 在出站请求上覆盖 x-codex-turn-state。
-// 缺票或即将过期时等待账号共享的采票轮次，成功后才继续原请求。
+// 业务请求只读取未过期票据；提前刷新中的旧票仍可用，缺票直接换号。
 func (s *OpenAIGatewayService) applyOpenAICodexTicket(ctx context.Context, account *Account, model string, h http.Header) error {
 	if s == nil || h == nil || !s.codexTicketAccountSelected(ctx, account) || !s.openAICodexTicketEnabledContext(ctx) {
 		return nil
@@ -305,19 +308,52 @@ func (s *OpenAIGatewayService) applyOpenAICodexTicket(ctx context.Context, accou
 	if model == "" || !s.openAICodexTicketGatedModel(model) {
 		return nil
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if background, _ := ctx.Value(openAIWSBackgroundDialKey{}).(bool); background {
 		// 热开启后，旧连接池的延迟预热也不能触发采票。
 		return ErrOpenAICodexTicketUnavailable
 	}
-	ticket, err := s.ensureOpenAICodexTicket(ctx, account, model)
-	if err != nil {
-		return err
-	}
-	if ticket == nil {
-		return nil
+	ticket := s.lookupOpenAICodexTicket(account, model)
+	if account.Status != StatusActive || !account.Schedulable || s.codexTicketErrorActive(account) || !ticket.valid(time.Now(), s.openAICodexTicketConfig().TargetLength) {
+		s.recordCodexTicketEvent(ctx, &CodexTicketEvent{AccountID: account.ID, AccountName: account.Name, Model: model, Kind: "injection_missing", Reason: "no_valid_ticket"})
+		return codexTicketFailover()
 	}
 	h.Set(openAICodexTurnStateHeader, ticket.State)
 	return nil
+}
+
+// 与实际转发共用模型映射，compact 兜底模型优先于普通映射。
+func (s *OpenAIGatewayService) openAICodexTicketOutboundModel(account *Account, requestedModel string, requireCompact bool) string {
+	model := strings.TrimSpace(requestedModel)
+	if account == nil || model == "" {
+		return model
+	}
+	if !account.IsOpenAI() {
+		return canonicalOpenAIAccountSchedulingModel(account, model)
+	}
+	_, upstreamModel := resolveOpenAIForwardMappedModels(account, model, requireCompact)
+	if requireCompact {
+		if compactModel := strings.TrimSpace(s.resolveOpenAICompactFallbackModel(account, model)); compactModel != "" {
+			upstreamModel = compactModel
+		}
+	}
+	if upstreamModel = strings.TrimSpace(upstreamModel); upstreamModel != "" {
+		return upstreamModel
+	}
+	return model
+}
+
+func (s *OpenAIGatewayService) openAICodexTicketBlocksAccount(account *Account, outboundModel string) bool {
+	if s == nil || !s.codexTicketAccountSelected(context.Background(), account) || !s.openAICodexTicketEnabled() {
+		return false
+	}
+	model := normalizeOpenAICodexTicketModel(outboundModel)
+	if !s.openAICodexTicketGatedModel(model) {
+		return false
+	}
+	return !s.lookupOpenAICodexTicket(account, model).valid(time.Now(), s.openAICodexTicketConfig().TargetLength)
 }
 
 func (s *OpenAIGatewayService) fireOpenAICodexTicketProbe(ctx context.Context, account *Account, token, model, proxyURL string, attemptTimeout time.Duration) (state string, status int, err error) {

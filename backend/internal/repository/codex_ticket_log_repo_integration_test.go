@@ -55,4 +55,11 @@ func TestCodexTicketLogsPersistencePaginationAndFilters(t *testing.T) {
 	require.Equal(t, "cooldown", withCooldown.Items[0].Kind)
 	require.Equal(t, 3, withCooldown.Items[0].Attempt)
 	require.Equal(t, first.Summary, withCooldown.Summary, "冷却事件不能重复计入采票次数")
+	for _, kind := range []string{"account_error", "account_error_write_failed"} {
+		require.NoError(t, repo.Create(ctx, &service.CodexTicketEvent{AccountID: accountID, Model: "gpt-6-astra", Kind: kind, Reason: "consecutive_failures", Attempt: 30, CreatedAt: time.Now()}))
+	}
+	withErrors, err := repo.List(ctx, service.CodexTicketLogFilter{AccountID: accountID})
+	require.NoError(t, err)
+	require.EqualValues(t, 26, withErrors.Total)
+	require.Equal(t, first.Summary, withErrors.Summary, "标错事件不重复计算采票次数")
 }

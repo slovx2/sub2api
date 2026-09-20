@@ -54,7 +54,7 @@ func TestCodexTicketBackgroundStartupRefreshAndStop(t *testing.T) {
 			calls.Add(1)
 			return codexTicketResponse(), nil
 		}})
-		setTicketPolicyForTest(svc, CodexTicketPolicy{60, 12, 3, 60})
+		setTicketPolicyForTest(svc, CodexTicketPolicy{60, 12, 6, 30})
 		svc.StartOpenAICodexTicketHarvester()
 		defer svc.StopOpenAICodexTicketRequests()
 		svc.StartOpenAICodexTicketHarvester()
@@ -63,7 +63,7 @@ func TestCodexTicketBackgroundStartupRefreshAndStop(t *testing.T) {
 		time.Sleep(48 * time.Second)
 		synctest.Wait()
 		require.Equal(t, int32(1), calls.Load(), "剩余有效期等于提前量时不刷新")
-		time.Sleep(codexTicketBackgroundInterval)
+		time.Sleep(6 * time.Second)
 		synctest.Wait()
 		require.Equal(t, int32(2), calls.Load(), "进入提前量后自动刷新")
 		svc.StopOpenAICodexTicketRequests()
@@ -74,7 +74,7 @@ func TestCodexTicketBackgroundStartupRefreshAndStop(t *testing.T) {
 	})
 }
 
-func TestCodexTicketBackgroundCooldownAutomaticallyRecovers(t *testing.T) {
+func TestCodexTicketBackgroundFailureThresholdAndManualRecovery(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		var calls atomic.Int32
 		svc, a := backgroundTicketService(t, &codexTicketFuncUpstream{do: func(*http.Request) (*http.Response, error) {
@@ -83,23 +83,32 @@ func TestCodexTicketBackgroundCooldownAutomaticallyRecovers(t *testing.T) {
 			}
 			return codexTicketResponse(), nil
 		}})
-		setTicketPolicyForTest(svc, CodexTicketPolicy{3600, 600, 3, 60})
+		setTicketPolicyForTest(svc, CodexTicketPolicy{3600, 600, 20, 3})
 		svc.StartOpenAICodexTicketHarvester()
 		defer svc.StopOpenAICodexTicketRequests()
 		synctest.Wait()
+		require.Equal(t, int32(1), calls.Load(), "每轮最多采一次")
+		require.False(t, svc.codexTicketErrorActive(a))
+		time.Sleep(40 * time.Second)
+		synctest.Wait()
 		require.Equal(t, int32(3), calls.Load())
-		require.True(t, svc.codexTicketCooldownActive(a))
-		time.Sleep(54 * time.Second)
+		require.True(t, svc.codexTicketErrorActive(a))
+		time.Sleep(time.Hour)
 		synctest.Wait()
-		require.Equal(t, int32(3), calls.Load(), "冷却中不请求采票")
-		time.Sleep(codexTicketBackgroundInterval)
+		require.Equal(t, int32(3), calls.Load(), "标错后不自动恢复")
+		require.NoError(t, svc.RecoverCodexTicketAccount(context.Background(), a.ID))
+		time.Sleep(20 * time.Second)
 		synctest.Wait()
-		require.Equal(t, int32(4), calls.Load(), "冷却结束无需业务请求即可重试")
+		require.Equal(t, int32(3), calls.Load(), "人工恢复仍需开启调度")
+		require.NoError(t, svc.accountRepo.SetSchedulable(context.Background(), a.ID, true))
+		time.Sleep(20 * time.Second)
+		synctest.Wait()
+		require.Equal(t, int32(4), calls.Load(), "开启调度后下轮恢复")
 		require.True(t, svc.lookupOpenAICodexTicket(a, "gpt-6-astra").valid(time.Now(), 292))
 	})
 }
 
-func TestCodexTicketBackgroundSharesWithRequest(t *testing.T) {
+func TestCodexTicketBusinessDoesNotWaitForBackground(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		var calls atomic.Int32
 		finish := make(chan struct{})
@@ -122,9 +131,12 @@ func TestCodexTicketBackgroundSharesWithRequest(t *testing.T) {
 		svc.openaiCodexTicketLifecycleMu.Lock()
 		waiters := svc.openaiCodexTicketAccounts[a.ID].calls["gpt-6-astra"].waiters
 		svc.openaiCodexTicketLifecycleMu.Unlock()
-		require.Equal(t, 2, waiters)
+		require.Equal(t, 1, waiters)
+		require.ErrorIs(t, <-result, ErrOpenAICodexTicketUnavailable)
+		require.Empty(t, headers)
 		close(finish)
-		require.NoError(t, <-result)
+		synctest.Wait()
+		require.NoError(t, svc.applyOpenAICodexTicket(context.Background(), a, "gpt-6-astra", headers))
 		require.Len(t, headers.Get(openAICodexTurnStateHeader), 292)
 		require.Equal(t, int32(1), calls.Load())
 	})
@@ -142,7 +154,7 @@ func TestCodexTicketBackgroundStopCancelsInFlight(t *testing.T) {
 		synctest.Wait()
 		svc.StopOpenAICodexTicketRequests()
 		require.Equal(t, int32(1), calls.Load())
-		require.False(t, svc.codexTicketCooldownActive(a), "正常关闭不能触发失败冷却")
+		require.False(t, svc.codexTicketErrorActive(a), "正常关闭不能触发失败冷却")
 	})
 }
 
@@ -167,14 +179,14 @@ func TestCodexTicketBackgroundEnableAndScopeHotReload(t *testing.T) {
 		require.Zero(t, calls.Load(), "开关关闭时不采票")
 		repo.set(SettingKeyOpenAICodexTicketEnabled, "true")
 		svc.settingService.InvalidateOpenAICodexTicketEnabledCache()
-		time.Sleep(codexTicketBackgroundInterval)
+		time.Sleep(20 * time.Second)
 		synctest.Wait()
 		require.Equal(t, int32(1), calls.Load(), "热开启后只采选中的有效非影子账号")
 		require.NotNil(t, svc.lookupOpenAICodexTicket(a, "gpt-6-astra"))
 		require.Nil(t, svc.lookupOpenAICodexTicket(b, "gpt-6-astra"))
 		repo.set(SettingKeyOpenAICodexTicketAccountIDs, "[42]")
 		svc.settingService.InvalidateOpenAICodexTicketAccountsCache()
-		time.Sleep(codexTicketBackgroundInterval)
+		time.Sleep(20 * time.Second)
 		synctest.Wait()
 		require.Equal(t, int32(2), calls.Load())
 		require.NotNil(t, svc.lookupOpenAICodexTicket(b, "gpt-6-astra"))
@@ -209,7 +221,7 @@ func TestCodexTicketBackgroundScopeChangeDiscardsInFlight(t *testing.T) {
 		close(finish)
 		synctest.Wait()
 		require.Nil(t, svc.lookupOpenAICodexTicket(a, "gpt-6-astra"))
-		require.False(t, svc.codexTicketCooldownActive(a))
+		require.False(t, svc.codexTicketErrorActive(a))
 	})
 }
 
@@ -226,6 +238,6 @@ func TestCodexTicketBackgroundNoProxyDoesNotCooldown(t *testing.T) {
 		time.Sleep(time.Minute)
 		synctest.Wait()
 		require.Zero(t, calls.Load())
-		require.False(t, svc.codexTicketCooldownActive(a))
+		require.False(t, svc.codexTicketErrorActive(a))
 	})
 }

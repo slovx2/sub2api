@@ -13,8 +13,8 @@ const SettingKeyOpenAICodexTicketPolicy = "openai_codex_ticket_policy"
 type CodexTicketPolicy struct {
 	TTLSeconds             int `json:"ttl_seconds"`
 	RefreshBeforeSeconds   int `json:"refresh_before_seconds"`
-	MaxAttempts            int `json:"max_attempts"`
-	FailureCooldownSeconds int `json:"failure_cooldown_seconds"`
+	HarvestIntervalSeconds int `json:"harvest_interval_seconds"`
+	MaxConsecutiveFailures int `json:"max_consecutive_failures"`
 }
 
 func (v CodexTicketPolicy) Validate() error {
@@ -24,11 +24,11 @@ func (v CodexTicketPolicy) Validate() error {
 	if v.RefreshBeforeSeconds < 0 || v.RefreshBeforeSeconds >= v.TTLSeconds {
 		return errors.New("提前刷新必须大于等于 0 且小于票据有效期")
 	}
-	if v.MaxAttempts < 1 || v.MaxAttempts > 10 {
-		return errors.New("最多采票次数必须为 1～10 次（含首次）")
+	if v.HarvestIntervalSeconds < 1 || v.HarvestIntervalSeconds > 86400 {
+		return errors.New("采票间隔必须为 1～86400 秒")
 	}
-	if v.FailureCooldownSeconds < 60 || v.FailureCooldownSeconds > 86400 {
-		return errors.New("失败冷却时间必须为 60～86400 秒")
+	if v.MaxConsecutiveFailures < 1 || v.MaxConsecutiveFailures > 10000 {
+		return errors.New("连续失败阈值必须为 1～10000 次")
 	}
 	return nil
 }
@@ -39,7 +39,7 @@ type cachedCodexTicketPolicy struct {
 }
 
 func (s *SettingService) codexTicketPolicyFallback() CodexTicketPolicy {
-	value := CodexTicketPolicy{TTLSeconds: 3600, RefreshBeforeSeconds: 600, MaxAttempts: 3, FailureCooldownSeconds: 3600}
+	value := CodexTicketPolicy{TTLSeconds: 3600, RefreshBeforeSeconds: 600, HarvestIntervalSeconds: 20, MaxConsecutiveFailures: 30}
 	if s != nil && s.cfg != nil {
 		cfg := s.cfg.Gateway.OpenAICodexTicket
 		if cfg.TTLSeconds > 0 {

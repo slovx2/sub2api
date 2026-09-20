@@ -58,6 +58,7 @@ type SuccessfulTestRecoveryResult struct {
 // AccountRecoveryOptions 控制账号恢复时的附加行为。
 type AccountRecoveryOptions struct {
 	InvalidateToken bool
+	Manual          bool
 }
 
 type geminiUsageCacheEntry struct {
@@ -2121,12 +2122,25 @@ func (s *RateLimitService) ResetOpenAI403Counter(ctx context.Context, accountID 
 
 // RecoverAccountState 按需恢复账号的可恢复运行时状态。
 func (s *RateLimitService) RecoverAccountState(ctx context.Context, accountID int64, options AccountRecoveryOptions) (*SuccessfulTestRecoveryResult, error) {
+	if options.Manual {
+		if recovery, ok := s.runtimeBlocker.(interface {
+			RecoverCodexTicketAccount(context.Context, int64) error
+		}); ok {
+			if err := recovery.RecoverCodexTicketAccount(ctx, accountID); err != nil {
+				return nil, err
+			}
+		}
+	}
 	account, err := s.accountRepo.GetByID(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
 
 	result := &SuccessfulTestRecoveryResult{}
+	// 采票阈值错误只允许人工恢复，普通连通性测试成功不代表采票成功。
+	if !options.Manual && strings.HasPrefix(account.ErrorMessage, "codex ticket: ") {
+		return result, nil
+	}
 	if account.Status == StatusError {
 		if err := s.accountRepo.ClearError(ctx, accountID); err != nil {
 			return nil, err

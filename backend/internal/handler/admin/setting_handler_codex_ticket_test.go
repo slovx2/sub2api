@@ -15,7 +15,7 @@ import (
 func TestSettingsCodexTicketPolicyRoundTripAndOmission(t *testing.T) {
 	key := service.SettingKeyOpenAICodexTicketPolicy
 	h, repo := newStepUpSwitchTestHandler(t, map[string]string{})
-	policy := service.CodexTicketPolicy{TTLSeconds: 7200, RefreshBeforeSeconds: 0, MaxAttempts: 5, FailureCooldownSeconds: 1800}
+	policy := service.CodexTicketPolicy{TTLSeconds: 7200, RefreshBeforeSeconds: 0, MaxConsecutiveFailures: 5, HarvestIntervalSeconds: 1800}
 	rec := doUpdateSettings(t, h, map[string]any{key: policy}, nil)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	raw, _ := json.Marshal(policy)
@@ -25,9 +25,9 @@ func TestSettingsCodexTicketPolicyRoundTripAndOmission(t *testing.T) {
 		rec = doUpdateSettings(t, h, body, nil)
 		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 		require.JSONEq(t, string(raw), repo.values[key])
-		require.Contains(t, rec.Body.String(), `"max_attempts":5`)
+		require.Contains(t, rec.Body.String(), `"max_consecutive_failures":5`)
 	}
-	for _, bad := range []any{map[string]any{}, service.CodexTicketPolicy{TTLSeconds: 3600, RefreshBeforeSeconds: 3600, MaxAttempts: 3, FailureCooldownSeconds: 3600}, map[string]any{"ttl_seconds": 3600, "refresh_before_seconds": 600, "max_attempts": 1.5, "failure_cooldown_seconds": 3600}} {
+	for _, bad := range []any{map[string]any{}, service.CodexTicketPolicy{TTLSeconds: 3600, RefreshBeforeSeconds: 3600, MaxConsecutiveFailures: 3, HarvestIntervalSeconds: 3600}, map[string]any{"ttl_seconds": 3600, "refresh_before_seconds": 600, "max_consecutive_failures": 1.5, "harvest_interval_seconds": 3600}} {
 		rec = doUpdateSettings(t, h, map[string]any{key: bad}, nil)
 		require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 		require.JSONEq(t, string(raw), repo.values[key])

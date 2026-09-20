@@ -29,6 +29,11 @@ func requestTicket(t *testing.T, s *OpenAIGatewayService, a *Account, model stri
 	return headers
 }
 
+func harvestTicketForTest(s *OpenAIGatewayService, ctx context.Context, a *Account, model string) error {
+	_, err := s.harvestOpenAICodexTicket(ctx, a, model, s.codexTicketPolicy(ctx))
+	return err
+}
+
 func waitTicketWaiters(t *testing.T, s *OpenAIGatewayService, id int64, model string, n int) {
 	t.Helper()
 	require.Eventually(t, func() bool {
@@ -39,7 +44,7 @@ func waitTicketWaiters(t *testing.T, s *OpenAIGatewayService, id int64, model st
 	}, 3*time.Second, time.Millisecond)
 }
 
-func TestCodexTicketRequestsShareRetryRound(t *testing.T) {
+func TestCodexTicketHarvestSharesSingleAttempt(t *testing.T) {
 	for _, success := range []bool{true, false} {
 		t.Run(map[bool]string{true: "success", false: "exhausted"}[success], func(t *testing.T) {
 			var attempts atomic.Int32
@@ -54,7 +59,7 @@ func TestCodexTicketRequestsShareRetryRound(t *testing.T) {
 						return nil, req.Context().Err()
 					}
 				}
-				if success && n == 3 {
+				if success {
 					return codexTicketResponse(), nil
 				}
 				return nil, errors.New("probe failed")
@@ -63,12 +68,13 @@ func TestCodexTicketRequestsShareRetryRound(t *testing.T) {
 			account := ticketTestAccount(41)
 			repo := &codexTicketRefreshRepo{accounts: []Account{*account}}
 			svc.accountRepo = repo
+			setTicketPolicyForTest(svc, CodexTicketPolicy{3600, 600, 20, 1})
 			logs := &ticketLogMemoryRepo{}
 			svc.codexTicketLogRepo = logs
 			errs := make(chan error, 20)
 			for i := 0; i < 20; i++ {
 				go func() {
-					errs <- svc.applyOpenAICodexTicket(context.Background(), account, "gpt-6-astra", http.Header{})
+					errs <- harvestTicketForTest(svc, context.Background(), account, "gpt-6-astra")
 				}()
 			}
 			<-started
@@ -85,24 +91,23 @@ func TestCodexTicketRequestsShareRetryRound(t *testing.T) {
 					require.True(t, failover.ShouldRetryNextAccount())
 				}
 			}
-			require.Equal(t, int32(3), attempts.Load())
+			require.Equal(t, int32(1), attempts.Load())
 			page, _ := logs.List(context.Background(), CodexTicketLogFilter{})
-			for i := 0; i < 3; i++ {
-				require.Equal(t, i+1, page.Items[i].Attempt)
-			}
+			require.Equal(t, 1, page.Items[0].Attempt)
 			if success {
-				require.Len(t, page.Items, 3)
+				require.Len(t, page.Items, 1)
 				requestTicket(t, svc, account, "gpt-6-astra")
 			} else {
-				require.Len(t, page.Items, 4)
-				require.Equal(t, "cooldown", page.Items[3].Kind)
+				require.Len(t, page.Items, 2)
+				require.Equal(t, "account_error", page.Items[1].Kind)
 				require.True(t, svc.isOpenAIAccountRequestRuntimeBlocked(account, "other-model", false), "旧快照也不能清除冷却")
 				require.Error(t, svc.applyOpenAICodexTicket(context.Background(), account, "gpt-6-astra", http.Header{}))
 				current, err := repo.GetByID(context.Background(), account.ID)
 				require.NoError(t, err)
-				require.WithinDuration(t, time.Now().Add(time.Hour), *current.TempUnschedulableUntil, 5*time.Second)
+				require.Equal(t, StatusError, current.Status)
+				require.False(t, current.Schedulable)
 			}
-			require.Equal(t, int32(3), attempts.Load())
+			require.Equal(t, int32(1), attempts.Load())
 		})
 	}
 }
@@ -125,16 +130,16 @@ func TestCodexTicketRequestsCancellation(t *testing.T) {
 	a := ticketTestAccount(41)
 	ctx, cancel := context.WithCancel(context.Background())
 	first, second := make(chan error, 1), make(chan error, 1)
-	go func() { first <- svc.applyOpenAICodexTicket(ctx, a, "gpt-6-astra", http.Header{}) }()
+	go func() { first <- harvestTicketForTest(svc, ctx, a, "gpt-6-astra") }()
 	<-started
-	go func() { second <- svc.applyOpenAICodexTicket(context.Background(), a, "gpt-6-astra", http.Header{}) }()
+	go func() { second <- harvestTicketForTest(svc, context.Background(), a, "gpt-6-astra") }()
 	waitTicketWaiters(t, svc, 41, "gpt-6-astra", 2)
 	cancel()
 	require.ErrorIs(t, <-first, context.Canceled)
 	close(finish)
 	require.NoError(t, <-second)
 	require.Equal(t, int32(1), calls.Load())
-	require.False(t, svc.codexTicketCooldownActive(a))
+	require.False(t, svc.codexTicketErrorActive(a))
 }
 
 func TestCodexTicketRequestsSerializeModels(t *testing.T) {
@@ -154,7 +159,10 @@ func TestCodexTicketRequestsSerializeModels(t *testing.T) {
 	var wg sync.WaitGroup
 	for _, model := range []string{"gpt-6-astra", "gpt-5.6-sol"} {
 		wg.Add(1)
-		go func(model string) { defer wg.Done(); requestTicket(t, svc, account, model) }(model)
+		go func(model string) {
+			defer wg.Done()
+			require.NoError(t, harvestTicketForTest(svc, context.Background(), account, model))
+		}(model)
 	}
 	wg.Wait()
 	require.Equal(t, int32(1), peak.Load())

@@ -34,12 +34,13 @@ func TestCodexTicketRequestDiscardsScopeChangeDuringPersistence(t *testing.T) {
 		svc.settingService.InvalidateOpenAICodexTicketAccountsCache()
 	}}
 	svc.accountRepo = repo
+	require.NoError(t, harvestTicketForTest(svc, context.Background(), a, "gpt-6-astra"))
 	h := http.Header{}
 	require.NoError(t, svc.applyOpenAICodexTicket(context.Background(), a, "gpt-6-astra", h), "取消选择后按普通账号规则转发")
 	require.Empty(t, h.Get(openAICodexTurnStateHeader))
 	require.Nil(t, svc.lookupOpenAICodexTicket(a, "gpt-6-astra"))
 	require.Nil(t, repo.updates[openAICodexTicketExtraKey("gpt-6-astra")])
-	require.False(t, svc.codexTicketCooldownActive(a))
+	require.False(t, svc.codexTicketErrorActive(a))
 }
 
 func TestCodexTicketRequestDifferentAccountsRunInParallel(t *testing.T) {
@@ -61,7 +62,7 @@ func TestCodexTicketRequestDifferentAccountsRunInParallel(t *testing.T) {
 	errs := make(chan error, 2)
 	for _, id := range []int64{41, 42} {
 		go func(id int64) {
-			errs <- svc.applyOpenAICodexTicket(ctx, ticketTestAccount(id), "gpt-6-astra", http.Header{})
+			errs <- harvestTicketForTest(svc, ctx, ticketTestAccount(id), "gpt-6-astra")
 		}(id)
 	}
 	require.NoError(t, <-errs)

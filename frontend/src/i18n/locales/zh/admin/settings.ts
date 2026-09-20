@@ -545,11 +545,12 @@ export default {
           overviewSummary: '{accounts} 个账号 · {tickets} 张有效票据',
           unavailable: '无有效票', remaining: '剩余 {minutes} 分', expires: '到期',
           blocked: '账号冷却中，暂停调度', pending: '待自动采票', cooldown: '进入冷却', attempt: '尝试序号',
+          schedulingDisabled: '关闭调度', consecutiveFailures: '连续失败 {count} 次', account_error: '账号已标记错误', account_error_write_failed: '错误状态写入失败（本实例已拦截）',
           noTickets: '当前没有可展示的账号票据。',
           attempts: '采票尝试', success: '成功', failure: '失败', injection_missing: '注入缺失',
           diagnosticHint: '记录成功及失败采票（永久保存，重启不清空）。统计按账号筛选；注入缺失为转发注入阶段无可用票据，不含调度前跳过。HTTP 未收到响应时显示 —。',
           problems: '问题账号', logs: '最近日志',
-          problemHint: '显示缺票待自动采票或处于冷却的账号，与历史失败记录分别统计。',
+          problemHint: '显示缺票、关闭调度、冷却或错误的账号，与历史失败记录分别统计。',
           noProblems: '当前范围内没有缺票账号，或打票功能未开启。',
           noLogs: '暂无记录。启用后发生的采票会记录在这里。',
           loadError: '加载失败，请重试；如有旧数据，当前显示的不是最新状态。',
@@ -557,6 +558,7 @@ export default {
           time: '时间', account: '账号', model: '请求模型', length: '票长度', http: 'HTTP 码', reason: '诊断',
           total: '共 {total} 条', previous: '上一页', next: '下一页',
           reasons: {
+            consecutive_failures: '连续失败达到阈值，账号标错并关闭调度', error_persist_failed: '账号标错写入失败，将按间隔重试写入，不再采票',
             accepted: '已接受并缓存', token_error: '获取账号凭证失败', request_error: '网络或请求错误',
             http_error: '上游 HTTP 异常', missing_state: '响应缺少票据', invalid_length: '票据长度不符',
             invalid_format: '票据格式不符', scope_changed_or_cancelled: '范围已变更、功能已关闭或请求取消，结果丢弃',
@@ -565,12 +567,12 @@ export default {
           }
         },
         ticketPolicy: {
-          ttl: '票据有效期（分钟）', refresh: '提前刷新量（分钟）', attempts: '最多采票次数（含首次）', cooldown: '失败后账号冷却（分钟）',
-          hint: '启动后自动采票，每轮结束后隔 6 秒检查缺票、过期或即将过期的票据；无需等待业务请求，冷却结束后自动重试。请求缺票时共用同一采票任务，WebSocket 仍仅建连或重连时检查注入。有效期只影响新票；提前量 0 表示过期后再采。默认最多采票 3 次，失败后冷却 60 分钟。保存后无需重启。',
-          invalid: '有效期及冷却须为 1～1440 分钟；提前量须大于等于 0 且小于有效期（时间精确到整秒）；最多采票次数须为 1～10 的整数。'
+          ttl: '票据有效期（分钟）', refresh: '提前刷新量（分钟）', interval: '采票轮次间隔（秒）', failures: '连续失败阈值（次）',
+          hint: '启动预采，每个账号／模型每轮最多请求一次，整轮结束后等待指定间隔。业务请求只注入未过期票据，无票换号，不等待采票。任一模型连续失败达到阈值后，整个账号标记错误并关闭调度；人工恢复状态后仍需手动开启调度。有效期只影响新票；提前量 0 表示过期后再采。保存后无需重启。',
+          invalid: '有效期须为 1～1440 分钟；提前量须大于等于 0 且小于有效期（时间精确到整秒）；间隔须为 1～86400 秒的整数，连续失败阈值须为 1～10000 的整数。'
         },
         codexTicketAccounts: '打票账号范围',
-        codexTicketAccountsHint: '不指定账号时，对全部符合条件的 OpenAI 账号生效（含后续新增账号）。勾选后，仅对选中账号自动采票、注入，并在采票失败耗尽时冷却。关闭账号调度时不采票，重新开启后下一轮检查恢复采票；仍处于冷却或限流时等待其结束。',
+        codexTicketAccountsHint: '不指定账号时，对全部符合条件的 OpenAI 账号生效（含后续新增账号）。勾选后，仅对选中账号自动采票和注入。仅激活且开启调度的账号采票，关闭调度暂停采票，重新开启后下一轮恢复；其他限流或冷却规则仍生效。',
         codexTicketAccountsAll: '当前未指定账号：全部生效',
         codexTicketAccountsSelected: '已指定 {count} 个账号',
         codexTicketAccountsSearch: '搜索账号名称',
@@ -579,7 +581,7 @@ export default {
         codexTicketAccountsUnavailable: '不适用或未激活',
         codexTicketAccountsLoadError: '账号加载失败，请重试；已保存的选择不会被清空。',
         codexTicketEnabledDesc:
-          '关闭后不打票、不注入 x-codex-turn-state，按原链路转发。开启后后台自动采票和提前刷新，业务请求注入票据后转发；缺票时等待同一采票任务。',
+          '关闭后不打票、不注入 x-codex-turn-state，按原链路转发。开启后后台自动采票和提前刷新，业务请求只注入有效票据；缺票时排除该账号并换号。',
         codexTicketHarvestProxy: '打票代理',
         codexTicketHarvestProxyDesc:
           '仅在门票功能开启时用于打票，保存后后续探测会使用新代理，无需重启。日常业务仍走账号自己的住宅代理。填写完整代理 URL（http 或 socks5h，含用户名和密码）。代理服务商需自行负责出口 IP 轮换。留空并保存表示不改已保存的值。',

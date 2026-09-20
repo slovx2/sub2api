@@ -8,7 +8,7 @@ import (
 )
 
 func TestAccountResponseCodexTicketsUsesConfiguredPolicy(t *testing.T) {
-	account := &service.Account{ID: 41, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth}
+	account := &service.Account{ID: 41, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Status: service.StatusActive, Schedulable: true}
 	h := &AccountHandler{cfg: &config.Config{}}
 	require.Empty(t, h.accountResponseFromService(account).CodexTurnTickets)
 	require.Empty(t, h.accountListResponseFromService(account).CodexTurnTickets)

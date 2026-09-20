@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"time"
 
@@ -96,7 +97,7 @@ func (s *OpenAIGatewayService) CodexTicketOverview(ctx context.Context, page, pa
 	if !cfg.Enabled {
 		return out, nil
 	}
-	accounts, err := s.accountRepo.ListByPlatform(ctx, PlatformOpenAI)
+	accounts, err := s.accountRepo.ListAllWithFilters(ctx, PlatformOpenAI, "", "", "", 0, "")
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +106,7 @@ func (s *OpenAIGatewayService) CodexTicketOverview(ctx context.Context, page, pa
 	items := []CodexTicketOverviewItem{}
 	for i := range accounts {
 		account := &accounts[i]
-		if account.Status != StatusActive || !isOpenAICodexTicketAccount(account) || !codexTicketAccountSelected(cfg.AccountIDs, account.ID) {
+		if (account.Status != StatusActive && account.Status != StatusError) || !isOpenAICodexTicketAccount(account) || !codexTicketAccountSelected(cfg.AccountIDs, account.ID) {
 			continue
 		}
 		out.Accounts++
@@ -123,12 +124,7 @@ func (s *OpenAIGatewayService) CodexTicketOverview(ctx context.Context, page, pa
 				problem = true
 			}
 			setCodexTicketCooldownStatus(&status, account, now)
-			if until, active := s.codexTicketCooldownUntil(account.ID); active {
-				if status.CooldownUntil == nil || until.After(*status.CooldownUntil) {
-					status.CooldownUntil, status.CooldownReason = &until, "codex ticket attempts exhausted"
-				}
-				status.Blocked = true
-			}
+			s.setCodexTicketFailureStatus(&status, account)
 			problem = problem || status.Blocked
 			if !problemsOnly || !status.Ready || status.Blocked {
 				items = append(items, CodexTicketOverviewItem{AccountID: account.ID, AccountName: account.Name, OpenAICodexTicketStatus: status})
@@ -153,10 +149,35 @@ func (s *OpenAIGatewayService) CodexTicketOverview(ctx context.Context, page, pa
 }
 
 func setCodexTicketCooldownStatus(status *OpenAICodexTicketStatus, account *Account, now time.Time) {
+	if account != nil {
+		status.SchedulingDisabled = !account.Schedulable
+		if account.Status == StatusError {
+			status.AccountError = account.ErrorMessage
+		}
+		status.Blocked = status.SchedulingDisabled || account.Status == StatusError
+	}
 	if account != nil && account.TempUnschedulableUntil != nil && now.Before(*account.TempUnschedulableUntil) {
 		status.Blocked = true
 		until := *account.TempUnschedulableUntil
 		status.CooldownUntil = &until
 		status.CooldownReason = account.TempUnschedulableReason
+	}
+}
+
+func (s *OpenAIGatewayService) setCodexTicketFailureStatus(status *OpenAICodexTicketStatus, account *Account) {
+	v, ok := s.openaiCodexTicketFailures.Load(account.ID)
+	if !ok {
+		return
+	}
+	state, ok := v.(*codexTicketFailureState)
+	if !ok {
+		return
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	status.ConsecutiveFailures = state.counts[status.Model]
+	if state.pending != nil {
+		status.Blocked = true
+		status.AccountError = fmt.Sprintf("model=%s consecutive_failures=%d; %s", state.pending.model, state.pending.count, state.pending.reason)
 	}
 }

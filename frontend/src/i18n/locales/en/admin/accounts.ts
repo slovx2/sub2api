@@ -668,10 +668,10 @@ export default {
         codexFingerprintSession: 'Device + Session',
         codexFingerprintFull: 'Full convergence',
         codexTurnTicket: 'Codex 292 / 332 ticket',
-        codexTurnTicketDesc: 'Requests harvest missing or expiring tickets before forwarding. Exhausted attempts trigger account cooldown and failover. WebSocket checks run only on connect or reconnect.',
+        codexTurnTicketDesc: 'Background harvesting runs at the configured interval. Requests only inject unexpired tickets and fail over when missing. Any model reaching the failure threshold marks the account as error and disables scheduling. WebSocket checks run only on connect or reconnect.',
         codexTurnTicketMissing: 'Awaiting automatic harvesting',
         codexTurnTicketReady: '{time} left',
-        codexTurnTicketPaused: 'Account cooling down; scheduling paused',
+        codexTurnTicketPaused: 'Account not schedulable',
         codexImageTool: 'Codex image bridge policy',
         codexImageToolDesc:
           'Controls the hosted image_generation bridge and client-declared image tools on Codex /responses text requests. Hosted auto-injection applies only to non-Responses Lite requests. Account policy takes precedence over channel and global settings; standalone image-generation endpoints are unaffected.',

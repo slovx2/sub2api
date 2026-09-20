@@ -17,7 +17,7 @@ func TestCodexTicketAccountSelectionGatesAndInjects(t *testing.T) {
 		svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, AccountIDs: ids}, nil)
 		account := ticketTestAccount(41)
 		selected := len(ids) == 0 || ids[0] == 41
-		require.False(t, svc.codexTicketCooldownActive(account))
+		require.False(t, svc.codexTicketErrorActive(account))
 		headers := http.Header{openAICodexTurnStateHeader: []string{"client-state"}}
 		err := svc.applyOpenAICodexTicket(ctx, account, "gpt-6-astra", headers)
 		if selected {
@@ -46,6 +46,7 @@ func TestCodexTicketAccountSelectionHarvestOnlySelected(t *testing.T) {
 	a, b := ticketTestAccount(41), ticketTestAccount(42)
 	a.Status, b.Status = StatusActive, StatusActive
 	svc.accountRepo = &codexTicketRefreshRepo{accounts: []Account{*a, *b}}
+	svc.refreshOpenAICodexTickets(context.Background())
 	requestTicket(t, svc, a, "gpt-6-astra")
 	requestTicket(t, svc, b, "gpt-6-astra")
 	require.Equal(t, 1, calls)
@@ -85,7 +86,7 @@ func TestCodexTicketAccountSelectionDiscardsInflightResult(t *testing.T) {
 		t.Fatal("probe did not finish")
 	}
 	require.Nil(t, svc.lookupOpenAICodexTicket(account, "gpt-6-astra"))
-	require.False(t, svc.codexTicketCooldownActive(account))
+	require.False(t, svc.codexTicketErrorActive(account))
 	require.Len(t, logs.items, 1)
 	require.False(t, logs.items[0].Success)
 	require.Equal(t, "scope_changed_or_cancelled", logs.items[0].Reason)

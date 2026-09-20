@@ -38,7 +38,7 @@ func (u *ticketHTTPProxyRecorder) Do(req *http.Request, proxy string, _ int64, _
 	return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{}`))}, nil
 }
 
-func TestCodexTicketHTTPRequestWaitsAndKeepsBusinessProxy(t *testing.T) {
+func TestCodexTicketHTTPRequestReadsTicketAndKeepsBusinessProxy(t *testing.T) {
 	upstream := &ticketHTTPProxyRecorder{started: make(chan struct{}), release: make(chan struct{})}
 	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, HarvestProxyURL: "http://harvest.example:8080"}, upstream)
 	a := ticketTestAccount(41)
@@ -47,22 +47,18 @@ func TestCodexTicketHTTPRequestWaitsAndKeepsBusinessProxy(t *testing.T) {
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 	original := []byte(`{"model":"gpt-6-astra","stream":false,"input":"original request"}`)
-	built := make(chan *http.Request, 1)
-	errs := make(chan error, 1)
-	go func() {
-		req, err := svc.buildUpstreamRequest(context.Background(), c, a, original, "tok", false, "", false)
-		built <- req
-		errs <- err
-	}()
+	_, err := svc.buildUpstreamRequest(context.Background(), c, a, original, "tok", false, "", false)
+	require.ErrorIs(t, err, ErrOpenAICodexTicketUnavailable)
+	require.Empty(t, upstream.proxies, "业务请求不能触发采票")
+	done := make(chan error, 1)
+	go func() { done <- harvestTicketForTest(svc, context.Background(), a, "gpt-6-astra") }()
 	<-upstream.started
-	select {
-	case <-built:
-		t.Fatal("采票完成前原请求已经继续")
-	default:
-	}
+	_, err = svc.buildUpstreamRequest(context.Background(), c, a, original, "tok", false, "", false)
+	require.ErrorIs(t, err, ErrOpenAICodexTicketUnavailable, "采票中也不等待")
 	close(upstream.release)
-	req := <-built
-	require.NoError(t, <-errs)
+	require.NoError(t, <-done)
+	req, err := svc.buildUpstreamRequest(context.Background(), c, a, original, "tok", false, "", false)
+	require.NoError(t, err)
 	require.Len(t, req.Header.Get(openAICodexTurnStateHeader), 292)
 	body, err := io.ReadAll(req.Body)
 	require.NoError(t, err)
@@ -84,5 +80,5 @@ func TestCodexTicketHTTPRequestHonorsOriginalCancellation(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil).WithContext(ctx)
 	err := svc.applyOpenAICodexTicketForRequest(context.WithoutCancel(ctx), c, ticketTestAccount(41), "gpt-6-astra", http.Header{})
 	require.ErrorIs(t, err, context.Canceled)
-	require.False(t, svc.codexTicketCooldownActive(ticketTestAccount(41)))
+	require.False(t, svc.codexTicketErrorActive(ticketTestAccount(41)))
 }
