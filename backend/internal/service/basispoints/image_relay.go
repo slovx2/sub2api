@@ -34,8 +34,8 @@ var (
 const (
 	ImageRelayPath             = "/api/bps-images/"
 	imageRelayTTL              = 30 * time.Minute
-	imageRelayMaxBytes         = 1 << 30
-	imageRelayMaxEntries       = 512
+	imageRelayMaxBytes         = 5 << 30
+	imageRelayMaxEntries       = 5000
 	imageRelayMaxImageBytes    = 20 << 20
 	imageRelayMaxRequestBytes  = 32 << 20
 	imageRelayMaxRequestImages = 20
