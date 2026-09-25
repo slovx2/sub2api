@@ -30,9 +30,6 @@ vi.mock('vue-i18n', async () => {
     ...actual,
     useI18n: () => ({
       t: (key: string, params?: Record<string, string | number>) => {
-        if (key === 'admin.accounts.ticketLength') {
-          return `票据长度：${params?.length}`
-        }
         if (key === 'admin.accounts.imageReceived' && params?.count) {
           return `received-${params.count}`
         }
@@ -120,31 +117,6 @@ describe('AccountTestModal', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
-  })
-
-  it.each([292, 312, 0])('展示本次响应的票据长度 %i，重测时清空旧结果', async (length) => {
-    getAvailableModels.mockResolvedValue([{ id: 'gpt-6-astra', display_name: 'gpt-6-astra' }])
-    vi.mocked(global.fetch).mockResolvedValueOnce(createStreamResponse([
-      `data: {"type":"ticket","ticket_length":${length}}\n`,
-      'data: {"type":"test_complete","success":true}\n'
-    ]))
-    const wrapper = mountModal({
-      id: 56, name: '测试账号', platform: 'openai', type: 'oauth', status: 'active'
-    })
-    await wrapper.setProps({ show: true })
-    await flushPromises()
-    await wrapper.findAll('button').find((button) => button.text().includes('admin.accounts.startTest'))!.trigger('click')
-    await flushPromises()
-    const expected = length > 0 ? `票据长度：${length}` : 'admin.accounts.ticketNotReturned'
-    expect(wrapper.text()).toContain(expected)
-    expect(global.fetch).toHaveBeenCalledTimes(1)
-
-    vi.mocked(global.fetch).mockResolvedValueOnce(createStreamResponse([
-      'data: {"type":"test_complete","success":true}\n'
-    ]))
-    await wrapper.findAll('button').find((button) => button.text().includes('admin.accounts.retry'))!.trigger('click')
-    await flushPromises()
-    expect(wrapper.text()).not.toContain(expected)
   })
 
   it('gemini 图片模型测试会携带提示词并渲染图片预览', async () => {

@@ -58,7 +58,6 @@ type SuccessfulTestRecoveryResult struct {
 // AccountRecoveryOptions 控制账号恢复时的附加行为。
 type AccountRecoveryOptions struct {
 	InvalidateToken bool
-	Manual          bool
 }
 
 type geminiUsageCacheEntry struct {
@@ -1040,6 +1039,15 @@ func (s *RateLimitService) handleOpenAI403(ctx context.Context, account *Account
 		)
 		return false
 	}
+	if isCloudflareBotBlockResponse(responseBody) {
+		slog.Warn(
+			"openai_403_cloudflare_bot_block_skips_account_penalty",
+			"account_id", account.ID,
+			"platform", account.Platform,
+			"upstream_message", upstreamMsg,
+		)
+		return false
+	}
 
 	msg := buildForbiddenErrorMessage(
 		"Access forbidden (403):",
@@ -1083,6 +1091,14 @@ func (s *RateLimitService) handleOpenAI403(ctx context.Context, account *Account
 		"threshold", openAI403DisableThreshold,
 	)
 	return true
+}
+
+// isCloudflareBotBlockResponse reports Cloudflare's WAF bot-signature response
+// (error code 1010). The upstream never reached the account API, so this is a
+// request/edge-level failure and must not consume the account 403 strike budget.
+func isCloudflareBotBlockResponse(body []byte) bool {
+	normalized := strings.ToLower(strings.TrimSpace(string(body)))
+	return strings.Contains(normalized, "error code: 1010")
 }
 
 // handleAntigravity403 处理 Antigravity 平台的 403 错误
@@ -2122,25 +2138,12 @@ func (s *RateLimitService) ResetOpenAI403Counter(ctx context.Context, accountID 
 
 // RecoverAccountState 按需恢复账号的可恢复运行时状态。
 func (s *RateLimitService) RecoverAccountState(ctx context.Context, accountID int64, options AccountRecoveryOptions) (*SuccessfulTestRecoveryResult, error) {
-	if options.Manual {
-		if recovery, ok := s.runtimeBlocker.(interface {
-			RecoverCodexTicketAccount(context.Context, int64) error
-		}); ok {
-			if err := recovery.RecoverCodexTicketAccount(ctx, accountID); err != nil {
-				return nil, err
-			}
-		}
-	}
 	account, err := s.accountRepo.GetByID(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
 
 	result := &SuccessfulTestRecoveryResult{}
-	// 采票阈值错误只允许人工恢复，普通连通性测试成功不代表采票成功。
-	if !options.Manual && strings.HasPrefix(account.ErrorMessage, "codex ticket: ") {
-		return result, nil
-	}
 	if account.Status == StatusError {
 		if err := s.accountRepo.ClearError(ctx, accountID); err != nil {
 			return nil, err
@@ -2465,6 +2468,7 @@ func parseOpenAIImageTryAgainCooldown(body []byte) time.Duration {
 
 const upstreamModelNotFoundCooldown = 30 * time.Minute
 const upstreamModelNotFoundReason = "upstream_404_model_not_found"
+const upstreamModelNotFound401Reason = "upstream_401_model_not_found"
 const upstreamCodexPlanGatedModelCooldown = 30 * time.Minute
 const upstreamCodexPlanGatedModelReason = "upstream_400_codex_plan_gated_model"
 const tempUnschedBodyMaxBytes = 64 << 10
@@ -2490,6 +2494,8 @@ func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, acco
 	switch {
 	case isUpstreamModelNotFoundError(statusCode, responseBody):
 		cooldown, reason = upstreamModelNotFoundCooldown, upstreamModelNotFoundReason
+	case statusCode == http.StatusUnauthorized && account.Type == AccountTypeAPIKey && account.IsOpenAICompatible() && isOpenAICompatibleModelNotFoundBody(responseBody):
+		cooldown, reason = upstreamModelNotFoundCooldown, upstreamModelNotFound401Reason
 	case isOpenAIOAuthAccount(account) && isOpenAICodexPlanGatedModelError(statusCode, responseBody):
 		cooldown, reason = upstreamCodexPlanGatedModelCooldown, upstreamCodexPlanGatedModelReason
 	default:

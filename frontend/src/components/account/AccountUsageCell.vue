@@ -116,20 +116,8 @@
       </div>
     </template>
 
-    <!-- OpenAI Codex accounts: ticket status; usage querying remains OAuth-only. -->
-    <template v-else-if="account.platform === 'openai' && (account.type === 'oauth' || account.type === 'setup-token')">
-      <div v-if="codexTurnTickets.length" class="mb-1 space-y-0.5">
-        <div
-          v-for="ticket in codexTurnTickets"
-          :key="ticket.model"
-          class="flex items-center gap-1 text-[10px] leading-4"
-        >
-          <span class="truncate font-medium text-gray-500 dark:text-gray-400" :title="ticket.model">{{ shortCodexTicketModel(ticket.model) }}</span>
-          <span v-if="ticket.blocked" :title="[ticket.cooldown_reason, ticket.cooldown_until].filter(Boolean).join(' · ')" class="text-amber-600 dark:text-amber-400">{{ t('admin.accounts.openai.codexTurnTicketPaused') }}</span>
-          <span v-else-if="ticket.ready" class="text-emerald-600 dark:text-emerald-400">{{ formatCodexTicketRemaining(ticket.remaining_seconds) }}</span>
-          <span v-else class="text-gray-500">{{ t('admin.accounts.openai.codexTurnTicketMissing') }}</span>
-        </div>
-      </div>
+    <!-- OpenAI OAuth accounts: single source from /usage API -->
+    <template v-else-if="account.platform === 'openai' && account.type === 'oauth'">
       <div v-if="hasOpenAIUsageFallback" class="space-y-1">
         <UsageProgressBar
           v-if="usageInfo?.five_hour"
@@ -198,7 +186,6 @@
         <div class="text-xs text-gray-400">-</div>
         <!-- Always allow on-demand upstream quota query, even before local data exists. -->
         <OpenAIQuotaResetCell
-          v-if="account.type === 'oauth'"
           :account="account"
           class="mt-1"
           @account-updated="handleQuotaResetAccountUpdated"
@@ -454,6 +441,20 @@
         :account="account"
         @updated="handleOllamaCloudUsageUpdated"
       />
+      <!-- 挂在 CN 平台下的 OpenCode Go 账号（资格由后端下发 eligible）：用量展示与
+           刷新由本分支的 OpenCode 用量窗口独占。对 platform=opencode_go：上游 CN
+           配额链路原生支持该平台（cnQuotaCellVisible 对它返回 true），但其探测
+           端点（base_url + "/usage"，默认 base 即官方 Go 基址）与本 cell 刷新的
+           是同一端点、同一份数据，抑制 CN 子单元格是为了避免同源双份探测与重复
+           展示。对挂载在 kimi/zhipu/deepseek/minimax 下的账号：CN 的额度/余额
+           探测端点由 base_url 衍生，对 opencode.ai 会被后端出站 URL 白名单拒绝，
+           渲染出来只会给用户一行探测报错。两种情况都不再渲染 CN 子单元格与
+           占位符（调度停调仍由上游 CN 触发各自驱动）。 -->
+      <OpenCodeGoUsageCell
+        v-else-if="account.opencode_go_usage?.eligible"
+        :account="account"
+        @updated="handleOpenCodeGoUsageUpdated"
+      />
       <div v-else class="space-y-1">
         <!-- 子单元格各自按 模式×平台 判定可见；两者都不可见时（智谱 payg 无公开
              余额端点、coding 探测也不适用）才回落到占位符。 -->
@@ -594,6 +595,13 @@
         :account="account"
         @updated="handleOllamaCloudUsageUpdated"
       />
+      <!-- 与上方 CN 分支结构对齐：Ollama 与 OpenCode 用量身份互斥（基址 host 不同），
+           v-else-if 提供结构性互斥保证，不改变实际渲染结果。 -->
+      <OpenCodeGoUsageCell
+        v-else-if="account.opencode_go_usage?.eligible"
+        :account="account"
+        @updated="handleOpenCodeGoUsageUpdated"
+      />
       <!-- Today stats row (requests, tokens, cost, user_cost) -->
       <div
         v-if="todayStats"
@@ -652,7 +660,7 @@
 
       <!-- No data at all -->
       <div
-        v-if="!todayStats && !todayStatsLoading && !hasApiKeyQuota && !account.ollama_cloud_usage?.eligible"
+        v-if="!todayStats && !todayStatsLoading && !hasApiKeyQuota && !account.ollama_cloud_usage?.eligible && !account.opencode_go_usage?.eligible"
         class="text-xs text-gray-400"
       >-</div>
     </div>
@@ -675,6 +683,7 @@ import CNProviderQuotaCell from './CNProviderQuotaCell.vue'
 import CNProviderBalanceCell from './CNProviderBalanceCell.vue'
 import OllamaCloudUsageCell from './OllamaCloudUsageCell.vue'
 import { cnQuotaCellVisible as cnQuotaCellVisibleFn, cnBalanceCellVisible as cnBalanceCellVisibleFn } from './credentialsBuilder'
+import OpenCodeGoUsageCell from './OpenCodeGoUsageCell.vue'
 
 // Module-level cache shared across all AccountUsageCell instances
 const _usageCache = new Map<number, { data: AccountUsageInfo; ts: number }>()
@@ -799,21 +808,6 @@ const hasOpenAIUsageFallback = computed(() => {
   if (props.account.platform !== 'openai' || props.account.type !== 'oauth') return false
   return !!usageInfo.value?.five_hour || !!usageInfo.value?.seven_day
 })
-
-const codexTurnTickets = computed(() => props.account.codex_turn_tickets ?? [])
-
-function shortCodexTicketModel(model: string) {
-  if (model === 'gpt-6-astra') return 'astra'
-  if (model === 'gpt-5.6-sol') return 'sol'
-  return model
-}
-
-function formatCodexTicketRemaining(seconds: number) {
-  const total = Math.max(0, Math.floor(seconds || 0))
-  const m = Math.floor(total / 60)
-  const s = total % 60
-  return `${m}m${String(s).padStart(2, '0')}s`
-}
 
 const openAISevenDayEstimatedTotalCost = computed(() => {
   const sevenDay = usageInfo.value?.seven_day
@@ -1587,6 +1581,10 @@ const handleQuotaResetAccountUpdated = (account: Account) => {
 
 const handleOllamaCloudUsageUpdated = (state: NonNullable<Account['ollama_cloud_usage']>) => {
   emit('account-updated', { ...props.account, ollama_cloud_usage: state })
+}
+
+const handleOpenCodeGoUsageUpdated = (state: NonNullable<Account['opencode_go_usage']>) => {
+  emit('account-updated', { ...props.account, opencode_go_usage: state })
 }
 
 // ===== Key account today stats formatters =====

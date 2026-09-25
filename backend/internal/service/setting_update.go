@@ -485,26 +485,11 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyOpenAICodexUserAgent] = strings.TrimSpace(settings.OpenAICodexUserAgent)
 	updates[SettingKeyOpenAICodexClientVersion] = NormalizeCodexClientVersion(settings.OpenAICodexClientVersion)
 	updates[SettingKeyOpenAICodexVersionAutoSyncEnabled] = strconv.FormatBool(settings.OpenAICodexVersionAutoSyncEnabled)
-	accountIDs, err := normalizeCodexTicketAccountIDs(settings.OpenAICodexTicketAccountIDs)
-	if err != nil {
-		return nil, infraerrors.BadRequest("INVALID_CODEX_TICKET_ACCOUNTS", err.Error())
-	}
-	settings.OpenAICodexTicketAccountIDs = accountIDs
-	accountIDsJSON, _ := json.Marshal(accountIDs)
-	updates[SettingKeyOpenAICodexTicketAccountIDs] = string(accountIDsJSON)
-	if settings.OpenAICodexTicketPolicy != nil {
-		if err := settings.OpenAICodexTicketPolicy.Validate(); err != nil {
-			return nil, infraerrors.BadRequest("INVALID_CODEX_TICKET_POLICY", err.Error())
-		}
-		raw, _ := json.Marshal(settings.OpenAICodexTicketPolicy)
-		updates[SettingKeyOpenAICodexTicketPolicy] = string(raw)
-	}
-	updates[SettingKeyOpenAICodexTicketEnabled] = strconv.FormatBool(settings.OpenAICodexTicketEnabled)
-	if err := ValidateOpenAICodexTicketHarvestProxyURL(settings.OpenAICodexTicketHarvestProxyURL); err != nil {
-		return nil, infraerrors.BadRequest("INVALID_CODEX_HARVEST_PROXY", err.Error())
-	}
-	updates[SettingKeyOpenAICodexTicketHarvestProxyURL] = strings.TrimSpace(settings.OpenAICodexTicketHarvestProxyURL)
 	// SettingKeyOpenAICodexClientVersionSynced 由自动同步任务独占写入，此处不得覆盖，
+	// 否则面板保存会把同步结果清空。
+	updates[SettingKeyClaudeCodeClientVersion] = NormalizeClaudeCodeClientVersion(settings.ClaudeCodeClientVersion)
+	updates[SettingKeyClaudeCodeVersionAutoSyncEnabled] = strconv.FormatBool(settings.ClaudeCodeVersionAutoSyncEnabled)
+	// SettingKeyClaudeCodeClientVersionSynced 由自动同步任务独占写入，此处不得覆盖，
 	// 否则面板保存会把同步结果清空。
 	// codex_cli_only 加固
 	updates[SettingKeyMinCodexVersion] = strings.TrimSpace(settings.MinCodexVersion)
@@ -518,7 +503,10 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingPaymentVisibleMethodAlipayEnabled] = strconv.FormatBool(settings.PaymentVisibleMethodAlipayEnabled)
 	updates[SettingPaymentVisibleMethodWxpayEnabled] = strconv.FormatBool(settings.PaymentVisibleMethodWxpayEnabled)
 	updates[SettingKeyOpenAILowUpstreamRatePriorityEnabled] = strconv.FormatBool(settings.OpenAILowUpstreamRatePriorityEnabled)
-	updates[SettingKeyOpenAIOAuthSchedulingRateMultiplier] = strconv.FormatFloat(settings.OpenAIOAuthSchedulingRateMultiplier, 'f', -1, 64)
+	updates[SettingKeyOpenAIOAuthSchedulingRateMultiplier] = ""
+	if rate := settings.OpenAIOAuthSchedulingRateMultiplier; rate != nil {
+		updates[SettingKeyOpenAIOAuthSchedulingRateMultiplier] = strconv.FormatFloat(*rate, 'f', -1, 64)
+	}
 	updates[openAIAdvancedSchedulerSettingKey] = strconv.FormatBool(settings.OpenAIAdvancedSchedulerEnabled)
 	updates[SettingKeyOpenAIAdvancedSchedulerStickyWeightedEnabled] = strconv.FormatBool(settings.OpenAIAdvancedSchedulerStickyWeightedEnabled)
 	updates[SettingKeyOpenAIAdvancedSchedulerSubscriptionPriorityEnabled] = strconv.FormatBool(settings.OpenAIAdvancedSchedulerSubscriptionPriorityEnabled)
@@ -758,9 +746,7 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 	// 版本号缓存只做失效，不在此重算：生效值还取决于自动同步写入的 synced 键，
 	// 这里没有它的最新值，重算会把同步结果覆盖成陈旧值。
 	s.InvalidateOpenAICodexClientVersionCache()
-	s.refreshCodexTicketScopeAfterSettings(settings)
-	s.InvalidateOpenAICodexTicketPolicyCache()
-	s.InvalidateOpenAICodexTicketHarvestProxyCache()
+	s.InvalidateClaudeCodeClientVersionCache()
 	openAIAdvancedSchedulerSettingSF.Forget(openAIAdvancedSchedulerSettingKey)
 	openAIAdvancedSchedulerSettingCache.Store(&cachedOpenAIAdvancedSchedulerSetting{
 		lowUpstreamRatePriorityEnabled: settings.OpenAILowUpstreamRatePriorityEnabled,

@@ -79,13 +79,9 @@ type openAIWSAcquireRequest struct {
 	PreferredConnID string
 	// ForceNewConn: 强制本次获取新连接（避免复用导致连接内续链状态互相污染）。
 	ForceNewConn bool
-	// 按请求采票的账号禁止后台连接预热，防止延迟建连意外触发采票。
-	DisablePrewarm bool
 	// ForcePreferredConn: 强制本次只使用 PreferredConnID，禁止漂移到其它连接。
 	ForcePreferredConn bool
 }
-
-type openAIWSBackgroundDialKey struct{}
 
 type openAIWSHandshakeCompatibilityKey struct {
 	betaFeatures        string
@@ -95,7 +91,6 @@ type openAIWSHandshakeCompatibilityKey struct {
 	threadID            string
 	clientRequestID     string
 	codexWindowID       string
-	codexTicket         string
 }
 
 type openAIWSConnLease struct {
@@ -1849,7 +1844,7 @@ func (p *openAIWSConnPool) ensureTargetIdleAsync(accountID int64) {
 	}
 	ap.mu.Lock()
 	defer ap.mu.Unlock()
-	if ap.lastAcquire == nil || ap.lastAcquire.DisablePrewarm {
+	if ap.lastAcquire == nil {
 		return
 	}
 	if ap.prewarmActive {
@@ -1950,7 +1945,6 @@ func (p *openAIWSConnPool) prewarmConns(accountID int64, req openAIWSAcquireRequ
 
 	for i := 0; i < total; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), p.dialTimeout()+openAIWSConnPrewarmExtraDelay)
-		ctx = context.WithValue(ctx, openAIWSBackgroundDialKey{}, true)
 		conn, err := p.dialConn(ctx, req)
 		cancel()
 
@@ -2370,9 +2364,6 @@ func normalizeOpenAIWSBetaFeatures(headers http.Header) string {
 func normalizeOpenAIWSHandshakeCompatibility(account *Account, headers http.Header) openAIWSHandshakeCompatibilityKey {
 	key := openAIWSHandshakeCompatibilityKey{
 		betaFeatures: normalizeOpenAIWSBetaFeatures(headers),
-	}
-	if state := strings.TrimSpace(headers.Get(openAICodexTurnStateHeader)); strings.HasPrefix(state, openAICodexTicketStatePrefix) {
-		key.codexTicket = state
 	}
 	mode := activeCodexFingerprintMode(account)
 	if mode == codexFingerprintOff {

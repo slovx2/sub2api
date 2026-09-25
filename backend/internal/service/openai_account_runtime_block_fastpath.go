@@ -99,6 +99,7 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	// Any non-2xx upstream HTTP response means the model request was actually sent.
 	if s != nil {
 		scheduleOllamaCloudUsageActivity(s.deferredService, account)
+		scheduleOpenCodeGoUsageActivity(s.deferredService, account)
 	}
 	// Capacity shedding describes this request, not account health. Keep the
 	// account schedulable while the request-local retry budget handles recovery.
@@ -552,13 +553,9 @@ func (s *OpenAIGatewayService) clearOpenAIAccountRuntimeBlockIfUnchanged(account
 // block is dropped with generation+deadline CAS. Model-scoped transient blocks
 // are left alone. This is fail-open if a DB write failed or the snapshot has
 // not caught up yet: empty cooldown fields drop the local account-level block.
-// 采票错误不受旧快照清理影响；无票按真正出站模型拦截。
-func (s *OpenAIGatewayService) isOpenAIAccountRequestRuntimeBlocked(account *Account, requestedModel string, requireCompact bool) bool {
+func (s *OpenAIGatewayService) isOpenAIAccountRequestRuntimeBlocked(account *Account, requestedModel string) bool {
 	if s == nil {
 		return false
-	}
-	if s.codexTicketErrorActive(account) || s.openAICodexTicketBlocksAccount(account, s.openAICodexTicketOutboundModel(account, requestedModel, requireCompact)) {
-		return true
 	}
 	snapshot := s.peekOpenAIAccountRuntimeBlock(account)
 	if snapshot.blocked {

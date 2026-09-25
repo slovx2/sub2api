@@ -484,7 +484,6 @@ const startTest = async () => {
 
 const handleEvent = (event: {
   type: string
-  ticket_length?: number
   text?: string
   model?: string
   success?: boolean
@@ -506,17 +505,6 @@ const handleEvent = (event: {
       )
       addLine('', 'text-gray-300')
       addLine(t('admin.accounts.response'), 'text-yellow-400')
-      break
-
-    case 'ticket':
-      if (typeof event.ticket_length === 'number') {
-        addLine(
-          event.ticket_length > 0
-            ? t('admin.accounts.ticketLength', { length: event.ticket_length })
-            : t('admin.accounts.ticketNotReturned'),
-          'text-cyan-300'
-        )
-      }
       break
 
     case 'content':

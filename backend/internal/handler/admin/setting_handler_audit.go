@@ -2,7 +2,6 @@ package admin
 
 import (
 	"log/slog"
-	"slices"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -483,19 +482,6 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.AntigravityUserAgentVersion != after.AntigravityUserAgentVersion {
 		changed = append(changed, "antigravity_user_agent_version")
 	}
-	if !slices.Equal(before.OpenAICodexTicketAccountIDs, after.OpenAICodexTicketAccountIDs) {
-		changed = append(changed, "openai_codex_ticket_account_ids")
-	}
-	if req.OpenAICodexTicketPolicy != nil && ((before.OpenAICodexTicketPolicy == nil) != (after.OpenAICodexTicketPolicy == nil) ||
-		(before.OpenAICodexTicketPolicy != nil && after.OpenAICodexTicketPolicy != nil && *before.OpenAICodexTicketPolicy != *after.OpenAICodexTicketPolicy)) {
-		changed = append(changed, "openai_codex_ticket_policy")
-	}
-	if before.OpenAICodexTicketEnabled != after.OpenAICodexTicketEnabled {
-		changed = append(changed, "openai_codex_ticket_enabled")
-	}
-	if before.OpenAICodexTicketHarvestProxyURL != after.OpenAICodexTicketHarvestProxyURL {
-		changed = append(changed, "openai_codex_ticket_harvest_proxy_url")
-	}
 	if before.OpenAICodexUserAgent != after.OpenAICodexUserAgent {
 		changed = append(changed, "openai_codex_user_agent")
 	}
@@ -504,6 +490,12 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.OpenAICodexVersionAutoSyncEnabled != after.OpenAICodexVersionAutoSyncEnabled {
 		changed = append(changed, "openai_codex_version_auto_sync_enabled")
+	}
+	if before.ClaudeCodeClientVersion != after.ClaudeCodeClientVersion {
+		changed = append(changed, "claude_code_client_version")
+	}
+	if before.ClaudeCodeVersionAutoSyncEnabled != after.ClaudeCodeVersionAutoSyncEnabled {
+		changed = append(changed, "claude_code_version_auto_sync_enabled")
 	}
 	if before.PaymentVisibleMethodAlipaySource != after.PaymentVisibleMethodAlipaySource {
 		changed = append(changed, "payment_visible_method_alipay_source")
@@ -520,7 +512,7 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.OpenAILowUpstreamRatePriorityEnabled != after.OpenAILowUpstreamRatePriorityEnabled {
 		changed = append(changed, "openai_low_upstream_rate_priority_enabled")
 	}
-	if before.OpenAIOAuthSchedulingRateMultiplier != after.OpenAIOAuthSchedulingRateMultiplier {
+	if !equalNullableFloat(before.OpenAIOAuthSchedulingRateMultiplier, after.OpenAIOAuthSchedulingRateMultiplier) {
 		changed = append(changed, "openai_oauth_scheduling_rate_multiplier")
 	}
 	if before.OpenAIAdvancedSchedulerEnabled != after.OpenAIAdvancedSchedulerEnabled {
