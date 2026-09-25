@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/service/basispoints"
 	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
@@ -154,6 +155,7 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 	if err != nil {
 		return fail(400, "basispoints_request_invalid", err.Error())
 	}
+	dumpExcelBPSRequestBody(os.Getenv(ExcelBPSRequestDumpDirEnv), upstreamBody, account, model)
 	token, _, err := s.GetAccessToken(ctx, account)
 	if err != nil {
 		return fail(502, "basispoints_auth_unavailable", "Account OAuth credential is unavailable")
@@ -346,4 +348,46 @@ func excelBPSAccountSecrets(account *Account) []string {
 		secrets = append(secrets, account.Proxy.Password)
 	}
 	return secrets
+}
+
+// ExcelBPSRequestDumpDirEnv enables a bounded, opt-in dump of the wire body this
+// gateway sends to the Excel / BPS upstream. It exists for production
+// troubleshooting only: the dump contains client request content, so it defaults
+// to disabled, writes at most excelBPSDumpMaxFiles files, and must never be left
+// enabled after the investigation.
+const (
+	ExcelBPSRequestDumpDirEnv = "BPS_REQUEST_DUMP_DIR"
+	excelBPSDumpMinBytes      = 4 << 10
+	excelBPSDumpMaxFiles      = 20
+)
+
+// dumpExcelBPSRequestBody stores the prepared upstream body for offline
+// comparisons. Failures are logged and never affect the request path.
+func dumpExcelBPSRequestBody(dir string, body []byte, account *Account, model string) {
+	dir = strings.TrimSpace(dir)
+	if dir == "" || len(body) < excelBPSDumpMinBytes {
+		return
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		logger.LegacyPrintf("service.openai_gateway", "[BPS dump] mkdir failed: %v", err)
+		return
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		logger.LegacyPrintf("service.openai_gateway", "[BPS dump] readdir failed: %v", err)
+		return
+	}
+	if len(entries) >= excelBPSDumpMaxFiles {
+		return
+	}
+	accountID := int64(0)
+	if account != nil {
+		accountID = account.ID
+	}
+	name := fmt.Sprintf("bps-%d-%d-%d.json", time.Now().UnixNano(), accountID, len(body))
+	if err := os.WriteFile(filepath.Join(dir, name), body, 0o600); err != nil {
+		logger.LegacyPrintf("service.openai_gateway", "[BPS dump] write failed: %v", err)
+		return
+	}
+	logger.LegacyPrintf("service.openai_gateway", "[BPS dump] saved %s (account=%d model=%s bytes=%d)", name, accountID, model, len(body))
 }
