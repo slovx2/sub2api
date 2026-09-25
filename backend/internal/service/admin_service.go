@@ -426,11 +426,15 @@ type ShadowOptions struct {
 }
 
 type UpdateAccountInput struct {
-	Name                  string
-	Notes                 *string
-	Type                  string // Account type: oauth, setup-token, apikey
-	Credentials           map[string]any
-	Extra                 map[string]any
+	Name        string
+	Notes       *string
+	Type        string // Account type: oauth, setup-token, apikey
+	Credentials map[string]any
+	Extra       map[string]any
+	// ExtraMode selects how Extra is applied: "" / "replace" replaces the whole
+	// extra object (frontend edit flow), "merge" patches only the provided keys
+	// and deletes keys whose value is explicitly null.
+	ExtraMode             string
 	ProxyID               *int64
 	Concurrency           *int     // 使用指针区分"未提供"和"设置为0"
 	Priority              *int     // 使用指针区分"未提供"和"设置为0"

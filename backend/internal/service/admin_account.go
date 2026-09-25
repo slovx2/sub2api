@@ -21,6 +21,30 @@ import (
 )
 
 // Account management implementations
+// UpdateAccountExtraModeMerge switches the account update API to key-level patch
+// semantics for `extra`: only the keys present in the request change, and a key
+// whose value is explicitly null is deleted. The default ("") keeps the historical
+// replace semantics used by the admin edit form, which submits the whole extra
+// object and relies on missing keys meaning "removed".
+const UpdateAccountExtraModeMerge = "merge"
+
+// mergeAccountExtraUpdate patches base with updates: provided non-null values win,
+// explicit nulls delete the key, and every other existing key is preserved.
+func mergeAccountExtraUpdate(base, updates map[string]any) map[string]any {
+	merged := make(map[string]any, len(base)+len(updates))
+	for key, value := range base {
+		merged[key] = value
+	}
+	for key, value := range updates {
+		if value == nil {
+			delete(merged, key)
+			continue
+		}
+		merged[key] = value
+	}
+	return merged
+}
+
 func (s *adminServiceImpl) ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string) ([]Account, int64, error) {
 	if groupID > 0 {
 		if err := s.ValidateAccountGroupBindings(ctx, []int64{groupID}); err != nil {
@@ -679,30 +703,37 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		delete(normalizedExtra, OllamaCloudUsageSnapshotExtraKey)
 		delete(normalizedExtra, OpenCodeGoUsageAutoRefreshExtraKey)
 		delete(normalizedExtra, OpenCodeGoUsageSnapshotExtraKey)
-		// 保留配额用量和专用服务受管字段，防止普通账号编辑意外覆盖。
-		for _, key := range []string{
-			"quota_used",
-			"quota_daily_used",
-			"quota_daily_start",
-			"quota_weekly_used",
-			"quota_weekly_start",
-			grokBillingExtraKey,
-			UpstreamBillingProbeEnabledExtraKey,
-			UpstreamBillingRateSyncEnabledExtraKey,
-			UpstreamBillingProbeExtraKey,
-			OllamaCloudUsageSessionExtraKey,
-			OllamaCloudUsageAutoRefreshExtraKey,
-			OllamaCloudUsageSnapshotExtraKey,
-			OpenAIAutoResetCreditStateExtraKey,
-			OpenCodeGoUsageAutoRefreshExtraKey,
-			OpenCodeGoUsageSnapshotExtraKey,
-		} {
-			if v, ok := account.Extra[key]; ok {
-				normalizedExtra[key] = v
+		nextExtra := normalizedExtra
+		if input.ExtraMode == UpdateAccountExtraModeMerge {
+			// Patch semantics: only the provided keys change, everything else is kept.
+			nextExtra = mergeAccountExtraUpdate(account.Extra, normalizedExtra)
+		} else {
+			// 保留配额用量和专用服务受管字段，防止普通账号编辑意外覆盖。
+			for _, key := range []string{
+				"quota_used",
+				"quota_daily_used",
+				"quota_daily_start",
+				"quota_weekly_used",
+				"quota_weekly_start",
+				grokBillingExtraKey,
+				UpstreamBillingProbeEnabledExtraKey,
+				UpstreamBillingRateSyncEnabledExtraKey,
+				UpstreamBillingProbeExtraKey,
+				OllamaCloudUsageSessionExtraKey,
+				OllamaCloudUsageAutoRefreshExtraKey,
+				OllamaCloudUsageSnapshotExtraKey,
+				OpenAIAutoResetCreditStateExtraKey,
+				OpenCodeGoUsageAutoRefreshExtraKey,
+				OpenCodeGoUsageSnapshotExtraKey,
+			} {
+				if v, ok := account.Extra[key]; ok {
+					normalizedExtra[key] = v
+				}
 			}
+			nextExtra = normalizedExtra
 		}
-		normalizedExtra = prepareCodexFingerprintExtraForUpdate(account, normalizedExtra)
-		account.Extra = normalizedExtra
+		nextExtra = prepareCodexFingerprintExtraForUpdate(account, nextExtra)
+		account.Extra = nextExtra
 		if account.Platform == PlatformAntigravity && wasOveragesEnabled && !account.IsOveragesEnabled() {
 			delete(account.Extra, "antigravity_credits_overages") // 清理旧版 overages 运行态
 			// 清除 AICredits 限流 key
