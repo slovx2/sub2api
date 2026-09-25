@@ -332,6 +332,9 @@ func provideCleanup(
 				}
 				return nil
 			}},
+			{"ExcelBPSImages", func() error {
+				return openAIGateway.CloseExcelBPSImages()
+			}},
 			{"OpenAIWSPool", func() error {
 				if openAIGateway != nil {
 					openAIGateway.CloseOpenAIWSPool()

@@ -93,6 +93,12 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		return err
 	}
 
+	// Excel / BPS 账号只支持 HTTP/SSE，上游没有对应的 WS 转发能力；按所选模型
+	// 拦截，避免会话建立后才在转发阶段失败。
+	if model := strings.TrimSpace(gjson.GetBytes(firstClientMessage, "model").String()); account.IsExcelBPSEnabledForModel(model) {
+		return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "Excel BPS models require HTTP/SSE", nil)
+	}
+
 	// 预取一次 OpenAI Fast Policy settings，绑定到 ctx，让该 WS session
 	// 内所有帧的 evaluateOpenAIFastPolicy 调用复用同一份快照，避免每帧
 	// 进入 DB / settingRepo。Trade-off 见 withOpenAIFastPolicyContext 注释。
