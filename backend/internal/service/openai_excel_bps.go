@@ -100,7 +100,7 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 		return nil, fmt.Errorf("excel BPS: %s", code)
 	}
 	originalModel := gjson.GetBytes(body, "model").String()
-	model := account.GetMappedModel(originalModel)
+	model := account.ExcelBPSUpstreamModel(originalModel)
 	stream := gjson.GetBytes(body, "stream").Bool()
 	var err error
 	body, err = sjson.SetBytes(body, "model", model)

@@ -2145,7 +2145,61 @@ func (a *Account) IsExcelBPSEnabledForModel(requestedModel string) bool {
 	if !a.IsExcelBPSEnabled() {
 		return false
 	}
-	return a.isExcelBPSUpstreamModelEnabled(a.GetMappedModel(requestedModel))
+	return a.isExcelBPSUpstreamModelEnabled(a.ExcelBPSUpstreamModel(requestedModel))
+}
+
+// ExcelBPSUpstreamModel returns the model name the Excel / BPS upstream receives:
+// the account-level model mapping first, then the BPS-only alias map
+// (extra.openai_excel_bps_model_aliases). Aliases apply only while the account has
+// the Excel / BPS protocol enabled, so disabling BPS leaves Codex routing intact.
+func (a *Account) ExcelBPSUpstreamModel(requestedModel string) string {
+	model := a.GetMappedModel(requestedModel)
+	if a == nil || !a.IsExcelBPSEnabled() {
+		return model
+	}
+	if alias, ok := a.excelBPSModelAliases()[model]; ok {
+		return alias
+	}
+	return model
+}
+
+// excelBPSModelAliases reads the optional BPS-only alias map. Malformed entries are
+// ignored so a bad value can never silently redirect traffic.
+func (a *Account) excelBPSModelAliases() map[string]string {
+	if a == nil || a.Extra == nil {
+		return nil
+	}
+	raw, ok := a.Extra["openai_excel_bps_model_aliases"]
+	if !ok || raw == nil {
+		return nil
+	}
+	aliases := make(map[string]string)
+	addAlias := func(from string, to string) {
+		from = strings.TrimSpace(from)
+		to = strings.TrimSpace(to)
+		if from == "" || to == "" {
+			return
+		}
+		aliases[from] = to
+	}
+	switch values := raw.(type) {
+	case map[string]string:
+		for from, to := range values {
+			addAlias(from, to)
+		}
+	case map[string]any:
+		for from, value := range values {
+			to, ok := value.(string)
+			if !ok {
+				continue
+			}
+			addAlias(from, to)
+		}
+	}
+	if len(aliases) == 0 {
+		return nil
+	}
+	return aliases
 }
 
 func (a *Account) isExcelBPSUpstreamModelEnabled(model string) bool {
