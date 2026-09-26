@@ -3724,6 +3724,7 @@ const excelBPSEnabled = ref(false)
 const excelBPSAllModels = ref(false)
 const excelBPSModels = ref<string[]>(['gpt-6-astra'])
 const excelBPSCacheCreationAsInput = ref(false)
+const excelBPSIgnoreImages = ref(false)
 const openaiPassthroughEnabled = ref(false)
 // OpenAI Codex namespace 工具摊平兼容开关（仅 OAuth），缺省关闭即原样保留
 const openaiFlattenNamespacesEnabled = ref(false)
@@ -4216,6 +4217,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   excelBPSAllModels.value = false
   excelBPSModels.value = ['gpt-6-astra']
   excelBPSCacheCreationAsInput.value = false
+  excelBPSIgnoreImages.value = false
   openaiPassthroughEnabled.value = false
   openaiFlattenNamespacesEnabled.value = false
   openAILongContextBillingEnabled.value = false
@@ -4248,6 +4250,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       )
     }
     excelBPSCacheCreationAsInput.value = excelBPSEnabled.value && extra?.openai_excel_bps_cache_creation_as_input === true
+    excelBPSIgnoreImages.value = excelBPSEnabled.value && extra?.openai_excel_bps_ignore_images === true
     openaiPassthroughEnabled.value = extra?.openai_passthrough === true || extra?.openai_oauth_passthrough === true
     openaiFlattenNamespacesEnabled.value =
       newAccount.type === 'oauth' && extra?.openai_responses_flatten_namespaces === true
@@ -5738,6 +5741,11 @@ const handleSubmit = async () => {
         newExtra.openai_excel_bps_cache_creation_as_input = true
       } else {
         delete newExtra.openai_excel_bps_cache_creation_as_input
+      }
+      if (newExtra.openai_excel_bps === true && excelBPSIgnoreImages.value) {
+        newExtra.openai_excel_bps_ignore_images = true
+      } else {
+        delete newExtra.openai_excel_bps_ignore_images
       }
       if (props.account.type === 'oauth' || props.account.type === 'setup-token') {
         newExtra.openai_oauth_responses_websockets_v2_mode = openaiOAuthResponsesWebSocketV2Mode.value
