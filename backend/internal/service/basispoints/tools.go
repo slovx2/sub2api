@@ -295,17 +295,10 @@ func (b *Bridge) translateHistory(input []any) ([]any, error) {
 	result := make([]any, 0, len(input))
 	seenCalls := make(map[string]bool)
 	var trigger any
-	// 客户端会把整段历史（长会话实测 19 MB / 2500+ 条目）都发回来，但服务端压缩项
-	// （compaction）已经取代了它之前的历史：实测丢弃这些条目后上游计费 token 完全一致。
-	// 只保留压缩项链本身和最后一个压缩项之后的条目，避免每次请求都上传无效载荷。
-	supersededUntil := lastCompactionIndex(input)
 	for index, raw := range input {
 		item, ok := raw.(object)
 		if !ok {
 			return nil, fmt.Errorf("invalid Basispoints input item")
-		}
-		if index < supersededUntil && text(item["type"]) != "compaction" {
-			continue
 		}
 		delete(item, "internal_chat_message_metadata_passthrough")
 		switch text(item["type"]) {
@@ -370,17 +363,6 @@ func (b *Bridge) translateHistory(input []any) ([]any, error) {
 		result = append(result, trigger)
 	}
 	return result, nil
-}
-
-// lastCompactionIndex 返回最后一个 compaction 项的下标，没有压缩项时返回 -1。
-func lastCompactionIndex(input []any) int {
-	for index := len(input) - 1; index >= 0; index-- {
-		item, _ := input[index].(object)
-		if text(item["type"]) == "compaction" {
-			return index
-		}
-	}
-	return -1
 }
 
 func isTool(item object) bool {
