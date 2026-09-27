@@ -1769,7 +1769,24 @@
         <p v-if="excelBPSEnabled" class="mt-2 text-xs text-amber-600 dark:text-amber-400">{{ t('admin.accounts.openai.excelBPSNotice') }}</p>
         <div v-if="excelBPSEnabled" class="mt-3">
           <label class="flex items-center gap-2">
-            <input v-model="excelBPSOmitUnsupportedTools" type="checkbox"
+            <input v-model="excelBPSIgnoreImages" type="checkbox"
+              data-testid="excel-bps-ignore-images"
+              class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500" />
+            <span class="text-sm">{{ t('admin.accounts.openai.excelBPSIgnoreImages') }}</span>
+          </label>
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.openai.excelBPSIgnoreImagesDesc') }}</p>
+        </div>
+        <div v-if="excelBPSEnabled" class="mt-3">
+          <label class="flex items-center gap-2">
+            <input v-model="excelBPSIgnoreEncryptedContent" type="checkbox"
+              data-testid="excel-bps-ignore-encrypted-content"
+              class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500" />
+            <span class="text-sm">{{ t('admin.accounts.openai.excelBPSIgnoreEncryptedContent') }}</span>
+          </label>
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.openai.excelBPSIgnoreEncryptedContentDesc') }}</p>
+        </div>
+        <div v-if="excelBPSEnabled" class="mt-3">
+          <label class="flex items-center gap-2">
             <input v-model="excelBPSCacheCreationAsInput" type="checkbox"
               data-testid="excel-bps-cache-creation-as-input"
               class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500" />
