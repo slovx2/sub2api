@@ -11,8 +11,8 @@ const (
 	// ExcelBPSUnscheduleOn403Key 打开后，BPS 返回 403 时直接把账号设为不可调度
 	// （账号级一键开关，分组绑定保持不动，方便人工恢复）。
 	ExcelBPSUnscheduleOn403Key = "openai_excel_bps_unschedule_on_403"
-	// ExcelBPS403DisabledAtKey 记录因 403 自动关闭 BPS 的时间（UTC RFC3339），
-	// 与上游同名，便于后续接入账号列表标记。
+	// ExcelBPS403DisabledAtKey 记录因 403 自动停止调度的时间（UTC RFC3339），
+	// 与上游同名；重新打开调度开关时清除。
 	ExcelBPS403DisabledAtKey = "openai_excel_bps_403_disabled_at"
 )
 
@@ -50,21 +50,23 @@ func ExcelBPS403MarkerTime(extra map[string]any) (time.Time, bool) {
 	return parsed, true
 }
 
-// MergeExcelBPS403Marker 让 403 标记在普通编辑中保留、在重新开启 BPS 时清除，
-// 并且忽略编辑请求里带来的标记值。
+// MergeExcelBPS403Marker 让 403 标记在普通编辑中保留，并且忽略编辑请求里带来的标记值。
+// 清除时机是“重新打开账号调度”（见 ClearExcelBPS403Marker）。
 func MergeExcelBPS403Marker(previous, next map[string]any) {
 	if next == nil {
 		return
 	}
 	delete(next, ExcelBPS403DisabledAtKey)
-	if enabled, _ := next["openai_excel_bps"].(bool); enabled {
-		return
-	}
 	value, exists := previous[ExcelBPS403DisabledAtKey]
 	if !exists {
 		return
 	}
 	next[ExcelBPS403DisabledAtKey] = value
+}
+
+// ClearExcelBPS403Marker 在人工恢复调度后清掉标记。
+func ClearExcelBPS403Marker(extra map[string]any) {
+	delete(extra, ExcelBPS403DisabledAtKey)
 }
 
 func validateExcelBPS403ActionExtra(extra map[string]any) error {

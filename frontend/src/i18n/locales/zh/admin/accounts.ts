@@ -744,7 +744,7 @@ export default {
         excelBPSAstraOnly: '仅选 Astra',
         excelBPSModelsHint: '按账号映射后的模型名称匹配。仅勾选模型走 Excel / BPS；未选模型保留原 Codex、WS 和自动透传设置。不勾选任何模型时不使用 BPS。',
         excelBPS403Badge: 'BPS 403疑似被封excel',
-        excelBPS403BadgeTooltip: '{time} Excel / BPS 上游返回 HTTP 403，已自动关闭此账号的 Excel / BPS 协议并停止其调度。403 不代表已确认封禁；重新打开协议与调度后标签自动消失。',
+        excelBPS403BadgeTooltip: '{time} Excel / BPS 上游返回 HTTP 403，已自动停止此账号的调度。403 不代表已确认封禁；重新打开调度开关后标签自动消失。',
         excelBPSNotice: '保存后新开 Codex 会话。所选模型强制 HTTP/SSE，忽略 WS mode 与自动透传；仅支持 Responses、客户端工具和 HTTPS 图片链接，不支持 base64 图片。max / ultra 按 xhigh 发送，模型权限以上游为准。',
         oauthPassthroughDesc:
           '开启后，该 OpenAI 账号将自动透传请求与响应，仅替换认证并保留计费/并发/审计及必要安全过滤；如遇兼容性问题可随时关闭回滚。',

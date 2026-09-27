@@ -124,9 +124,6 @@ func normalizeBulkExcelBPSExtra(extra map[string]any) (bool, error) {
 		if _, exists := extra["openai_excel_bps_auto_disable_on_403"]; exists {
 			extra["openai_excel_bps_auto_disable_on_403"] = false
 		}
-	} else if enabled, exists := extra["openai_excel_bps"].(bool); exists && enabled {
-		// 重新开启协议视为确认：清除 403 标记。
-		extra[ExcelBPS403DisabledAtKey] = nil
 	}
 	return changed, nil
 }

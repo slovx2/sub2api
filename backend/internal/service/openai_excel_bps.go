@@ -268,7 +268,7 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 		if resp.StatusCode == http.StatusForbidden {
 			// 默认动作：关闭 BPS 协议 + 账号级停止调度（schedulable=false，分组绑定不动）。
 			if s.unscheduleExcelBPSOn403(ctx, account) {
-				message = "Excel BPS rejected this request; Excel BPS was automatically disabled and the account was taken out of scheduling; request was not replayed"
+				message = "Excel BPS rejected this request; the account was taken out of scheduling; request was not replayed"
 			} else if s.disableExcelBPSOn403(ctx, account) {
 				message = "Excel BPS rejected this request; Excel BPS was automatically disabled for this account; request was not replayed"
 			}

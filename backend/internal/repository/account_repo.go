@@ -2761,6 +2761,10 @@ func (r *accountRepository) UpdateExtra(ctx context.Context, id int64, updates m
 		}
 	}
 	extraExpression := "COALESCE(extra, '{}'::jsonb) || $1::jsonb"
+	if value, exists := updates[service.ExcelBPS403DisabledAtKey]; exists && value == nil {
+		// 标记清除需要真正删键（JSONB 合并会把 null 当成值写进去）。
+		extraExpression = "(" + extraExpression + ") - '" + service.ExcelBPS403DisabledAtKey + "'"
+	}
 	if clearProbeSnapshot {
 		extraExpression = "(" + extraExpression + ") - 'upstream_billing_probe'"
 	}

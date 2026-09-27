@@ -57,7 +57,8 @@ describe('ExcelBPS403Badge', () => {
     const wrapper = mount(ExcelBPS403Badge, {
       props: {
         account: makeAccount({
-          extra: { openai_excel_bps: false, openai_excel_bps_403_disabled_at: disabledAt }
+          schedulable: false,
+          extra: { openai_excel_bps: true, openai_excel_bps_403_disabled_at: disabledAt }
         })
       }
     })
@@ -68,22 +69,22 @@ describe('ExcelBPS403Badge', () => {
     expect(badge.classes()).toContain('bg-amber-400')
   })
 
-  it('协议开关键被删除后仍显示标签', () => {
+  it('BPS 协议保持开启时依然显示标签', () => {
     const wrapper = mount(ExcelBPS403Badge, {
-      props: { account: makeAccount({ extra: { openai_excel_bps_403_disabled_at: disabledAt } }) }
+      props: { account: makeAccount({ schedulable: false, extra: { openai_excel_bps: true, openai_excel_bps_403_disabled_at: disabledAt } }) }
     })
 
     expect(wrapper.find('[data-test="excel-bps-403-badge"]').exists()).toBe(true)
   })
 
   it.each([
-    ['重新开启协议', makeAccount({ extra: { openai_excel_bps: true, openai_excel_bps_403_disabled_at: disabledAt } })],
-    ['没有自动关闭记录', makeAccount({ extra: { openai_excel_bps: false } })],
-    ['记录时间无效', makeAccount({ extra: { openai_excel_bps_403_disabled_at: 'not-a-time' } })],
-    ['记录不是字符串', makeAccount({ extra: { openai_excel_bps_403_disabled_at: 1 } })],
-    ['没有 extra', makeAccount({ extra: undefined })],
-    ['非 OAuth 账号', makeAccount({ type: 'apikey', extra: { openai_excel_bps_403_disabled_at: disabledAt } })],
-    ['非 OpenAI 账号', makeAccount({ platform: 'anthropic', extra: { openai_excel_bps_403_disabled_at: disabledAt } })]
+    ['恢复调度', makeAccount({ schedulable: true, extra: { openai_excel_bps_403_disabled_at: disabledAt } })],
+    ['没有自动停止记录', makeAccount({ schedulable: false, extra: { openai_excel_bps: true } })],
+    ['记录时间无效', makeAccount({ schedulable: false, extra: { openai_excel_bps_403_disabled_at: 'not-a-time' } })],
+    ['记录不是字符串', makeAccount({ schedulable: false, extra: { openai_excel_bps_403_disabled_at: 1 } })],
+    ['没有 extra', makeAccount({ schedulable: false, extra: undefined })],
+    ['非 OAuth 账号', makeAccount({ schedulable: false, type: 'apikey', extra: { openai_excel_bps_403_disabled_at: disabledAt } })],
+    ['非 OpenAI 账号', makeAccount({ schedulable: false, platform: 'anthropic', extra: { openai_excel_bps_403_disabled_at: disabledAt } })]
   ])('%s时不显示标签', (_, account) => {
     const wrapper = mount(ExcelBPS403Badge, { props: { account } })
 

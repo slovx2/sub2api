@@ -12,8 +12,9 @@ import (
 
 var _ service.AccountExcelBPSUnscheduleRepository = (*accountRepository)(nil)
 
-// UnscheduleExcelBPSOn403 在 BPS 返回 403 时一次性完成：关闭 BPS 协议、记录 403 时间、
-// 把账号设为不可调度。凭据或开关期间被改动则放弃，避免误停人工恢复过的账号。
+// UnscheduleExcelBPSOn403 在 BPS 返回 403 时记录触发时间并把账号设为不可调度。
+// 协议开关保持不变（仍在账号上，人工确认后可直接恢复调度）。
+// 凭据或开关期间被改动则放弃，避免误停人工恢复过的账号。
 func (r *accountRepository) UnscheduleExcelBPSOn403(ctx context.Context, account *service.Account) (bool, error) {
 	if !account.IsExcelBPSUnscheduleOn403Enabled() {
 		return false, nil
@@ -51,8 +52,7 @@ func (r *accountRepository) unscheduleExcelBPSOn403InTx(ctx context.Context, acc
 	client := clientFromContext(ctx, r.client)
 	result, err := client.ExecContext(ctx, `
 UPDATE accounts
-SET extra = jsonb_set(
-        jsonb_set(COALESCE(extra, '{}'::jsonb), '{openai_excel_bps}', 'false'::jsonb),
+SET extra = jsonb_set(COALESCE(extra, '{}'::jsonb),
         '{openai_excel_bps_403_disabled_at}', to_jsonb($3::text)),
     schedulable = FALSE,
     updated_at = NOW()
@@ -61,7 +61,7 @@ WHERE id = $1 AND deleted_at IS NULL AND parent_account_id IS NULL
   AND credentials = $2::jsonb
   AND schedulable = TRUE
   AND extra -> 'openai_excel_bps' = 'true'::jsonb
-  AND extra -> 'openai_excel_bps_unschedule_on_403' = 'true'::jsonb`,
+  AND COALESCE(extra -> 'openai_excel_bps_unschedule_on_403', 'true'::jsonb) <> 'false'::jsonb`,
 		account.ID, string(credentials), disabledAt)
 	if err != nil {
 		return false, err

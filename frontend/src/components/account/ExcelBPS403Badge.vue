@@ -21,11 +21,11 @@ const props = defineProps<{
 
 const { t } = useI18n()
 
-// 后端在 Excel / BPS 因 403 自动关闭协议、停止调度时写入该时间；
-// 重新打开协议（或开启调度）后不再显示。
+// 后端在 Excel / BPS 因 403 自动停止调度时写入该时间；
+// 人工重新打开调度开关后标记被清除，标签随之消失。
 const disabledAt = computed(() => {
-  const { platform, type, extra } = props.account
-  if (platform !== 'openai' || type !== 'oauth' || !extra || extra.openai_excel_bps === true) return null
+  const { platform, type, extra, schedulable } = props.account
+  if (platform !== 'openai' || type !== 'oauth' || !extra || schedulable !== false) return null
   const value = extra.openai_excel_bps_403_disabled_at
   if (typeof value !== 'string') return null
   const date = new Date(value)

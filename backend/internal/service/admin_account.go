@@ -1033,6 +1033,13 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	delete(input.Extra, OpenCodeGoUsageAutoRefreshExtraKey)
 	delete(input.Extra, OpenCodeGoUsageSnapshotExtraKey)
 
+	if input.Schedulable != nil && *input.Schedulable {
+		// 批量恢复调度同样视为确认：清掉 BPS 403 标记。
+		if input.Extra == nil {
+			input.Extra = map[string]any{}
+		}
+		input.Extra[ExcelBPS403DisabledAtKey] = nil
+	}
 	if len(input.AccountIDs) == 0 && input.Filters != nil {
 		accountIDs, err := s.resolveBulkUpdateTargetIDs(ctx, input.Filters)
 		if err != nil {
@@ -1404,6 +1411,12 @@ func (s *adminServiceImpl) SetAccountError(ctx context.Context, id int64, errorM
 func (s *adminServiceImpl) SetAccountSchedulable(ctx context.Context, id int64, schedulable bool) (*Account, error) {
 	if err := s.accountRepo.SetSchedulable(ctx, id, schedulable); err != nil {
 		return nil, err
+	}
+	if schedulable {
+		// 人工恢复调度即视为确认：清掉 BPS 403 标记。
+		if err := s.accountRepo.UpdateExtra(ctx, id, map[string]any{ExcelBPS403DisabledAtKey: nil}); err != nil {
+			return nil, err
+		}
 	}
 	updated, err := s.accountRepo.GetByID(ctx, id)
 	if err != nil {

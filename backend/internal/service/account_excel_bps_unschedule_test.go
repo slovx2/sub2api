@@ -43,7 +43,9 @@ func TestMergeExcelBPS403Marker(t *testing.T) {
 
 	next = map[string]any{"openai_excel_bps": true}
 	MergeExcelBPS403Marker(previous, next)
-	require.NotContains(t, next, ExcelBPS403DisabledAtKey, "重新开启协议要清除标记")
+	require.Equal(t, at, next[ExcelBPS403DisabledAtKey], "协议开关不影响标记，恢复调度时才清除")
+	ClearExcelBPS403Marker(next)
+	require.NotContains(t, next, ExcelBPS403DisabledAtKey, "恢复调度后清除标记")
 
 	next = map[string]any{"openai_excel_bps": false, ExcelBPS403DisabledAtKey: "2000-01-01T00:00:00Z"}
 	MergeExcelBPS403Marker(previous, next)
