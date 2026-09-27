@@ -138,6 +138,12 @@ type AccountExcelBPSGroupRepository interface {
 	MoveExcelBPSOn403(ctx context.Context, account *Account) (bool, error)
 }
 
+// AccountExcelBPSUnscheduleRepository stops scheduling the account after a BPS 403,
+// keeping the group bindings untouched so the account-level switch can restore it.
+type AccountExcelBPSUnscheduleRepository interface {
+	UnscheduleExcelBPSOn403(ctx context.Context, account *Account) (bool, error)
+}
+
 type AccountDuplicateRepository interface {
 	// CreateWithAccountGroups atomically persists an account, its exact group priorities,
 	// and the scheduler outbox event for the new routing snapshot.

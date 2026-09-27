@@ -553,7 +553,7 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	if err != nil {
 		return nil, err
 	}
-	if err := s.validateExcelBPS403GroupSettings(ctx, account); err != nil {
+	if err := s.validateExcelBPS403Actions(ctx, account); err != nil {
 		return nil, err
 	}
 	if err := s.ValidateAccountGroupBindings(ctx, groupIDs); err != nil {
@@ -734,6 +734,8 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 				"openai_excel_bps_auto_disable_on_403",
 				ExcelBPSAutoMoveOn403Key,
 				ExcelBPS403TargetGroupIDKey,
+				ExcelBPSUnscheduleOn403Key,
+				ExcelBPS403DisabledAtKey,
 			} {
 				if v, ok := account.Extra[key]; ok {
 					normalizedExtra[key] = v
@@ -742,6 +744,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			nextExtra = normalizedExtra
 		}
 		ApplyExcelBPSModelMemory(account.Extra, nextExtra)
+		MergeExcelBPS403Marker(account.Extra, nextExtra)
 		nextExtra = prepareCodexFingerprintExtraForUpdate(account, nextExtra)
 		account.Extra = nextExtra
 		if account.Platform == PlatformAntigravity && wasOveragesEnabled && !account.IsOveragesEnabled() {
@@ -794,7 +797,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if requestedRateSyncEnabledUpdate != nil {
 		account.Extra[UpstreamBillingRateSyncEnabledExtraKey] = *requestedRateSyncEnabledUpdate
 	}
-	if err := s.validateExcelBPS403GroupSettings(ctx, account); err != nil {
+	if err := s.validateExcelBPS403Actions(ctx, account); err != nil {
 		return nil, err
 	}
 	// 影子代理恒继承母账号(由 propagateProxyToShadows 同步),不接受独立编辑——外审 B/P1;
@@ -964,13 +967,16 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 // UpdateAccountExtra 仅对 Extra JSONB 做 key 级合并，避免覆盖其它运行态键
 // （如 model_rate_limits / passive_usage_* 等）。
 func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, updates map[string]any) error {
-	if excelBPSModelMemoryRelevant(updates) {
+	_, moveChanged := updates[ExcelBPSAutoMoveOn403Key]
+	_, targetChanged := updates[ExcelBPS403TargetGroupIDKey]
+	if excelBPSModelMemoryRelevant(updates) || moveChanged || targetChanged {
 		account, err := s.accountRepo.GetByID(ctx, id)
 		if err != nil {
 			return err
 		}
 		merged := mergeAccountExtraUpdate(account.Extra, updates)
 		ApplyExcelBPSModelMemory(account.Extra, merged)
+		MergeExcelBPS403Marker(account.Extra, merged)
 		if value, exists := merged[ExcelBPSModelsKey]; exists {
 			if _, provided := updates[ExcelBPSModelsKey]; !provided {
 				updates[ExcelBPSModelsKey] = value
@@ -979,18 +985,15 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 		if value, exists := merged[ExcelBPSModelsMemoryKey]; exists {
 			updates[ExcelBPSModelsMemoryKey] = value
 		}
-	}
-	_, moveChanged := updates[ExcelBPSAutoMoveOn403Key]
-	_, targetChanged := updates[ExcelBPS403TargetGroupIDKey]
-	if moveChanged || targetChanged {
-		account, err := s.accountRepo.GetByID(ctx, id)
-		if err != nil {
-			return err
+		if value, exists := merged[ExcelBPS403DisabledAtKey]; exists {
+			updates[ExcelBPS403DisabledAtKey] = value
+		} else if _, had := account.Extra[ExcelBPS403DisabledAtKey]; had {
+			// 协议重新打开：清除 403 标记（写 JSON null，读取侧按不存在处理）。
+			updates[ExcelBPS403DisabledAtKey] = nil
 		}
-		merged := mergeAccountExtraUpdate(account.Extra, updates)
 		mergedAccount := *account
 		mergedAccount.Extra = merged
-		if err := s.validateExcelBPS403GroupSettings(ctx, &mergedAccount); err != nil {
+		if err := s.validateExcelBPS403Actions(ctx, &mergedAccount); err != nil {
 			return err
 		}
 	}
