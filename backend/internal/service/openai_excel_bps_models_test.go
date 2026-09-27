@@ -95,7 +95,8 @@ func TestExcelBPSSelectedCompactKeepsExcelModel(t *testing.T) {
 
 func TestExcelBPSModelAliasesRouteAndRewriteUpstreamModel(t *testing.T) {
 	a := excelAccount()
-	a.Extra["openai_excel_bps_models"] = []any{"gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-luna"}
+	// 生产里清单写的是客户端模型名；别名只用于改发往上游的名字。
+	a.Extra["openai_excel_bps_models"] = []any{"gpt-6-astra", "gpt-6-sol", "gpt-6-luna"}
 	a.Extra["openai_excel_bps_model_aliases"] = map[string]any{
 		"gpt-6-sol":  "gpt-5.6-sol",
 		"gpt-6-luna": "gpt-5.6-luna",
@@ -108,7 +109,14 @@ func TestExcelBPSModelAliasesRouteAndRewriteUpstreamModel(t *testing.T) {
 	require.Equal(t, "gpt-5.6-luna", a.ExcelBPSUpstreamModel("gpt-6-luna"))
 	// Unaliased names keep working, and models outside the list stay on Codex.
 	require.True(t, a.IsExcelBPSEnabledForModel("gpt-6-astra"))
+	require.False(t, a.IsExcelBPSEnabledForModel("gpt-5.6-sol"), "清单写的是客户端名，别名目标本身不算命中")
 	require.Equal(t, "gpt-5.6-sol", a.ExcelBPSUpstreamModel("gpt-5.6-sol"))
+	// 兼容“清单里写别名后的名字”的历史配置：客户端名仍然命中。
+	b := excelAccount()
+	b.Extra["openai_excel_bps_models"] = []any{"gpt-6-astra", "gpt-5.6-sol"}
+	b.Extra["openai_excel_bps_model_aliases"] = map[string]any{"gpt-6-sol": "gpt-5.6-sol"}
+	require.True(t, b.IsExcelBPSEnabledForModel("gpt-6-sol"))
+	require.Equal(t, "gpt-5.6-sol", b.ExcelBPSUpstreamModel("gpt-6-sol"))
 	require.False(t, a.IsExcelBPSEnabledForModel("gpt-5.5"))
 	require.Equal(t, "gpt-5.5", a.ExcelBPSUpstreamModel("gpt-5.5"))
 	// Account-level model mapping still runs first.

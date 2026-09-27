@@ -2179,7 +2179,16 @@ func (a *Account) IsExcelBPSEnabledForModel(requestedModel string) bool {
 	if !a.IsExcelBPSEnabled() {
 		return false
 	}
-	return a.isExcelBPSUpstreamModelEnabled(a.ExcelBPSUpstreamModel(requestedModel))
+	mapped := a.GetMappedModel(requestedModel)
+	if a.isExcelBPSUpstreamModelEnabled(mapped) {
+		return true
+	}
+	// BPS 专有别名只改变发往上游的模型名，不参与白名单判定；但清单里写成
+	// 别名后的名字（例如 gpt-5.6-sol）时同样应当命中。
+	if alias := a.ExcelBPSUpstreamModel(requestedModel); alias != mapped {
+		return a.isExcelBPSUpstreamModelEnabled(alias)
+	}
+	return false
 }
 
 // ExcelBPSUpstreamModel returns the model name the Excel / BPS upstream receives:
