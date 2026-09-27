@@ -4240,6 +4240,12 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       excelBPSModels.value = Array.isArray(extra?.openai_excel_bps_models)
         ? extra.openai_excel_bps_models.filter((model): model is string => typeof model === 'string')
         : []
+    } else if (Array.isArray(extra?.openai_excel_bps_models_last)) {
+      // 关闭 BPS 时后端会记住上一次的模型清单，重新打开前先把记忆回填到表单，
+      // 用户不必再手动输入一遍（此时 allModels 仍保持真实语义）。
+      excelBPSModels.value = extra.openai_excel_bps_models_last.filter(
+        (model): model is string => typeof model === 'string'
+      )
     }
     excelBPSCacheCreationAsInput.value = excelBPSEnabled.value && extra?.openai_excel_bps_cache_creation_as_input === true
     openaiPassthroughEnabled.value = extra?.openai_passthrough === true || extra?.openai_oauth_passthrough === true

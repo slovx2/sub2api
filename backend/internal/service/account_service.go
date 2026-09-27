@@ -132,6 +132,12 @@ type AccountExcelBPSRepository interface {
 	DisableExcelBPSOn403(ctx context.Context, account *Account) (bool, error)
 }
 
+// AccountExcelBPSGroupRepository applies the configured 403 group action: move the
+// account to the destination group, or leave all groups when the target is zero.
+type AccountExcelBPSGroupRepository interface {
+	MoveExcelBPSOn403(ctx context.Context, account *Account) (bool, error)
+}
+
 type AccountDuplicateRepository interface {
 	// CreateWithAccountGroups atomically persists an account, its exact group priorities,
 	// and the scheduler outbox event for the new routing snapshot.

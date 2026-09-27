@@ -194,7 +194,9 @@ func Prepare(raw []byte, scope string, replay *ReplayCache) ([]byte, *Bridge, er
 	output := object{
 		"model": model, "model_selection": "explicit", "stream": true, "store": false,
 		"input": append(prologue, translated...), "reasoning_effort": effort,
-		"context_management": []any{object{"type": "compaction", "compact_threshold": 200000}},
+		// 上游默认阈值 920k：对当前 BPS 模型（客户端窗口 258k~500k）等于不触发远程压缩，
+		// 压缩完全交给客户端自己的 window 机制负责，避免服务端压缩项混进历史被反复重传。
+		"context_management": []any{object{"type": "compaction", "compact_threshold": 920000}},
 		"metadata": object{
 			"task_id": fingerprint([]any{scope, conversation}),
 			"turn_id": fingerprint([]any{scope, input[:turnEnd]}), "agent_iteration": fmt.Sprint(iteration),

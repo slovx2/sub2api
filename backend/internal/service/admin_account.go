@@ -553,6 +553,9 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	if err != nil {
 		return nil, err
 	}
+	if err := s.validateExcelBPS403GroupSettings(ctx, account); err != nil {
+		return nil, err
+	}
 	if err := s.ValidateAccountGroupBindings(ctx, groupIDs); err != nil {
 		return nil, err
 	}
@@ -725,6 +728,12 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 				OpenAIAutoResetCreditStateExtraKey,
 				OpenCodeGoUsageAutoRefreshExtraKey,
 				OpenCodeGoUsageSnapshotExtraKey,
+				// BPS 模型清单记忆：普通编辑表单不带这个键，不能让整包回写把它清掉。
+				ExcelBPSModelsMemoryKey,
+				// BPS 403 处置开关同样由后端维护，普通表单不带这些键。
+				"openai_excel_bps_auto_disable_on_403",
+				ExcelBPSAutoMoveOn403Key,
+				ExcelBPS403TargetGroupIDKey,
 			} {
 				if v, ok := account.Extra[key]; ok {
 					normalizedExtra[key] = v
@@ -732,6 +741,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			}
 			nextExtra = normalizedExtra
 		}
+		ApplyExcelBPSModelMemory(account.Extra, nextExtra)
 		nextExtra = prepareCodexFingerprintExtraForUpdate(account, nextExtra)
 		account.Extra = nextExtra
 		if account.Platform == PlatformAntigravity && wasOveragesEnabled && !account.IsOveragesEnabled() {
@@ -783,6 +793,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	}
 	if requestedRateSyncEnabledUpdate != nil {
 		account.Extra[UpstreamBillingRateSyncEnabledExtraKey] = *requestedRateSyncEnabledUpdate
+	}
+	if err := s.validateExcelBPS403GroupSettings(ctx, account); err != nil {
+		return nil, err
 	}
 	// 影子代理恒继承母账号(由 propagateProxyToShadows 同步),不接受独立编辑——外审 B/P1;
 	// 否则要等母账号下次改 proxy 才被覆盖,期间影子会出现"有时继承、有时独立"的漂移。
@@ -951,6 +964,36 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 // UpdateAccountExtra 仅对 Extra JSONB 做 key 级合并，避免覆盖其它运行态键
 // （如 model_rate_limits / passive_usage_* 等）。
 func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, updates map[string]any) error {
+	if excelBPSModelMemoryRelevant(updates) {
+		account, err := s.accountRepo.GetByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		merged := mergeAccountExtraUpdate(account.Extra, updates)
+		ApplyExcelBPSModelMemory(account.Extra, merged)
+		if value, exists := merged[ExcelBPSModelsKey]; exists {
+			if _, provided := updates[ExcelBPSModelsKey]; !provided {
+				updates[ExcelBPSModelsKey] = value
+			}
+		}
+		if value, exists := merged[ExcelBPSModelsMemoryKey]; exists {
+			updates[ExcelBPSModelsMemoryKey] = value
+		}
+	}
+	_, moveChanged := updates[ExcelBPSAutoMoveOn403Key]
+	_, targetChanged := updates[ExcelBPS403TargetGroupIDKey]
+	if moveChanged || targetChanged {
+		account, err := s.accountRepo.GetByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		merged := mergeAccountExtraUpdate(account.Extra, updates)
+		mergedAccount := *account
+		mergedAccount.Extra = merged
+		if err := s.validateExcelBPS403GroupSettings(ctx, &mergedAccount); err != nil {
+			return err
+		}
+	}
 	updates = sanitizedCodexFingerprintExtraUpdates(updates)
 	updates = stripOpenAIAutoResetCreditManagedExtra(updates, true)
 	delete(updates, UpstreamBillingProbeEnabledExtraKey)
