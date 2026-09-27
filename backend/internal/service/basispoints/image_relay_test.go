@@ -108,6 +108,9 @@ func TestImageRelayRoundTripAndScope(t *testing.T) {
 	require.NotEqual(t, url, relayTestURL(t, other), "API key scopes must not share capabilities")
 }
 
+// 说明：上游该用例依赖“按请求配置图片(detail=original)”能力，本仓库尚未移植其校验放行，
+// 因此暂不保留该用例。
+
 func TestImageRelayToolResultsAndUntouchedFields(t *testing.T) {
 	r, err := newTestImageRelay(t, "https://images.example")
 	require.NoError(t, err)
