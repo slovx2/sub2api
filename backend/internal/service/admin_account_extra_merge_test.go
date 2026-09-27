@@ -15,9 +15,9 @@ func TestMergeAccountExtraUpdatePatchesKeysAndDeletesNulls(t *testing.T) {
 		"quota_used":              12.5,
 	}
 	updates := map[string]any{
-		"openai_excel_bps_model_aliases": map[string]any{"gpt-6-sol": "gpt-5.6-sol"},
-		"openai_excel_bps_models":        []any{"gpt-5.6-sol", "gpt-5.6-luna"},
-		"openai_passthrough":             nil,
+		"openai_excel_bps_cache_creation_as_input": true,
+		"openai_excel_bps_models":                  []any{"gpt-5.6-sol", "gpt-5.6-luna"},
+		"openai_passthrough":                       nil,
 	}
 
 	merged := mergeAccountExtraUpdate(base, updates)
@@ -26,7 +26,7 @@ func TestMergeAccountExtraUpdatePatchesKeysAndDeletesNulls(t *testing.T) {
 	require.Equal(t, 12.5, merged["quota_used"], "managed keys must survive")
 	require.Equal(t, true, merged["openai_excel_bps"], "keys absent from the patch must survive")
 	require.Equal(t, []any{"gpt-5.6-sol", "gpt-5.6-luna"}, merged["openai_excel_bps_models"], "provided keys must be replaced")
-	require.Equal(t, map[string]any{"gpt-6-sol": "gpt-5.6-sol"}, merged["openai_excel_bps_model_aliases"])
+	require.Equal(t, true, merged["openai_excel_bps_cache_creation_as_input"])
 	_, deleted := merged["openai_passthrough"]
 	require.False(t, deleted, "an explicit null deletes the key")
 
