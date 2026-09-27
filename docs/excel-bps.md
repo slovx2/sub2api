@@ -11,6 +11,7 @@
 - 文本增量实时转发；工具等完整 response.completed 到齐后统一验证，失败、不完整或未知工具不会被提前发送执行。
 - 完整原生 item 按账号、API Key、线程作用域缓存。回放保留上游 ID、summary、references 等内容；多个完整工具和乱序结果按 call_id 配对。
 - 子线程优先使用 thread-id / x-codex-turn-metadata，不因共用父会话 session_id 混用缓存；没有设置全账号串行锁。并行子代理仍受账号并发数、调度及上游能力约束。
+- 历史消息的 `author` / `recipient` 转为正文中的归属说明，不作为 BPS 顶层消息字段透传，避免 `Unknown parameter: 'input[N].author'`。`agent_message` 转为明确标注的协作上下文消息，保留发送者、接收者、正文和图片顺序，不提升为 system/developer 指令；普通消息保留原角色、ID 和阶段。工具参数及结果中的同名业务字段不受影响，加密内容仍按原规则拒绝。
 - 提示词仍要求每个 transport 内只放一个工具对象，响应声明 parallel_tool_calls=false。多工具转换与子线程隔离已有离线回归，不等于真实 Codex 多代理工作流已完整验收。
 - 缓存位于当前进程，有条数和内存上限。重启、跨实例、换账号或淘汰后的缺失原始调用会报错，不能恢复任意旧线程。
 
