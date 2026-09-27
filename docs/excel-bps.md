@@ -34,6 +34,28 @@
 
 `max`/`ultra` 映射 `xhigh`，`none`/`minimal` 映射 `low`，实际 effort 出现在响应/用量中。拒绝强制指定工具、托管工具、结构化输出与仅 previous_response_id 的增量历史。不要把 HTTP 200 当作模型能力证明。
 
+## 历史中的 `encrypted_content`
+
+如果错误为 `basispoints_request_invalid` 且 `param` 指向 `input[n].content[m]` 或
+`input[n].output[m]`，说明该历史部件是 BPS 不能转发的 `encrypted_content`。这是请求进入
+上游前的安全拒绝，服务端没有解密密钥，也不能根据字符串外观把它改成明文；因此没有可用的
+配置可以修复已经保存的这段历史。请从原始来源重发对应的明文，或刷新模型目录、移除
+multi-agent v2 覆盖后新建会话。不要改写类型、删除历史部件或静默切换到另一条路由。
+
+这与顶层 reasoning 的 `invalid_encrypted_content` 不同：后者已有受限的一次重试逻辑，不能
+恢复嵌套消息内容。`encrypted_function_args: []` 表示来源明确声明工具参数是明文，字段缺失
+或 `null` 都不等价；Sub2API 会保留真实的非空加密声明。
+
+`max`/`ultra` 映射 `xhigh`，`none`/`minimal` 映射 `low`，实际 effort 出现在响应/用量中。拒绝强制指定工具与仅 previous_response_id 的增量历史。结构化输出通过提示和本地终态校验实现，详见协议包 README。不要把 HTTP 200 当作模型能力证明。
+
+图片支持 HTTPS URL 和格式有效的原生附件 `file_id`. 需要发送 base64 图片时, 可选择服务器临时图片中转或原生上传模式. 本地转换通过不等于真实上游视觉已验收, 账号权限或模型限制仍可能导致上游拒绝.
+
+## 工具结果中的图片引用
+
+工具结果中的原生附件 `file_id` 直接放在 `function_call_output.output` 中可能被 BPS 以 HTTP 422 拒绝。网关在校验后将 function/custom 工具结果中的附件 ID 和 HTTPS 图片移入紧随该结果的 user 消息；原有文字和已验证的内联截图保持在工具结果中。移出的图片以包含 call_id 和图片序号的标记对应，新增消息明确标注为工具输出，保留引用、detail、图片顺序和调用对应关系。
+
+原生模式已验证的 data URL 工具截图仍采用现有内联路径，不新增附件上传，也不移入 user 消息。用户消息的原生上传、图片容量限制和纯文字工具结果保持原有行为。仅切换图片上传模式不能处理已有历史中的附件引用布局问题。
+
 上游仍只接收 HTTPS 图片 URL. 需要发送 base64 图片时, 按下节启用服务器临时图片中转. `file_id` 仍不受支持. 本地转换通过不等于真实上游视觉已验收, 账号权限或模型限制仍可能导致上游拒绝.
 ## 图片支持关闭时忽略图片输入
 

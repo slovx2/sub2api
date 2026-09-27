@@ -133,15 +133,27 @@ func newExcelBPSRequest(ctx context.Context, body []byte, token, accountID strin
 // BPS deliberately bypasses Codex ticket/cookie injection and OAuth plugins:
 // only the selected account's bearer and ChatGPT account ID belong on this host.
 func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Context, account *Account, body []byte, start time.Time) (*OpenAIForwardResult, error) {
-	fail := func(status int, code, message string) (*OpenAIForwardResult, error) {
+	fail := func(status int, code, message string, param ...string) (*OpenAIForwardResult, error) {
 		// A compact keepalive may already have committed SSE headers. Otherwise
 		// finish a single JSON response so the handler cannot append another error.
 		committed := StopOpenAICompactSSEKeepaliveCommitted(c)
 		MarkResponseCommitted(c)
 		if committed {
-			writeOpenAICompactSSEFailureMessage(c, status, code, message)
+			failureParam := ""
+			if len(param) > 0 {
+				failureParam = param[0]
+			}
+			writeOpenAICompactSSEFailureMessageParam(c, status, code, message, failureParam)
 		} else {
-			c.JSON(status, gin.H{"error": gin.H{"type": "invalid_request_error", "code": code, "message": message}})
+			errorType := "invalid_request_error"
+			if status >= 500 {
+				errorType = "server_error"
+			}
+			errorBody := gin.H{"type": errorType, "code": code, "message": message}
+			if len(param) > 0 && param[0] != "" {
+				errorBody["param"] = param[0]
+			}
+			c.JSON(status, gin.H{"error": errorBody})
 		}
 		return nil, fmt.Errorf("excel BPS: %s", code)
 	}
@@ -218,6 +230,10 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 	}
 	upstreamBody, bridge, err := basispoints.Prepare(body, scope, &excelBPSReplay)
 	if err != nil {
+		var contentErr *basispoints.ContentValidationError
+		if errors.As(err, &contentErr) {
+			return fail(400, "basispoints_request_invalid", err.Error(), contentErr.Path)
+		}
 		return fail(400, "basispoints_request_invalid", err.Error())
 	}
 	dumpExcelBPSRequestBody(os.Getenv(ExcelBPSRequestDumpDirEnv), upstreamBody, account, model)
