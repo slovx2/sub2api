@@ -48,28 +48,6 @@ func (s *OpenAIGatewayService) unscheduleExcelBPSOn403(ctx context.Context, acco
 	return changed
 }
 
-func (s *OpenAIGatewayService) moveExcelBPSOn403(ctx context.Context, account *Account) bool {
-	target, enabled := account.ExcelBPS403GroupTarget()
-	if !enabled {
-		return false
-	}
-	repo, ok := s.accountRepo.(AccountExcelBPSGroupRepository)
-	if !ok {
-		return false
-	}
-	stateCtx, cancel := openAIAccountStateContext(ctx)
-	defer cancel()
-	changed, err := repo.MoveExcelBPSOn403(stateCtx, account)
-	if err != nil {
-		logger.LegacyPrintf("service.openai_excel_bps", "automatic group action failed: account_id=%d error_type=%T", account.ID, err)
-		return false
-	}
-	if changed {
-		logger.LegacyPrintf("service.openai_excel_bps", "automatically updated groups after upstream HTTP 403: account_id=%d target_group_id=%d", account.ID, target)
-	}
-	return changed
-}
-
 func (s *OpenAIGatewayService) disableExcelBPSOn403(ctx context.Context, account *Account) bool {
 	if !account.IsExcelBPSAutoDisableOn403Enabled() {
 		return false
@@ -288,21 +266,11 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 			message = "Excel BPS rate limit exceeded; request was not replayed"
 		}
 		if resp.StatusCode == http.StatusForbidden {
-			// 优先使用“账号级停止调度”（关闭 BPS + schedulable=false，分组绑定不动）；
-			// 未开启时才回退到上游的分组动作 / 仅关闭协议。
+			// 默认动作：关闭 BPS 协议 + 账号级停止调度（schedulable=false，分组绑定不动）。
 			if s.unscheduleExcelBPSOn403(ctx, account) {
 				message = "Excel BPS rejected this request; Excel BPS was automatically disabled and the account was taken out of scheduling; request was not replayed"
-			} else {
-				moved := s.moveExcelBPSOn403(ctx, account)
-				disabled := s.disableExcelBPSOn403(ctx, account)
-				switch {
-				case moved && disabled:
-					message = "Excel BPS rejected this request; Excel BPS was automatically disabled and account groups were updated; request was not replayed"
-				case disabled:
-					message = "Excel BPS rejected this request; Excel BPS was automatically disabled for this account; request was not replayed"
-				case moved:
-					message = "Excel BPS rejected this request; account groups were automatically updated; request was not replayed"
-				}
+			} else if s.disableExcelBPSOn403(ctx, account) {
+				message = "Excel BPS rejected this request; Excel BPS was automatically disabled for this account; request was not replayed"
 			}
 		}
 		return fail(resp.StatusCode, "basispoints_upstream_error", message)

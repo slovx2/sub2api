@@ -16,12 +16,21 @@ const (
 	ExcelBPS403DisabledAtKey = "openai_excel_bps_403_disabled_at"
 )
 
-// IsExcelBPSUnscheduleOn403Enabled 判断账号是否开启了“403 后停止调度”。
+// IsExcelBPSUnscheduleOn403Enabled 判断账号是否开启“403 后停止调度”。
+// 该保护默认打开：只有显式写入 false 才会关闭。
 func (a *Account) IsExcelBPSUnscheduleOn403Enabled() bool {
 	if a == nil || !a.IsExcelBPSEnabled() {
 		return false
 	}
-	enabled, _ := a.Extra[ExcelBPSUnscheduleOn403Key].(bool)
+	value, exists := a.Extra[ExcelBPSUnscheduleOn403Key]
+	if !exists || value == nil {
+		return true
+	}
+	enabled, ok := value.(bool)
+	if !ok {
+		// 非法值按默认（打开）处理，避免因为脏数据让被拦截的账号继续被打。
+		return true
+	}
 	return enabled
 }
 
@@ -75,15 +84,15 @@ func validateExcelBPS403ActionExtra(extra map[string]any) error {
 	return nil
 }
 
-// validateExcelBPS403Actions 统一校验 BPS 403 相关配置（停止调度 + 分组动作）。
-func (s *adminServiceImpl) validateExcelBPS403Actions(ctx context.Context, account *Account) error {
+// validateExcelBPS403Actions 校验 BPS 403 处置配置（默认打开 + 标记类型）。
+func (s *adminServiceImpl) validateExcelBPS403Actions(_ context.Context, account *Account) error {
 	if err := validateExcelBPS403ActionExtra(account.Extra); err != nil {
 		return err
 	}
-	if account.IsExcelBPSUnscheduleOn403Enabled() {
-		if account.Platform != PlatformOpenAI || account.Type != AccountTypeOAuth || account.IsShadow() {
-			return infraerrors.BadRequest("OPENAI_EXCEL_BPS_INVALID", "BPS 403 unschedule requires an OpenAI ChatGPT OAuth account")
-		}
+	// 只有显式打开时才要求账号形态匹配（默认打开不阻塞其它类型账号保存）。
+	if enabled, _ := account.Extra[ExcelBPSUnscheduleOn403Key].(bool); enabled &&
+		(account.Platform != PlatformOpenAI || account.Type != AccountTypeOAuth || account.IsShadow()) {
+		return infraerrors.BadRequest("OPENAI_EXCEL_BPS_INVALID", "BPS 403 unschedule requires an OpenAI ChatGPT OAuth account")
 	}
-	return s.validateExcelBPS403GroupSettings(ctx, account)
+	return nil
 }

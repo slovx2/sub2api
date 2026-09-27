@@ -13,7 +13,7 @@ import (
 )
 
 type excelBPSUnscheduleRepo struct {
-	excelBPSGroupActionRepo
+	excelBPSAutoDisableRepo
 	unschedule func(context.Context, *Account) (bool, error)
 }
 
@@ -24,6 +24,9 @@ func (r *excelBPSUnscheduleRepo) UnscheduleExcelBPSOn403(ctx context.Context, ac
 func TestExcelBPSUnscheduleOn403Flag(t *testing.T) {
 	require.False(t, (*Account)(nil).IsExcelBPSUnscheduleOn403Enabled())
 	account := excelAccount()
+	require.True(t, account.IsExcelBPSUnscheduleOn403Enabled(), "默认打开")
+	account.Extra[ExcelBPSUnscheduleOn403Key] = false
+	require.False(t, account.IsExcelBPSUnscheduleOn403Enabled(), "显式关闭才生效")
 	account.Extra[ExcelBPSUnscheduleOn403Key] = true
 	require.True(t, account.IsExcelBPSUnscheduleOn403Enabled())
 	account.Extra["openai_excel_bps"] = false
@@ -49,40 +52,50 @@ func TestMergeExcelBPS403Marker(t *testing.T) {
 
 // 开启“403 后停止调度”时：只调用账号级停止调度，不再走分组动作 / 仅关闭协议，并回显对应文案。
 func TestExcelBPS403UnscheduleAction(t *testing.T) {
-	account := excelAccount()
-	account.GroupIDs = []int64{1, 2}
-	account.Extra[ExcelBPSUnscheduleOn403Key] = true
-	upstream := &httpUpstreamRecorder{resp: &http.Response{
-		StatusCode: http.StatusForbidden, Header: http.Header{},
-		Body: io.NopCloser(strings.NewReader(`{"error":{"code":"permission_denied"}}`)),
-	}}
-	svc := openAIClientToolsTestService(upstream)
-	var actions []string
-	svc.accountRepo = &excelBPSUnscheduleRepo{
-		excelBPSGroupActionRepo: excelBPSGroupActionRepo{
-			excelBPSAutoDisableRepo: excelBPSAutoDisableRepo{disable: func(context.Context, *Account) (bool, error) {
-				actions = append(actions, "disable")
-				return true, nil
-			}},
-			move: func(context.Context, *Account) (bool, error) {
-				actions = append(actions, "move")
-				return true, nil
-			},
-		},
-		unschedule: func(ctx context.Context, got *Account) (bool, error) {
-			require.NoError(t, ctx.Err())
-			_, bounded := ctx.Deadline()
-			require.True(t, bounded)
-			require.True(t, got.IsExcelBPSUnscheduleOn403Enabled())
-			actions = append(actions, "unschedule")
-			return true, nil
-		},
+	for _, tc := range []struct {
+		name         string
+		extra        any
+		wantActions  []string
+		wantContains string
+	}{
+		{name: "默认打开", extra: nil, wantActions: []string{"unschedule"}, wantContains: "taken out of scheduling"},
+		{name: "显式打开", extra: true, wantActions: []string{"unschedule"}, wantContains: "taken out of scheduling"},
+		{name: "显式关闭回退到仅关闭协议", extra: false, wantActions: []string{"disable"}, wantContains: "automatically disabled for this account"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			account := excelAccount()
+			account.GroupIDs = []int64{1, 2}
+			account.Extra["openai_excel_bps_auto_disable_on_403"] = true
+			if tc.extra != nil {
+				account.Extra[ExcelBPSUnscheduleOn403Key] = tc.extra
+			}
+			upstream := &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: http.StatusForbidden, Header: http.Header{},
+				Body: io.NopCloser(strings.NewReader(`{"error":{"code":"permission_denied"}}`)),
+			}}
+			svc := openAIClientToolsTestService(upstream)
+			var actions []string
+			svc.accountRepo = &excelBPSUnscheduleRepo{
+				excelBPSAutoDisableRepo: excelBPSAutoDisableRepo{disable: func(context.Context, *Account) (bool, error) {
+					actions = append(actions, "disable")
+					return true, nil
+				}},
+				unschedule: func(ctx context.Context, got *Account) (bool, error) {
+					require.NoError(t, ctx.Err())
+					_, bounded := ctx.Deadline()
+					require.True(t, bounded)
+					require.True(t, got.IsExcelBPSUnscheduleOn403Enabled())
+					actions = append(actions, "unschedule")
+					return true, nil
+				},
+			}
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+			_, err := svc.Forward(context.Background(), c, account, []byte(`{"model":"gpt-6-astra","stream":true,"input":"test"}`))
+			require.Error(t, err)
+			require.Equal(t, tc.wantActions, actions)
+			require.Contains(t, rec.Body.String(), tc.wantContains)
+		})
 	}
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
-	_, err := svc.Forward(context.Background(), c, account, []byte(`{"model":"gpt-6-astra","stream":true,"input":"test"}`))
-	require.Error(t, err)
-	require.Equal(t, []string{"unschedule"}, actions)
-	require.Contains(t, rec.Body.String(), "taken out of scheduling")
 }

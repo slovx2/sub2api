@@ -732,8 +732,6 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 				ExcelBPSModelsMemoryKey,
 				// BPS 403 处置开关同样由后端维护，普通表单不带这些键。
 				"openai_excel_bps_auto_disable_on_403",
-				ExcelBPSAutoMoveOn403Key,
-				ExcelBPS403TargetGroupIDKey,
 				ExcelBPSUnscheduleOn403Key,
 				ExcelBPS403DisabledAtKey,
 			} {
@@ -967,9 +965,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 // UpdateAccountExtra 仅对 Extra JSONB 做 key 级合并，避免覆盖其它运行态键
 // （如 model_rate_limits / passive_usage_* 等）。
 func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, updates map[string]any) error {
-	_, moveChanged := updates[ExcelBPSAutoMoveOn403Key]
-	_, targetChanged := updates[ExcelBPS403TargetGroupIDKey]
-	if excelBPSModelMemoryRelevant(updates) || moveChanged || targetChanged {
+	if excelBPSModelMemoryRelevant(updates) {
 		account, err := s.accountRepo.GetByID(ctx, id)
 		if err != nil {
 			return err

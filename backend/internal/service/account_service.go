@@ -132,12 +132,6 @@ type AccountExcelBPSRepository interface {
 	DisableExcelBPSOn403(ctx context.Context, account *Account) (bool, error)
 }
 
-// AccountExcelBPSGroupRepository applies the configured 403 group action: move the
-// account to the destination group, or leave all groups when the target is zero.
-type AccountExcelBPSGroupRepository interface {
-	MoveExcelBPSOn403(ctx context.Context, account *Account) (bool, error)
-}
-
 // AccountExcelBPSUnscheduleRepository stops scheduling the account after a BPS 403,
 // keeping the group bindings untouched so the account-level switch can restore it.
 type AccountExcelBPSUnscheduleRepository interface {

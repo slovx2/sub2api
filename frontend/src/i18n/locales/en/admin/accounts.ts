@@ -625,6 +625,8 @@ export default {
         excelBPSModels: 'Select models for Excel / BPS',
         excelBPSAstraOnly: 'Astra only',
         excelBPSModelsHint: 'Matches model names after account mapping. Selected models use Excel / BPS; other models retain their Codex, WS and passthrough settings. An empty selection disables BPS routing.',
+        excelBPS403Badge: 'BPS 403: Excel possibly banned',
+        excelBPS403BadgeTooltip: 'At {time}, the Excel / BPS upstream returned HTTP 403; this account’s Excel / BPS protocol was turned off and its scheduling stopped automatically. A 403 does not confirm a ban; the badge clears once the protocol and scheduling are enabled again.',
         excelBPSNotice: 'Start a new Codex conversation after saving. Selected models use HTTP/SSE regardless of WS mode or passthrough. Supports Responses, client tools and HTTPS images; base64 images are unsupported. max / ultra use xhigh. Model access depends on the upstream.',
         oauthPassthroughDesc:
           'When enabled, this OpenAI account uses automatic passthrough: the gateway forwards request/response as-is and only swaps auth, while keeping billing/concurrency/audit and necessary safety filtering.',
