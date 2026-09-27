@@ -50,6 +50,42 @@
 - 未勾选时保留原有图片校验行为；非 BPS 请求不受影响。开关不改变客户端保存的历史，请求体大小限制也仍然生效。
 
 
+## 真实入口 E2E
+
+`backend/scripts/e2e-bps-ignore-images.py` 通过配置的网关 API Key 进入真实鉴权、账号调度、最新账号配置读取和 BPS 上游，不向服务内部注入开关。设置环境变量 `BPS_E2E_BASE_URL`（包含 `/v1`）、`BPS_E2E_API_KEY`，以及可选的 `BPS_E2E_MODEL`。脚本不会修改账号设置。
+
+```text
+# 在专用测试账号/分组中，先保持全局图片支持关闭、账号忽略选项关闭：
+python backend/scripts/e2e-bps-ignore-images.py --expect reject
+# 在后台开启实际会被该 API Key 调度到的账号的忽略图片选项，再运行：
+python backend/scripts/e2e-bps-ignore-images.py --expect ignore
+python backend/scripts/e2e-bps-ignore-images.py --expect ignore --stream --output-index 1032 --image-chars 3107598
+```
+
+脚本使用无效 base64 占位内容模拟截图，绝不解码或展示图片；验证开启后收到了真实上游的指定文本及成功终态，而不只检查 HTTP 200。最后一条命令复现长历史中的 `input[1032].output[1]` 和约 3 MB 的图片字段。成功探测会消耗所选上游的实际 token，不建议对生产账号自动定时运行。
+
+## 忽略历史中的加密消息内容
+
+在 **账号管理 > 编辑 OpenAI OAuth 账号 > Excel / BPS 协议** 中勾选 **忽略历史中的加密消息内容** 并保存，也支持批量编辑。账号 API 配置为 `extra.openai_excel_bps_ignore_encrypted_content: true`，默认关闭，无需数据库迁移。
+
+用过多代理协作的旧 Codex 会话，历史里子代理的中间消息以 `encrypted_content` 密文保存，只有原生 Codex 通道能读取。BPS 无法转发这类内容，而客户端每轮都会重发历史，所以整个旧会话持续返回 `basispoints_request_invalid`（`type=encrypted_content`）；新开会话不受影响。此选项让管理员选择以有损方式继续旧会话：
+
+- 转发前把消息 `content`（包括 `agent_message`）以及 `function_call_output` / `custom_tool_call_output` 的 `output` 数组中 `type=encrypted_content` 的部分，原位替换为固定的已省略提示；assistant 消息使用 `output_text`，其余使用 `input_text`。
+- 相邻文本（如子代理消息头）、消息顺序、工具调用及 `call_id` 保持不变；明文消息（如子代理的最终结论）照常转发。模型无法得知被省略的内容。
+- 推理项（reasoning）的密文沿用原有处理；工具参数、工具定义和字符串内容不做检查；其他不支持的内容仍按原有校验拒绝。此选项只替换密文部分，不改变 `agent_message` 等条目的结构。
+- 未勾选时保持原有拒绝行为；非 BPS 请求不受影响。开关不改变客户端保存的历史。历史中含截图且系统关闭了 BPS 图片支持时，还需同时开启“图片支持关闭时忽略图片输入”。
+
+## Base64 图片原生上传
+
+在管理员后台的 **系统设置 > 功能开关 > Excel / BPS 图片支持** 中启用图片支持，并将图片传输方式设为 **BPS 原生附件上传** 后保存。原有开关和容量限制继续生效；未配置传输方式时仍使用原来的 HTTPS 中转。原生模式不要求填写公网图片地址，不会自动切换已有部署。
+
+- 先校验完整请求与所有内联图片，再使用选中账号的 OAuth、ChatGPT Account ID 和业务代理向固定的 BPS attachments 端点提交 multipart 文件，将图片替换为上游返回的附件 ID，最后发送 Responses。启用 Mihomo 时，先取得出口再上传，附件、生成与纠错共享该出口；本次请求已上传附件后不再切换出口重试。用户消息中的内联图片转换为附件 ID；function/custom 工具截图通过相同的字节、格式和容量校验后保留 data URL，不调用附件上传。原生内联图片的 detail 缺失或为 null 时补为 auto，显式 low/high/original 保持原值；HTTPS URL、相邻文本及工具参数保持原值。
+- 上传过程流式解码，不在本地保存图片文件。仍执行 PNG/JPEG/GIF/WebP、20 MiB 单图、20 张/32 MiB 每请求、64 Mi 像素限制；重复图片也计入请求限制，但同一请求只上传一次。完整请求不合法时不会先上传图片。
+- 每个网关实例最多 32 个实际上传；满额返回 503。每次上传最多 60 秒，跟随请求取消，并禁止重定向。上传响应体关闭后才开始 Responses，兼容账号并发为 1。上传失败立即结束请求，不回退中转、不重放 Responses、不切换账号；429 保留状态码且不修改 Codex 用量、冷却或运行时封禁。
+- 附件 ID 缓存只保存元数据，最多 512 条，上传开始 30 分钟后到期，读取不续期。键包含图片内容、MIME、账号、凭据、API Key 和会话作用域；同一作用域的并发上传可合并，没有会话标识时仅在当前请求内去重。凭据或账号变化、缓存过期/淘汰、重启后，客户端重发原图会重新上传。附件 ID 在 BPS 错误日志中脱敏。
+- 上游保存图片的期限不由本地缓存 TTL 控制。上传结果只认可有效的 openai_file_id，不根据错误正文执行额外操作。切换为原生模式或关闭图片支持后，旧的本地中转链接停止对外提供；切换时需留意尚未完成的中转请求。
+- 已做离线协议、缓存隔离/并发/取消、上传错误、普通/compact 与流式/非流式、设置持久化和前端回归。尚未使用真实 OAuth 上传或验收视觉结果，接口权限、上游行为与模型视觉能力仍需上线试用时确认。
+
 ## Base64 图片中转
 
 1. 打开管理员后台的 `系统设置 > 功能开关 > Excel / BPS 图片中转`.

@@ -739,6 +739,8 @@ export default {
         excelBPSIgnoreImages: '图片支持关闭时忽略图片输入',
         excelBPSIgnoreImagesDesc: '默认关闭。仅在系统设置中的 Excel / BPS 图片支持关闭时生效：转发前将当前及历史消息、工具结果中的每张图片替换为不可用提示，保留文本和工具调用关系，避免历史截图反复报错导致会话无法继续。图片混合文本的结果也会明确告知模型无法看到图片，图片支持关闭期间不要重试 view_image 或其他读图工具。重新开启图片支持后恢复正常图片处理。',
         excelBPSCacheCreationAsInput: '创建缓存按普通输入计费',
+        excelBPSIgnoreEncryptedContent: '忽略历史中的加密消息内容',
+        excelBPSIgnoreEncryptedContentDesc: '默认关闭。用过多代理协作的旧 Codex 会话里，子代理的中间消息是只有原生 Codex 能读取的密文，BPS 无法转发，整个会话每轮都会报 encrypted_content 错误。勾选后，转发前把消息和工具结果中的加密内容替换为固定的已省略提示，保留其余文本、消息顺序和工具调用关系，使旧会话可以继续。模型看不到被省略的内容；明文消息（如子代理的最终结论）和推理记录不受影响。',
         excelBPSCacheCreationAsInputDesc: '默认关闭. 勾选后, BPS 缓存创建 token 计入普通输入并按输入价格计费, 返回下游的缓存创建用量同步归零. 总输入和缓存读取不变, 不影响上游实际缓存.',
         excelBPSDesc: '使用本账号已有的 ChatGPT OAuth 凭据，经 Excel 接口转发 Responses 请求。无需 GitHub 登录或 sidecar；关闭后恢复原 Codex 路径。',
         excelBPSAllModels: '对所有模型启用（兼容原设置）',

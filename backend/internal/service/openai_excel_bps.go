@@ -194,6 +194,14 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 			return fail(400, "basispoints_request_invalid", err.Error())
 		}
 	}
+	if account.IsExcelBPSIgnoreEncryptedContentEnabled() {
+		// 旧多代理会话里子代理的中间消息只有原生 Codex 能读，BPS 会以
+		// encrypted_content 直接拒绝；按账号选项在协议转换前替换为省略提示。
+		body, err = basispoints.StripEncryptedContent(body)
+		if err != nil {
+			return fail(400, "basispoints_request_invalid", err.Error())
+		}
+	}
 	relay, err := s.excelBPSImageRelay(ctx)
 	if err != nil {
 		return fail(503, "basispoints_image_relay_unavailable", err.Error())
