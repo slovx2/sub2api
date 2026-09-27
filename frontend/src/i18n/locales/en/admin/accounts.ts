@@ -619,7 +619,7 @@ export default {
         oauthPassthrough: 'Auto passthrough (auth only)',
         excelBPS: 'Excel / BPS protocol',
         excelBPSIgnoreImages: 'Ignore image inputs when image support is disabled',
-        excelBPSIgnoreImagesDesc: 'Disabled by default. Only applies while Excel / BPS image support is off in system settings. Removes all images from current and historical messages and tool results before forwarding, preserving text and tool call pairing so old screenshots cannot repeatedly block the conversation. Image-only content becomes an omission notice; the model cannot see omitted images. Enabling image support restores normal image handling.',
+        excelBPSIgnoreImagesDesc: 'Disabled by default. Only applies while Excel / BPS image support is off in system settings. Replaces every image in current and historical messages and tool results with an unavailable notice before forwarding, preserving text and tool call pairing so old screenshots cannot repeatedly block the conversation. Even mixed text/image results tell the model it cannot see the image and should not retry view_image or other image-reading tools while image support is disabled. Enabling image support restores normal image handling.',
         excelBPSCacheCreationAsInput: 'Bill cache creation as regular input',
         excelBPSCacheCreationAsInputDesc: 'Disabled by default. Bill BPS cache creation tokens as regular input and report zero cache creation usage downstream. Total input and cache reads stay unchanged. This does not disable upstream caching.',
         excelBPSDesc: 'Forward Responses through Excel using this account’s existing ChatGPT OAuth credentials. No GitHub login or sidecar. Disable to restore Codex routing.',
