@@ -97,6 +97,16 @@ func (b *Bridge) transform(reader io.Reader, writer io.Writer) error {
 		if kind == "" {
 			kind = event
 		}
+		if kind == "error" {
+			// The Excel gateway reports a failure with a bare `error` frame and then
+			// the authoritative `response.failed`. Treating the bare frame as terminal
+			// closed the stream before the terminal event could be forwarded, so
+			// Responses clients only saw a silent EOF ("stream closed before
+			// response.completed"). Record the payload and keep reading; the caller
+			// synthesizes a terminal event if the upstream never sends one.
+			b.recordStreamError(data)
+			return nil
+		}
 		if b.structured != nil && kind == "response.completed" {
 			if response, ok := payload["response"].(object); !ok || response == nil {
 				return fmt.Errorf("basispoints structured output is missing its terminal response")
@@ -176,7 +186,7 @@ func (b *Bridge) transform(reader io.Reader, writer io.Writer) error {
 				response["reasoning"] = object{"effort": b.Effort}
 			}
 		}
-		terminal = kind == "response.completed" || kind == "response.incomplete" || kind == "response.failed" || kind == "error"
+		terminal = kind == "response.completed" || kind == "response.incomplete" || kind == "response.failed"
 		return emit(kind, payload)
 	}
 	err := readEvents(reader, func(event string, data []byte) error {

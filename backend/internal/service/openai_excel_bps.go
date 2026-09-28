@@ -336,6 +336,7 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 		}
 	}
 	var completed []byte
+	var terminalPayload []byte
 	terminal := ""
 	cacheCreationAsInput := account.IsExcelBPSCacheCreationAsInputEnabled()
 	for scanner.Next(ctx, 0, heartbeat.C, keepalive) {
@@ -358,6 +359,7 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 			switch kind {
 			case "response.completed", "response.failed", "response.incomplete", "error":
 				terminal = kind
+				terminalPayload = append(terminalPayload[:0], payload...)
 				completed = []byte(gjson.GetBytes(payload, "response").Raw)
 				result.ResponseID = gjson.GetBytes(payload, "response.id").String()
 				result.UpstreamResponseModel = gjson.GetBytes(payload, "response.model").String()
@@ -382,8 +384,22 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 			return result, ctx.Err()
 		}
 		MarkResponseCommitted(c)
+		// The Excel gateway reports failures as a bare `error` frame followed by the
+		// authoritative `response.failed`. The bridge keeps reading past the bare
+		// frame and captures its payload, so prefer it here: the client then sees the
+		// real upstream code/message (for example a rate limit with retry-after)
+		// instead of a generic stream-closed failure.
+		source := bridge.LastErrorPayload()
+		if len(source) == 0 {
+			source = []byte(`{"error":{"code":"basispoints_stream_incomplete","message":"Upstream stream ended before completion"}}`)
+		}
 		if stream {
-			_, _ = c.Writer.WriteString("event: response.failed\ndata: {\"type\":\"response.failed\",\"response\":{\"status\":\"failed\",\"error\":{\"code\":\"basispoints_stream_incomplete\",\"message\":\"Upstream stream ended before completion\"}}}\n\n")
+			_, _ = c.Writer.WriteString(buildOpenAIResponseFailedSSE(
+				firstNonEmpty(result.ResponseID),
+				firstNonEmpty(originalModel, model),
+				source,
+				"Excel BPS stream ended before completion",
+			))
 			c.Writer.Flush()
 		} else {
 			c.JSON(502, gin.H{"error": gin.H{"code": "basispoints_stream_incomplete", "message": "Excel BPS stream ended before completion"}})
@@ -401,6 +417,12 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 		}
 	}
 	if terminal != "response.completed" {
+		// Keep the upstream reason in the error text: it is what the account test UI
+		// and the forward_failed log line surface when a terminal event is not a
+		// successful completion.
+		if message := strings.TrimSpace(extractOpenAISSEErrorMessage(terminalPayload)); message != "" {
+			return result, fmt.Errorf("excel BPS terminal: %s: %s", terminal, message)
+		}
 		return result, fmt.Errorf("excel BPS terminal: %s", terminal)
 	}
 	s.bindHTTPResponseAccount(ctx, c, account, result.ResponseID)

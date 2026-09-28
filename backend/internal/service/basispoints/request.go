@@ -10,6 +10,7 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"sync"
 )
 
 const ResponsesURL = "https://bps.openai.com/basispoints/api/responses"
@@ -25,6 +26,55 @@ type Bridge struct {
 	structured       *structuredOutput
 	replay           *ReplayCache
 	scope            string
+	streamErrors     *streamErrorState
+}
+
+// streamErrorState keeps the last bare `error` frame the Excel gateway sent.
+//
+// The Excel gateway reports failures in two frames: a bare `error` frame and
+// then the authoritative `response.failed`. The bridge keeps reading past the
+// bare frame (see transform), so the request handler reads the captured payload
+// from a different goroutine once the stream ends; access is mutex-guarded. The
+// Bridge only holds a pointer to it, so copying a Bridge value never copies the
+// mutex.
+type streamErrorState struct {
+	mu      sync.Mutex
+	payload []byte
+}
+
+func (s *streamErrorState) record(payload []byte) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.payload = append(s.payload[:0], payload...)
+}
+
+func (s *streamErrorState) last() []byte {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]byte(nil), s.payload...)
+}
+
+func (b *Bridge) recordStreamError(payload []byte) {
+	if b == nil {
+		return
+	}
+	b.streamErrors.record(payload)
+}
+
+// LastErrorPayload returns the last bare `error` frame received from the Excel
+// gateway, or nil when the stream never carried one. Callers use it to build a
+// protocol-valid terminal event when the upstream closes without one.
+func (b *Bridge) LastErrorPayload() []byte {
+	if b == nil {
+		return nil
+	}
+	return b.streamErrors.last()
 }
 
 func decode(raw []byte, target any) error {
@@ -99,7 +149,7 @@ func Prepare(raw []byte, scope string, replay *ReplayCache) ([]byte, *Bridge, er
 	if err != nil {
 		return nil, nil, err
 	}
-	b := &Bridge{RequestedEffort: requested, Effort: effort, tools: make(map[string]tool), unsupportedTools: make(map[string]bool), structured: structured, replay: replay, scope: scope}
+	b := &Bridge{RequestedEffort: requested, Effort: effort, tools: make(map[string]tool), unsupportedTools: make(map[string]bool), structured: structured, replay: replay, scope: scope, streamErrors: &streamErrorState{}}
 	choice := source["tool_choice"]
 	if choice != nil && text(choice) != "auto" && text(choice) != "none" {
 		return nil, nil, fmt.Errorf("basispoints supports tool_choice auto or none only")
