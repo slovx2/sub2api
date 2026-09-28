@@ -1541,6 +1541,8 @@ export interface UpdateAccountRequest {
   type?: AccountType
   credentials?: Record<string, unknown>
   extra?: Record<string, unknown>
+  /** `merge` (server default) patches single keys; `replace` swaps the whole extra object. */
+  extra_mode?: 'replace' | 'merge'
   proxy_id?: number | null
   concurrency?: number
   load_factor?: number | null

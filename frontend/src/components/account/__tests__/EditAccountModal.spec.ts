@@ -348,6 +348,9 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.openai_excel_bps).toBe(true)
     expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.openai_excel_bps_cache_creation_as_input).toBeUndefined()
     expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.unrelated).toBe('preserve')
+    // The modal submits a whole extra snapshot and relies on missing keys meaning
+    // "removed", so it must keep asking for replace semantics explicitly.
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra_mode).toBe('replace')
   })
 
   it('saves, restores and clears Excel BPS cache creation input billing', async () => {

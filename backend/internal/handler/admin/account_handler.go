@@ -145,8 +145,8 @@ type UpdateAccountRequest struct {
 	Type        string         `json:"type" binding:"omitempty,oneof=oauth setup-token apikey upstream bedrock service_account"`
 	Credentials map[string]any `json:"credentials"`
 	Extra       map[string]any `json:"extra"`
-	// ExtraMode: "" / "replace" replaces the whole extra object (admin edit form);
-	// "merge" patches only the provided keys and deletes those explicitly set to null.
+	// ExtraMode: "merge"（默认，空值等价）只改本次提供的键，显式 null 表示删除；
+	// "replace" 整包替换 extra，仅限提交完整快照的调用方（如账号编辑弹窗）使用。
 	ExtraMode               string   `json:"extra_mode" binding:"omitempty,oneof=replace merge"`
 	ProxyID                 *int64   `json:"proxy_id"`
 	Concurrency             *int     `json:"concurrency"`
@@ -1175,13 +1175,20 @@ func (h *AccountHandler) Update(c *gin.Context) {
 	// 确定是否跳过混合渠道检查
 	skipCheck := req.ConfirmMixedChannelRisk != nil && *req.ConfirmMixedChannelRisk
 
+	// extra 默认为键级合并：只有整包快照（账号编辑弹窗）才应显式声明 replace，
+	// 否则任何部分 extra 提交（如重新授权只带 email/privacy_mode）都会清掉其余运行态键。
+	extraMode := req.ExtraMode
+	if extraMode == "" {
+		extraMode = service.UpdateAccountExtraModeMerge
+	}
+
 	account, err := h.adminService.UpdateAccount(c.Request.Context(), accountID, &service.UpdateAccountInput{
 		Name:                  req.Name,
 		Notes:                 req.Notes,
 		Type:                  req.Type,
 		Credentials:           req.Credentials,
 		Extra:                 req.Extra,
-		ExtraMode:             req.ExtraMode,
+		ExtraMode:             extraMode,
 		ProxyID:               req.ProxyID,
 		Concurrency:           req.Concurrency, // 指针类型，nil 表示未提供
 		Priority:              req.Priority,    // 指针类型，nil 表示未提供

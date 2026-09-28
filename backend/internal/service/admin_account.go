@@ -21,12 +21,17 @@ import (
 )
 
 // Account management implementations
-// UpdateAccountExtraModeMerge switches the account update API to key-level patch
-// semantics for `extra`: only the keys present in the request change, and a key
-// whose value is explicitly null is deleted. The default ("") keeps the historical
-// replace semantics used by the admin edit form, which submits the whole extra
-// object and relies on missing keys meaning "removed".
+// UpdateAccountExtraModeMerge selects key-level patch semantics for `extra`:
+// only the keys present in the request change, and a key whose value is
+// explicitly null is deleted. It is the default for the account update API, so a
+// partial extra payload can never wipe unrelated runtime keys. Callers that
+// submit a complete extra snapshot (the admin edit form) must opt into the
+// historical replace semantics with UpdateAccountExtraModeReplace.
 const UpdateAccountExtraModeMerge = "merge"
+
+// UpdateAccountExtraModeReplace replaces the whole extra object, keeping only the
+// service-managed keys the backend preserves explicitly.
+const UpdateAccountExtraModeReplace = "replace"
 
 // mergeAccountExtraUpdate patches base with updates: provided non-null values win,
 // explicit nulls delete the key, and every other existing key is preserved.

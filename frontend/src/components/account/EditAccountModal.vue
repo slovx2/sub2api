@@ -5964,6 +5964,12 @@ const handleSubmit = async () => {
       updatePayload.extra = newExtra
     }
 
+    // 弹窗提交的是基于账号快照改写的完整 extra，清除字段依赖整包替换语义；
+    // 后端默认是键级 merge，所以这里必须显式声明 replace。
+    if (updatePayload.extra !== undefined) {
+      updatePayload.extra_mode = 'replace'
+    }
+
     const canContinue = await ensureAntigravityMixedChannelConfirmed(async () => {
       await submitUpdateAccount(accountID, updatePayload)
     })
