@@ -107,7 +107,7 @@ func TestExcelBPSIgnoreImagesHTTPFlow(t *testing.T) {
 					req.Header.Set("X-Test-Image-Mode", mode)
 					resp, err := gateway.Client().Do(req)
 					require.NoError(t, err)
-					defer resp.Body.Close()
+					defer func() { _ = resp.Body.Close() }()
 					result, err := io.ReadAll(resp.Body)
 					require.NoError(t, err)
 					require.Equal(t, wantStatus, resp.StatusCode, string(result))

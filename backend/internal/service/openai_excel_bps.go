@@ -491,11 +491,11 @@ func dumpExcelBPSRequestBody(dir string, body []byte, account *Account, model st
 	if dir == "" || len(body) < excelBPSDumpMinBytes {
 		return
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil { //nolint:gosec // G703: dir 仅来自启动环境变量 BPS_REQUEST_DUMP_DIR（运维显式开启的排障开关），非请求输入
 		logger.LegacyPrintf("service.openai_gateway", "[BPS dump] mkdir failed: %v", err)
 		return
 	}
-	entries, err := os.ReadDir(dir)
+	entries, err := os.ReadDir(dir) //nolint:gosec // G703: 同上
 	if err != nil {
 		logger.LegacyPrintf("service.openai_gateway", "[BPS dump] readdir failed: %v", err)
 		return
@@ -508,7 +508,7 @@ func dumpExcelBPSRequestBody(dir string, body []byte, account *Account, model st
 		accountID = account.ID
 	}
 	name := fmt.Sprintf("bps-%d-%d-%d.json", time.Now().UnixNano(), accountID, len(body))
-	if err := os.WriteFile(filepath.Join(dir, name), body, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, name), body, 0o600); err != nil { //nolint:gosec // G703: 同上；文件名由进程内生成，不含请求可控内容
 		logger.LegacyPrintf("service.openai_gateway", "[BPS dump] write failed: %v", err)
 		return
 	}

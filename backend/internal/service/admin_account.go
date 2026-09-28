@@ -25,13 +25,9 @@ import (
 // only the keys present in the request change, and a key whose value is
 // explicitly null is deleted. It is the default for the account update API, so a
 // partial extra payload can never wipe unrelated runtime keys. Callers that
-// submit a complete extra snapshot (the admin edit form) must opt into the
-// historical replace semantics with UpdateAccountExtraModeReplace.
+// submit a complete extra snapshot (the admin edit form) must ask for the
+// historical whole-object semantics with the explicit "replace" mode.
 const UpdateAccountExtraModeMerge = "merge"
-
-// UpdateAccountExtraModeReplace replaces the whole extra object, keeping only the
-// service-managed keys the backend preserves explicitly.
-const UpdateAccountExtraModeReplace = "replace"
 
 // mergeAccountExtraUpdate patches base with updates: provided non-null values win,
 // explicit nulls delete the key, and every other existing key is preserved.
@@ -711,7 +707,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		delete(normalizedExtra, OllamaCloudUsageSnapshotExtraKey)
 		delete(normalizedExtra, OpenCodeGoUsageAutoRefreshExtraKey)
 		delete(normalizedExtra, OpenCodeGoUsageSnapshotExtraKey)
-		nextExtra := normalizedExtra
+		var nextExtra map[string]any
 		if input.ExtraMode == UpdateAccountExtraModeMerge {
 			// Patch semantics: only the provided keys change, everything else is kept.
 			nextExtra = mergeAccountExtraUpdate(account.Extra, normalizedExtra)

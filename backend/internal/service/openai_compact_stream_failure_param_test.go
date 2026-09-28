@@ -23,8 +23,14 @@ func TestWriteOpenAICompactSSEFailureMessageParam(t *testing.T) {
 	if err := json.Unmarshal([]byte(strings.TrimSpace(parts[1])), &event); err != nil {
 		t.Fatal(err)
 	}
-	response := event["response"].(map[string]any)
-	errBody := response["error"].(map[string]any)
+	response, ok := event["response"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing response object: %#v", event)
+	}
+	errBody, ok := response["error"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing error object: %#v", response)
+	}
 	if errBody["param"] != "input[103].content[1]" {
 		t.Fatalf("missing safe param: %#v", errBody)
 	}
