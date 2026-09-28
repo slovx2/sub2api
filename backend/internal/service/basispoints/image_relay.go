@@ -32,13 +32,16 @@ var (
 )
 
 const (
-	ImageRelayPath             = "/api/bps-images/"
-	imageRelayTTL              = 30 * time.Minute
-	imageRelayMaxBytes         = 5 << 30
-	imageRelayMaxEntries       = 5000
-	imageRelayMaxImageBytes    = 20 << 20
-	imageRelayMaxRequestBytes  = 32 << 20
-	imageRelayMaxRequestImages = 20
+	ImageRelayPath            = "/api/bps-images/"
+	imageRelayTTL             = 30 * time.Minute
+	imageRelayMaxBytes        = 5 << 30
+	imageRelayMaxEntries      = 5000
+	imageRelayMaxImageBytes   = 20 << 20
+	imageRelayMaxRequestBytes = 32 << 20
+	// 每个请求允许中转的内联图片数。上游 BPS 实测可接受 40 张（200 且正常完成），
+	// 其自身实现把该值做成 1-4096 的可配置项、默认 20；这里取一个更宽松但仍有界的
+	// 默认值，配合下面的 32 MiB 每请求字节上限一起兜底。
+	imageRelayMaxRequestImages = 128
 	imageRelayMaxPixels        = 64 * 1024 * 1024
 	imageRelayCleanupInterval  = time.Minute
 )
@@ -218,7 +221,7 @@ func (r *ImageRelay) Rewrite(raw []byte, scope string) ([]byte, error) {
 					continue
 				}
 				if len(staged) >= imageRelayMaxRequestImages {
-					return nil, fmt.Errorf("basispoints accepts at most 20 inline images per request")
+					return nil, fmt.Errorf("image relay is configured for at most %d inline images per request", imageRelayMaxRequestImages)
 				}
 				img, token, err := r.storeImage(rawURL, scope)
 				if err != nil {

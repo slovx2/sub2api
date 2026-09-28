@@ -225,7 +225,7 @@ func TestImageRelayBatchValidationAndLimitsAreAtomic(t *testing.T) {
 	raw, err := json.Marshal(source)
 	require.NoError(t, err)
 	_, err = r.Rewrite(raw, "scope")
-	require.ErrorContains(t, err, "at most 20")
+	require.ErrorContains(t, err, fmt.Sprintf("at most %d", imageRelayMaxRequestImages))
 	require.Empty(t, r.entries)
 	r.bytes = imageRelayMaxBytes
 	_, err = r.Rewrite(relayTestRequest(t, relayTestPNG(t)), "scope")
