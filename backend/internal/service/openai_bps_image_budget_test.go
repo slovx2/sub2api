@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -85,4 +86,40 @@ func TestResponsesBodyTooLargeEnvelope(t *testing.T) {
 	limit, source := responsesBodyLimit("http://commandcode-proxy:3050/v1/responses")
 	require.Equal(t, 20<<20, limit)
 	require.Equal(t, "commandcode_proxy_local", source)
+}
+
+func TestBPSImageBudgetCancellationReleasesCapacity(t *testing.T) {
+	b := &bpsImageAdmissionBudget{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	entered, done := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		release, acquired := b.acquire(64<<20, "cancel")
+		if !acquired {
+			return
+		}
+		defer release()
+		close(entered)
+		<-ctx.Done()
+	}()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("未获得额度")
+	}
+	_, acquired := b.acquire(1, "blocked")
+	require.False(t, acquired)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("取消未释放")
+	}
+	release, acquired := b.acquire(64<<20, "next")
+	require.True(t, acquired)
+	release()
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest("POST", "/responses", nil).WithContext(context.WithValue(context.Background(), ctxkey.RequestID, "request-example"))
+	require.Equal(t, "request-example", imageBudgetRequestID(c))
 }

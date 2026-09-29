@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
 )
@@ -43,13 +44,18 @@ func writeResponsesBodyTooLarge(c *gin.Context, targetURL string, bodyBytes int6
 
 func checkResponsesRequestSize(c *gin.Context, account *Account, targetURL string, ingressBytes int, body []byte) error {
 	limit, source := responsesBodyLimit(targetURL)
-	requestID := ""
-	if c != nil {
-		requestID = c.GetString("request_id")
-	}
+	requestID := imageBudgetRequestID(c)
 	logger.LegacyPrintf("service.openai_request_size", "request_size request_id=%s account_id=%d route=responses limit_source=%s limit_bytes=%d ingress_bytes=%d egress_bytes=%d images=%d", requestID, account.ID, source, limit, ingressBytes, len(body), responsesImageCount(body))
 	if limit > 0 && len(body) > limit {
 		return writeResponsesBodyTooLarge(c, targetURL, int64(len(body)))
 	}
 	return nil
+}
+
+func imageBudgetRequestID(c *gin.Context) string {
+	if c == nil || c.Request == nil {
+		return ""
+	}
+	id, _ := c.Request.Context().Value(ctxkey.RequestID).(string)
+	return id
 }
