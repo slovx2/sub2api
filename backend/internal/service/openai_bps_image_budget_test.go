@@ -3,8 +3,10 @@ package service
 import (
 	"bytes"
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -36,6 +38,90 @@ func TestBPSImageBudgetReleaseAndLimits(t *testing.T) {
 		r()
 	}
 	require.Zero(t, b.bytes)
+}
+
+// 经过真实转发入口验证：上游流未结束时额度仍持有，取消后才释放。
+type bpsBudgetBlockedBody struct {
+	ctx     context.Context
+	entered chan struct{}
+}
+
+func (b *bpsBudgetBlockedBody) Read([]byte) (int, error) {
+	select {
+	case <-b.entered:
+	default:
+		close(b.entered)
+	}
+	<-b.ctx.Done()
+	return 0, b.ctx.Err()
+}
+
+func (b *bpsBudgetBlockedBody) Close() error { return nil }
+
+func TestBPSImageBudgetForwardCancellation(t *testing.T) {
+	t.Setenv("DATA_DIR", t.TempDir())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	reader := &bpsBudgetBlockedBody{ctx: ctx, entered: make(chan struct{})}
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: reader,
+	}}
+	svc := openAIClientToolsTestService(upstream)
+	svc.settingService = NewSettingService(&excelBPSImageSettingsRepo{values: map[string]string{
+		SettingKeyExcelBPSImageRelayEnabled: "true", SettingKeyExcelBPSImageBaseURL: "https://images.example",
+	}}, svc.cfg)
+	t.Cleanup(func() { require.NoError(t, svc.CloseExcelBPSImages()) })
+	body := []byte(`{"model":"gpt-6-astra","stream":true,"input":[{"role":"user","content":[{"type":"input_image","image_url":"https://images.example/photo.png"}]}]}`)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest("POST", "/v1/responses", bytes.NewReader(body)).WithContext(ctx)
+	done := make(chan error, 1)
+	go func() { _, err := svc.Forward(ctx, c, excelAccount(), body); done <- err }()
+	select {
+	case <-reader.entered:
+	case err := <-done:
+		t.Fatalf("未进入上游读取: %v", err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("未进入上游读取")
+	}
+	svc.excelBPSImageBudget.mu.Lock()
+	requests, held := svc.excelBPSImageBudget.requests, svc.excelBPSImageBudget.bytes
+	svc.excelBPSImageBudget.mu.Unlock()
+	require.Equal(t, 1, requests)
+	require.Positive(t, held)
+	cancel()
+	select {
+	case err := <-done:
+		require.Error(t, err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("取消后转发未退出")
+	}
+	require.Zero(t, svc.excelBPSImageBudget.bytes)
+	require.Zero(t, svc.excelBPSImageBudget.requests)
+}
+
+func TestBPSImageBudgetFullDoesNotBlockNativeForward(t *testing.T) {
+	gpt := excelAccount()
+	gpt.Extra["openai_excel_bps"] = false
+	for name, account := range map[string]*Account{"gpt": gpt, "deepseek": deepSeekNativeResponsesImageAccount()} {
+		t.Run(name, func(t *testing.T) {
+			wire := "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_native\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n"
+			upstream := &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(wire)),
+			}}
+			svc := openAIClientToolsTestService(upstream)
+			release, ok := svc.excelBPSImageBudget.acquire(64<<20, "held")
+			require.True(t, ok)
+			defer release()
+			body := []byte(`{"model":"deepseek-flash","stream":true,"input":[{"role":"user","content":[{"type":"input_image","image_url":"data:image/png;base64,AQID"}]}]}`)
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest("POST", "/v1/responses", bytes.NewReader(body))
+			result, err := svc.Forward(context.Background(), c, account, body)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.NotEmpty(t, upstream.requests)
+			require.Equal(t, 1, svc.excelBPSImageBudget.requests)
+		})
+	}
 }
 
 func TestBPSImageBudgetFailureAndTextIsolation(t *testing.T) {

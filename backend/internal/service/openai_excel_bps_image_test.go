@@ -45,6 +45,8 @@ func TestExcelBPSInlineImageForwardAndFetch(t *testing.T) {
 				result, err := svc.Forward(context.Background(), c, excelAccount(), body)
 				require.NoError(t, err)
 				require.NotNil(t, result)
+				require.Zero(t, svc.excelBPSImageBudget.bytes)
+				require.Zero(t, svc.excelBPSImageBudget.requests)
 				require.NotContains(t, string(upstream.lastBody), "data:image")
 				var imageURL string
 				for _, item := range gjson.GetBytes(upstream.lastBody, "input").Array() {
@@ -89,6 +91,8 @@ func TestExcelBPSImageRelayValidationDoesNotCallUpstream(t *testing.T) {
 			body := []byte(fmt.Sprintf(`{"model":"gpt-6-astra","input":[{"role":"user","content":[{"type":"input_image","image_url":%q}]}]}`, tt.dataURL))
 			_, err := svc.Forward(context.Background(), c, excelAccount(), body)
 			require.Error(t, err)
+			require.Zero(t, svc.excelBPSImageBudget.bytes)
+			require.Zero(t, svc.excelBPSImageBudget.requests)
 			require.Equal(t, tt.status, rec.Code)
 			require.Empty(t, upstream.requests)
 			require.NotContains(t, rec.Body.String(), "PRIVATE_PAYLOAD")
