@@ -133,10 +133,7 @@ func deleteOpenAIResponsesNoneReasoningEffortFromObject(account *Account, body m
 // 强制 store=false 并清除 previous_response_id（DeepSeek / Kimi 官方
 // Responses 均不支持服务端状态存储，携带这些字段会被拒绝）。
 //
-// DeepSeek 另需把 Codex/OpenAI 的 input_image.image_url 写成线上 serde
-// 要求的 url 字段；openai 平台但 base_url 指向 api.deepseek.com 的映射
-// 账号同样走这条出站改写（Codex 贴图会 422 missing field url）。
-// 非 CN / 非 DeepSeek 上游原样返回。
+// DeepSeek 图片统一为标准 image_url，避免 Data URL 在多个字段重复传输。
 func normalizeDeepSeekResponsesRequestBody(account *Account, body []byte) []byte {
 	if account == nil {
 		return body
@@ -612,7 +609,7 @@ func responsesToolItemCallID(item any) string {
 }
 
 func shouldAliasDeepSeekResponsesInputImages(account *Account) bool {
-	return targetsDeepSeekAPIHost(account)
+	return targetsDeepSeekProtocolHost(account, APIProtocolResponses)
 }
 
 // aliasDeepSeekResponsesInputImages 把图片 part 改写成 DeepSeek 能反序列化
@@ -700,18 +697,20 @@ func aliasDeepSeekResponsesImagePart(part map[string]any) bool {
 		part["image_url"] = imageURL
 		changed = true
 	}
-	if current, ok := part["url"].(string); !ok || strings.TrimSpace(current) != imageURL {
-		part["url"] = imageURL
-		changed = true
+	for _, key := range []string{"url", "image", "source"} {
+		if _, exists := part[key]; exists {
+			delete(part, key)
+			changed = true
+		}
 	}
 	return changed
 }
 
 func extractDeepSeekResponsesImageURL(part map[string]any) string {
-	if imageURL := deepSeekResponsesURLValue(part["url"]); imageURL != "" {
+	if imageURL := deepSeekResponsesURLValue(part["image_url"]); imageURL != "" {
 		return imageURL
 	}
-	if imageURL := deepSeekResponsesURLValue(part["image_url"]); imageURL != "" {
+	if imageURL := deepSeekResponsesURLValue(part["url"]); imageURL != "" {
 		return imageURL
 	}
 	if imageURL := deepSeekResponsesURLValue(part["image"]); imageURL != "" {

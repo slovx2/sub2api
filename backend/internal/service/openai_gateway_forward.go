@@ -1121,6 +1121,10 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		}
 
 		// Handle error response
+		if limit, _ := responsesBodyLimit(upstreamReq.URL.String()); resp.StatusCode == http.StatusRequestEntityTooLarge && limit > 0 {
+			_ = resp.Body.Close()
+			return nil, writeResponsesBodyTooLarge(c, upstreamReq.URL.String(), upstreamReq.ContentLength)
+		}
 		if resp.StatusCode >= 400 {
 			respBody := s.readUpstreamErrorBody(resp)
 			_ = resp.Body.Close()
@@ -1428,7 +1432,11 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 
 	// DeepSeek / Kimi 原生 Responses 端点为无状态实现：强制 store=false、清除
 	// previous_response_id，避免携带状态字段被上游拒绝。
+	ingressBytes := len(body)
 	body = normalizeDeepSeekResponsesRequestBody(account, body)
+	if err := checkResponsesRequestSize(c, account, targetURL, ingressBytes, body); err != nil {
+		return nil, err
+	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", targetURL, bytes.NewReader(body))
 	if err != nil {

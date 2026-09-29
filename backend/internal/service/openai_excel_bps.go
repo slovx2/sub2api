@@ -157,6 +157,19 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 		}
 		return nil, fmt.Errorf("excel BPS: %s", code)
 	}
+	ingressBytes := len(body)
+	imageCount := responsesImageCount(body)
+	if imageCount > 0 {
+		if len(body) > bpsImageMaxBodyBytes {
+			return fail(413, "basispoints_image_body_too_large", "Request body exceeds the BPS image limit of 64 MiB")
+		}
+		release, acquired := s.excelBPSImageBudget.acquire(int64(len(body)), c.GetString("request_id"))
+		if !acquired {
+			c.Header("Retry-After", "1")
+			return fail(503, "basispoints_image_request_busy", "Image relay request capacity is busy; retry later")
+		}
+		defer release()
+	}
 	originalModel := gjson.GetBytes(body, "model").String()
 	model := account.GetMappedModel(originalModel)
 	stream := gjson.GetBytes(body, "stream").Bool()
@@ -236,6 +249,7 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 		}
 		return fail(400, "basispoints_request_invalid", err.Error())
 	}
+	logger.LegacyPrintf("service.openai_excel_bps", "request_size request_id=%s account_id=%d route=bps ingress_bytes=%d egress_bytes=%d images=%d", c.GetString("request_id"), account.ID, ingressBytes, len(upstreamBody), imageCount)
 	dumpExcelBPSRequestBody(os.Getenv(ExcelBPSRequestDumpDirEnv), upstreamBody, account, model)
 	token, _, err := s.GetAccessToken(ctx, account)
 	if err != nil {

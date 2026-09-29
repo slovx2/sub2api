@@ -381,6 +381,10 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 			// a failover so the handler switches to a healthy account.
 			return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, true)
 		}
+		if limit, _ := responsesBodyLimit(upstreamReq.URL.String()); resp.StatusCode == http.StatusRequestEntityTooLarge && limit > 0 {
+			_ = resp.Body.Close()
+			return nil, writeResponsesBodyTooLarge(c, upstreamReq.URL.String(), upstreamReq.ContentLength)
+		}
 		if resp.StatusCode >= 400 {
 			// Peek only to identify an invalid task. Restore the body so the existing
 			// passthrough error handling sees the same response after recovery fails.
@@ -606,7 +610,11 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	targetURL = appendOpenAIResponsesRequestPathSuffix(targetURL, openAIResponsesRequestPathSuffix(c))
 
 	// DeepSeek / Kimi 原生 Responses 端点为无状态实现（见 normalizeDeepSeekResponsesRequestBody）。
+	ingressBytes := len(body)
 	body = normalizeDeepSeekResponsesRequestBody(account, body)
+	if err := checkResponsesRequestSize(c, account, targetURL, ingressBytes, body); err != nil {
+		return nil, err
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(body))
 	if err != nil {

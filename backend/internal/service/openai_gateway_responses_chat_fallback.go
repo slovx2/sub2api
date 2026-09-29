@@ -409,26 +409,21 @@ func (s *OpenAIGatewayService) setReasoningContent(itemID, content string) {
 // 单个空格。
 const deepSeekChatReasoningPlaceholderText = " "
 
-// targetsDeepSeekAPIHost 报告该账号实际上游是否是 DeepSeek 官方 API。
-// platform=deepseek 直接命中；platform=openai 但 base_url 指向
-// api.deepseek.com 的映射账号同样命中（Codex 把 GPT 模型名映射到 DeepSeek
-// 时的典型接入方式）。
+// targetsDeepSeekAPIHost 按实际 Chat 上游地址判断，不把第三方代理当作官方。
 func targetsDeepSeekAPIHost(account *Account) bool {
+	return targetsDeepSeekProtocolHost(account, APIProtocolChatCompletions)
+}
+
+func targetsDeepSeekProtocolHost(account *Account, protocol string) bool {
 	if account == nil {
 		return false
 	}
-	if account.Platform == PlatformDeepseek {
-		return true
+	baseURL := account.GetOpenAIBaseURL()
+	if account.IsMultiProtocolAPIKey() && account.IsAdaptiveAPIProtocol() {
+		baseURL = account.GetCNProtocolBaseURL(protocol)
 	}
-	u, err := url.Parse(strings.TrimSpace(account.GetOpenAIBaseURL()))
-	if err != nil {
-		return false
-	}
-	ds, err := url.Parse(DefaultDeepseekBaseURL)
-	if err != nil {
-		return false
-	}
-	return strings.EqualFold(u.Hostname(), ds.Hostname())
+	u, err := url.Parse(strings.TrimSpace(baseURL))
+	return err == nil && strings.EqualFold(u.Hostname(), "api.deepseek.com")
 }
 
 // ensureDeepSeekChatReasoningPlaceholders 给缺 reasoning_content 的 assistant
