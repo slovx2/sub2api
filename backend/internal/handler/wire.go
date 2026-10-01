@@ -11,6 +11,7 @@ import (
 
 // ProvideAdminHandlers creates the AdminHandlers struct
 func ProvideAdminHandlers(
+	modeltrace *service.ModelTraceService,
 	dashboardHandler *admin.DashboardHandler,
 	userHandler *admin.UserHandler,
 	groupHandler *admin.GroupHandler,
@@ -51,6 +52,7 @@ func ProvideAdminHandlers(
 	ollamaCloudUsage *service.OllamaCloudUsageService,
 	opencodeGoUsage *service.OpenCodeGoUsageService,
 ) *AdminHandlers {
+	accountHandler.SetModelTraceService(modeltrace)
 	accountHandler.SetUpstreamBillingProbeService(upstreamBillingProbe)
 	accountHandler.SetOllamaCloudUsageService(ollamaCloudUsage)
 	accountHandler.SetOpenCodeGoUsageService(opencodeGoUsage)

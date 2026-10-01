@@ -7161,6 +7161,7 @@
 
 	        <!-- Tab: Features (功能开关) -->
         <div v-show="activeTab === 'features'" class="space-y-6">
+          <ModelTraceSettings />
         <div class="card" data-testid="excel-bps-image-settings">
           <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
             <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
@@ -9000,6 +9001,7 @@
 </template>
 
 <script setup lang="ts">
+import ModelTraceSettings from "@/components/admin/modeltrace/ModelTraceSettings.vue";
 import { ref, reactive, computed, onMounted, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { adminAPI } from "@/api";

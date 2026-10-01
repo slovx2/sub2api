@@ -1196,6 +1196,7 @@ export interface OpenCodeGoUsageSettings {
 }
 
 export interface Account {
+  modeltrace_summary?: import("@/api/admin/modeltrace").ModelTraceSummary
   id: number
   name: string
   notes?: string | null

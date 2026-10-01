@@ -958,6 +958,8 @@ var ProviderSet = wire.NewSet(
 	ProvideIdempotencyCoordinator,
 	ProvideSystemOperationLockService,
 	ProvideIdempotencyCleanupService,
+	NewOpenAIProbeTransport,
+	ProvideModelTraceService,
 	ProvideScheduledTestService,
 	ProvideScheduledTestRunnerService,
 	NewGroupCapacityService,
@@ -1069,4 +1071,11 @@ func ProvideChannelMonitorV2Aggregator(repo ChannelMonitorV2Repository, db *sql.
 	}
 	aggregator.Start()
 	return aggregator
+}
+
+// ProvideModelTraceService 启动独立探测调度，不接入账号状态处理链。
+func ProvideModelTraceService(settings *SettingService, accounts AccountRepository, repo ModelTraceRepository, transport *OpenAIProbeTransport) *ModelTraceService {
+	svc := NewModelTraceService(settings, accounts, repo, transport)
+	svc.Start()
+	return svc
 }

@@ -250,6 +250,7 @@
                 {{ accountDisplayEmail(row) }}
               </span>
               <ExcelBPS403Badge :account="row" />
+              <ModelTraceBadge :summary="row.modeltrace_summary" />
             </div>
           </template>
           <template #cell-notes="{ value }">
@@ -487,6 +488,7 @@
 </template>
 
 <script setup lang="ts">
+import ModelTraceBadge from "@/components/admin/modeltrace/ModelTraceBadge.vue"
 import { ref, reactive, computed, onMounted, onUnmounted, toRaw, watch } from 'vue'
 import { useIntervalFn } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'

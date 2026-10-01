@@ -48,6 +48,7 @@ func NewOAuthHandler(oauthService *service.OAuthService) *OAuthHandler {
 
 // AccountHandler handles admin account management
 type AccountHandler struct {
+	modeltrace              *service.ModelTraceService
 	adminService            service.AdminService
 	oauthService            *service.OAuthService
 	openaiOAuthService      *service.OpenAIOAuthService
@@ -199,6 +200,7 @@ type CheckMixedChannelRequest struct {
 
 // AccountWithConcurrency extends Account with real-time concurrency info
 type AccountWithConcurrency struct {
+	ModelTraceSummary *service.ModelTraceSummary `json:"modeltrace_summary,omitempty"`
 	*dto.Account
 	simpleMode         bool                         `json:"-"`
 	CurrentConcurrency int                          `json:"current_concurrency"`
@@ -214,6 +216,7 @@ type AccountWithConcurrency struct {
 // for lite=1. It embeds dto.AccountListItem instead of the full dto.Account,
 // so groups/account_groups never appear in the list payload.
 type AccountListItemWithConcurrency struct {
+	ModelTraceSummary *service.ModelTraceSummary `json:"modeltrace_summary,omitempty"`
 	*dto.AccountListItem
 	CurrentConcurrency int                          `json:"current_concurrency"`
 	SchedulerScore     *AccountSchedulerScore       `json:"scheduler_score,omitempty"`
@@ -798,6 +801,14 @@ func (h *AccountHandler) List(c *gin.Context) {
 		_ = g.Wait()
 	}
 
+	var modelTraceSummaries map[int64]*service.ModelTraceSummary
+	if h.modeltrace != nil {
+		modelTraceSummaries, err = h.modeltrace.Summaries(c.Request.Context(), accounts)
+		if err != nil {
+			slog.Warn("modeltrace_summary_load_failed", "error", err)
+			modelTraceSummaries = nil
+		}
+	}
 	// Build response with concurrency info
 	result := make([]AccountWithConcurrency, len(accounts))
 	for i := range accounts {
@@ -810,6 +821,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 			}
 		}
 		item := AccountWithConcurrency{
+			ModelTraceSummary:  modelTraceSummaries[acc.ID],
 			Account:            accountResponse,
 			simpleMode:         h.isSimpleMode(),
 			CurrentConcurrency: concurrencyCounts[acc.ID],
@@ -848,6 +860,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 		for i := range result {
 			item := result[i]
 			compact[i] = AccountListItemWithConcurrency{
+				ModelTraceSummary:  item.ModelTraceSummary,
 				AccountListItem:    dto.AccountListItemFromAccount(item.Account),
 				CurrentConcurrency: item.CurrentConcurrency,
 				SchedulerScore:     item.SchedulerScore,

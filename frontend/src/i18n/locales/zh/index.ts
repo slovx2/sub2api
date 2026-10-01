@@ -1,4 +1,5 @@
 import landing from './landing'
+import modeltrace from './modeltrace'
 import common from './common'
 import dashboard from './dashboard'
 import channelMonitorV2 from './channelMonitorV2'
@@ -7,6 +8,7 @@ import admin from './admin'
 import misc from './misc'
 
 export default {
+  modeltrace,
   ...landing,
   ...common,
   ...dashboard,

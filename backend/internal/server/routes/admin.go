@@ -111,6 +111,7 @@ func RegisterAdminRoutes(
 
 		// 定时测试计划
 		registerScheduledTestRoutes(admin, h)
+		admin.POST("/modeltrace/run", h.Admin.Account.RunModelTrace)
 
 		// 渠道管理
 		registerChannelRoutes(admin, h)
@@ -564,6 +565,8 @@ func registerPromoCodeRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	adminSettings := admin.Group("/settings")
 	{
+		adminSettings.GET("/modeltrace", h.Admin.Account.GetModelTraceSettings)
+		adminSettings.PUT("/modeltrace", h.Admin.Account.SaveModelTraceSettings)
 		adminSettings.GET("", h.Admin.Setting.GetSettings)
 		adminSettings.PUT("", h.Admin.Setting.UpdateSettings)
 		adminSettings.POST("/test-smtp", h.Admin.Setting.TestSMTPConnection)
