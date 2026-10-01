@@ -83,8 +83,20 @@ func (modelTraceHandlerAccounts) ListAllWithFilters(context.Context, string, str
 
 type modelTraceHandlerRepo struct {
 	service.ModelTraceRepository
-	queued  int
-	cleared bool
+	settings *service.SettingService
+	queued   int
+	cleared  bool
+}
+
+func (r *modelTraceHandlerRepo) UpdateSettings(ctx context.Context, cfg service.ModelTraceSettings, ids []int64) error {
+	if err := r.settings.SaveModelTraceSettings(ctx, cfg); err != nil {
+		return err
+	}
+	if !cfg.Enabled {
+		return r.ClearQueue(ctx)
+	}
+	_, err := r.Enqueue(ctx, ids)
+	return err
 }
 
 func (r *modelTraceHandlerRepo) Enqueue(_ context.Context, ids []int64) (service.ModelTraceQueueResult, error) {
@@ -94,7 +106,7 @@ func (r *modelTraceHandlerRepo) Enqueue(_ context.Context, ids []int64) (service
 func (r *modelTraceHandlerRepo) ClearQueue(context.Context) error { r.cleared = true; return nil }
 func TestModelTraceSettingsAndRunEndpoints(t *testing.T) {
 	settings := service.NewSettingService(&modelTraceHandlerSettings{}, nil)
-	repo := &modelTraceHandlerRepo{}
+	repo := &modelTraceHandlerRepo{settings: settings}
 	svc := service.NewModelTraceService(settings, modelTraceHandlerAccounts{}, repo, nil)
 	accountHandler := &AccountHandler{modeltrace: svc}
 	router := gin.New()
@@ -149,4 +161,49 @@ func TestModelTraceSummaryIncludedInListETag(t *testing.T) {
 	summary.Mismatched = 1
 	after := buildAccountsListETag(lite, 1, 1, 20, "openai", "oauth", "", "", true)
 	require.NotEqual(t, before, after)
+	since := time.Now().Add(-48 * time.Hour)
+	summary.Details[0].MatchedSince = &since
+	withStreak := buildAccountsListETag(lite, 1, 1, 20, "openai", "oauth", "", "", true)
+	require.NotEqual(t, after, withStreak)
+	for _, rows := range []any{full, lite} {
+		encoded, err := json.Marshal(rows)
+		require.NoError(t, err)
+		require.Equal(t, since.Format(time.RFC3339Nano), gjson.GetBytes(encoded, "0.modeltrace_summary.details.0.matched_since").String())
+	}
+	require.Equal(t, withStreak, buildAccountsListETag(lite, 1, 1, 20, "openai", "oauth", "", "", true))
+}
+
+type modelTraceHistoryHandlerRepo struct {
+	service.ModelTraceRepository
+	query service.ModelTraceHistoryQuery
+	err   error
+}
+
+func (r *modelTraceHistoryHandlerRepo) History(_ context.Context, q service.ModelTraceHistoryQuery) (service.ModelTraceHistoryPage, error) {
+	r.query = q
+	return service.ModelTraceHistoryPage{Items: []service.ModelTraceHistoryEntry{}}, r.err
+}
+func TestModelTraceHistoryEndpoint(t *testing.T) {
+	repo := &modelTraceHistoryHandlerRepo{}
+	h := &AccountHandler{modeltrace: service.NewModelTraceService(nil, nil, repo, nil)}
+	router := gin.New()
+	router.GET("/history", h.GetModelTraceHistory)
+	request := func(query string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest("GET", "/history"+query, nil))
+		return rec
+	}
+	for _, query := range []string{"", "?account_id=0", "?account_id=1&protocol=invalid", "?account_id=1&cursor=invalid"} {
+		require.Equal(t, 400, request(query).Code)
+	}
+	entry := service.ModelTraceHistoryEntry{ID: 42, ModelTraceResult: service.ModelTraceResult{FinishedAt: time.Now()}}
+	rec := request("?account_id=7&protocol=bps&model=test&cursor=" + service.ModelTraceEncodeCursor(entry))
+	require.Equal(t, 200, rec.Code)
+	require.EqualValues(t, 7, repo.query.AccountID)
+	require.Equal(t, "bps", repo.query.Protocol)
+	require.Equal(t, "test", repo.query.Model)
+	require.EqualValues(t, 42, repo.query.Before.ID)
+	require.Equal(t, "[]", gjson.Get(rec.Body.String(), "data.items").Raw)
+	repo.err = errors.New("history unavailable")
+	require.Equal(t, 500, request("?account_id=7").Code)
 }

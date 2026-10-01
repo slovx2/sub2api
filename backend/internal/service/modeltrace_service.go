@@ -33,7 +33,14 @@ func (s *ModelTraceService) Start() {
 		ctx, cancel := context.WithCancel(context.Background())
 		s.cancel = cancel
 		s.done = make(chan struct{})
-		go func() { defer close(s.done); s.loop(ctx) }()
+		go func() {
+			defer close(s.done)
+			maintenanceDone := make(chan struct{})
+			go func() { defer close(maintenanceDone); s.maintainHistory(ctx) }()
+			s.loop(ctx)
+			cancel()
+			<-maintenanceDone
+		}()
 	})
 }
 func (s *ModelTraceService) Stop() {
@@ -90,27 +97,12 @@ func (s *ModelTraceService) SaveSettings(ctx context.Context, cfg ModelTraceSett
 	if cfg.Enabled && cfg.AccountMode == "all" && len(accounts) == 0 {
 		return fmt.Errorf("没有可探测账号")
 	}
-	previous, err := s.Settings(ctx)
-	if err != nil {
-		return err
+	ids := make([]int64, 0, len(accounts))
+	for _, account := range accounts {
+		ids = append(ids, account.ID)
 	}
-	if err = s.settings.SaveModelTraceSettings(ctx, cfg); err != nil {
+	if err = s.repo.UpdateSettings(ctx, cfg, ids); err != nil {
 		return err
-	}
-	// 开关关闭清除持久化队列；重新启用立即提交首轮，避免沿用旧的未来执行时间。
-	if !cfg.Enabled {
-		err = s.repo.ClearQueue(ctx)
-	} else if !previous.Enabled {
-		_, err = s.RunNow(ctx)
-	} else if modelTraceExecutionKey(previous) != modelTraceExecutionKey(cfg) {
-		// 仅新增范围或目标变化需要首轮；预期模型变化只重新比较已有评分。
-		var ids []int64
-		for _, a := range accounts {
-			if cfg.includesID(a.ID) && (!previous.includesID(a.ID) || modelTraceTargetsKey(previous) != modelTraceTargetsKey(cfg)) {
-				ids = append(ids, a.ID)
-			}
-		}
-		err = s.repo.Reschedule(ctx, ids)
 	}
 	s.Wake()
 	return err
@@ -334,11 +326,19 @@ func (s *ModelTraceService) runAccount(ctx context.Context, id int64, cfg ModelT
 		if ctx.Err() != nil {
 			return
 		}
-		result := s.probe(ctx, id, target)
+		snapshot, err := s.repo.BeginProbe(ctx, id, target)
+		if err != nil {
+			slog.Warn("modeltrace_probe_snapshot_failed", "account_id", id)
+			return
+		}
+		if snapshot == nil {
+			continue
+		}
+		result := s.probe(ctx, id, snapshot.Target)
 		if ctx.Err() != nil {
 			return
 		}
-		if err := s.repo.Save(ctx, result, owner); err != nil {
+		if err := s.repo.Save(ctx, result, owner, *snapshot); err != nil {
 			slog.Warn("modeltrace_result_save_failed", "account_id", id)
 			return
 		}

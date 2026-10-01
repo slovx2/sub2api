@@ -119,15 +119,55 @@ func (r *modelTraceRepository) Claim(ctx context.Context, id int64, owner string
 	n, err := result.RowsAffected()
 	return n > 0, err
 }
-func (r *modelTraceRepository) Save(ctx context.Context, result service.ModelTraceResult, owner string) error {
+func (r *modelTraceRepository) Save(ctx context.Context, result service.ModelTraceResult, owner string, snapshot service.ModelTraceProbeSnapshot) error {
+	if result.Protocol != snapshot.Target.Protocol || result.Model != snapshot.Target.Model {
+		return fmt.Errorf("探测结果与请求快照不一致")
+	}
 	raw, err := json.Marshal(result)
 	if err != nil {
 		return err
 	}
-	_, err = r.db.ExecContext(ctx, `INSERT INTO modeltrace_results(account_id,protocol,model,result)
- SELECT $1,$2,$3,$4::jsonb FROM modeltrace_accounts WHERE account_id=$1 AND running AND owner=$5
- ON CONFLICT(account_id,protocol,model) DO UPDATE SET result=EXCLUDED.result,updated_at=NOW()`, result.AccountID, result.Protocol, result.Model, string(raw), owner)
-	return err
+	tx, err := r.configTransaction(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var valid bool
+	err = tx.QueryRowContext(ctx, "SELECT running AND owner=$2 FROM modeltrace_accounts WHERE account_id=$1 FOR UPDATE", result.AccountID, owner).Scan(&valid)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !valid {
+		return nil
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO modeltrace_results(account_id,protocol,model,result) VALUES($1,$2,$3,$4::jsonb)
+ ON CONFLICT(account_id,protocol,model) DO UPDATE SET result=EXCLUDED.result,updated_at=NOW()`, result.AccountID, result.Protocol, result.Model, string(raw)); err != nil {
+		return err
+	}
+	expected := snapshot.Target.ExpectedModel()
+	if _, err = tx.ExecContext(ctx, `INSERT INTO modeltrace_history(account_id,protocol,model,expected_model,verdict,finished_at,result)
+ VALUES($1,$2,$3,$4,$5,$6,$7::jsonb)`, result.AccountID, result.Protocol, result.Model, expected, service.ModelTraceVerdict(result, expected), result.FinishedAt, string(raw)); err != nil {
+		return err
+	}
+	var since *time.Time
+	err = tx.QueryRowContext(ctx, `SELECT matched_since FROM modeltrace_streaks
+ WHERE account_id=$1 AND protocol=$2 AND model=$3 AND active AND generation=$4 AND expected_model=$5`,
+		result.AccountID, result.Protocol, result.Model, snapshot.Generation, expected).Scan(&since)
+	if err != nil && err != sql.ErrNoRows {
+		return err
+	}
+	// 旧代次的结果保留当次预期的历史，但不能重建已被配置变更清除的连续段。
+	if err == nil {
+		since = service.ModelTraceNextMatchedSince(since, result, expected)
+		if _, err = tx.ExecContext(ctx, `UPDATE modeltrace_streaks SET matched_since=$4 WHERE account_id=$1 AND protocol=$2 AND model=$3`,
+			result.AccountID, result.Protocol, result.Model, since); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 func (r *modelTraceRepository) Finish(ctx context.Context, id int64, owner string, delay time.Duration) error {
 	// 配置变化可在运行中提交新一轮；完成旧任务不能清除此标记。
@@ -151,7 +191,9 @@ func (r *modelTraceRepository) Latest(ctx context.Context, ids []int64) (map[int
 		return out, nil
 	}
 	clause, args := modelTraceIDClause(ids)
-	rows, err := r.db.QueryContext(ctx, "SELECT account_id,result FROM modeltrace_results WHERE account_id IN ("+clause+")", args...)
+	rows, err := r.db.QueryContext(ctx, `SELECT r.account_id,r.result,s.matched_since,COALESCE(s.expected_model,'')
+ FROM modeltrace_results r LEFT JOIN modeltrace_streaks s ON s.account_id=r.account_id AND s.protocol=r.protocol AND s.model=r.model AND s.active
+ WHERE r.account_id IN (`+clause+")", args...)
 	if err != nil {
 		return nil, err
 	}
@@ -160,12 +202,15 @@ func (r *modelTraceRepository) Latest(ctx context.Context, ids []int64) (map[int
 		var id int64
 		var raw []byte
 		var result service.ModelTraceResult
-		if err = rows.Scan(&id, &raw); err != nil {
+		var since *time.Time
+		var expected string
+		if err = rows.Scan(&id, &raw, &since, &expected); err != nil {
 			return nil, err
 		}
 		if err = json.Unmarshal(raw, &result); err != nil {
 			return nil, err
 		}
+		result.MatchedSince, result.StreakExpected = since, expected
 		out[id] = append(out[id], result)
 	}
 	return out, rows.Err()

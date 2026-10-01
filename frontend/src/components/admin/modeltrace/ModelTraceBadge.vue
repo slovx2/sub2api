@@ -2,14 +2,19 @@
 import { useI18n } from 'vue-i18n'
 import { nextTick, onBeforeUnmount, onMounted, ref, useId } from 'vue'
 import type { ModelTraceDetail, ModelTraceSummary } from '@/api/admin/modeltrace'
+import ModelTraceHistory from './ModelTraceHistory.vue'
 
-defineProps<{ summary?: ModelTraceSummary }>()
+defineProps<{ accountId: number; summary?: ModelTraceSummary }>()
+const emit = defineEmits<{ historyOpen: [value: boolean] }>()
 const { t } = useI18n()
 const tooltipID = useId()
 const trigger = ref<HTMLButtonElement>()
 const tooltip = ref<HTMLElement>()
 const show = ref(false)
 const focused = ref(false)
+const historyOpen = ref(false)
+const now = ref(Date.now())
+let clockTimer: ReturnType<typeof setInterval> | undefined
 const position = ref({ top: '0px', left: '0px' })
 function updatePosition() {
   if (!show.value || !trigger.value || !tooltip.value) return
@@ -21,20 +26,36 @@ function updatePosition() {
     left: `${Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))}px`,
   }
 }
-function open() { show.value = true; nextTick(updatePosition) }
+function open() { if (!historyOpen.value) { show.value = true; nextTick(updatePosition) } }
 function close() { show.value = false }
 function focus() { focused.value = true; open() }
 function blur() { focused.value = false; close() }
+function openHistory() { close(); historyOpen.value = true; emit('historyOpen', true) }
+async function closeHistory() { historyOpen.value = false; emit('historyOpen', false); await nextTick(); trigger.value?.focus() }
+function streakLabel(detail: ModelTraceDetail): string {
+  if (detail.verdict !== 'matched' || !detail.matched_since) return ''
+  const minutes = Math.max(0, Math.floor((now.value - Date.parse(detail.matched_since)) / 60000))
+  if (!Number.isFinite(minutes)) return ''
+  if (minutes === 0) return t('modeltrace.streakUnderMinute')
+  const days = Math.floor(minutes / 1440)
+  const hours = Math.floor(minutes % 1440 / 60)
+  const rest = minutes % 60
+  const duration = [days ? t('modeltrace.days', { n: days }) : '', hours ? t('modeltrace.hours', { n: hours }) : '', t('modeltrace.minutes', { n: rest })].filter(Boolean).join(' ')
+  return t('modeltrace.streak', { duration })
+}
 function leave(event: MouseEvent) {
   const next = event.relatedTarget
   if (focused.value || next instanceof Node && (tooltip.value?.contains(next) || trigger.value?.contains(next))) return
   close()
 }
 onMounted(() => {
+  clockTimer = setInterval(() => { now.value = Date.now(); nextTick(updatePosition) }, 60000)
   window.addEventListener('resize', updatePosition)
   window.addEventListener('scroll', updatePosition, true)
 })
 onBeforeUnmount(() => {
+  if (historyOpen.value) emit('historyOpen', false)
+  clearInterval(clockTimer)
   window.removeEventListener('resize', updatePosition)
   window.removeEventListener('scroll', updatePosition, true)
 })
@@ -49,7 +70,7 @@ function timestamp(value: string): string { return value && !value.startsWith('0
 
 <template>
   <span v-if="summary" class="inline-flex self-start">
-      <button ref="trigger" type="button" class="inline-flex gap-1 text-[11px] leading-4" aria-label="ModelTrace" :aria-describedby="show ? tooltipID : undefined" @click.stop="open" @mouseenter="open" @mouseleave="leave" @focusin="focus" @focusout="blur" @keydown.esc="close">
+      <button ref="trigger" type="button" class="inline-flex gap-1 text-[11px] leading-4" aria-label="ModelTrace" aria-haspopup="dialog" :aria-describedby="show ? tooltipID : undefined" @click.stop="openHistory" @mouseenter="open" @mouseleave="leave" @focusin="focus" @focusout="blur" @keydown.esc="close">
         <span class="text-green-600 dark:text-green-400">{{ t('modeltrace.matched') }} {{ summary.matched }}</span>
         <span class="text-gray-400">·</span>
         <span class="text-red-600 dark:text-red-400">{{ t('modeltrace.mismatched') }} {{ summary.mismatched }}</span>
@@ -61,11 +82,13 @@ function timestamp(value: string): string { return value && !value.startsWith('0
       <div v-for="detail in summary.details" :key="`${detail.protocol}/${detail.model}`" class="border-t border-white/15 pt-2">
         <div class="break-all">{{ detail.protocol }} / {{ detail.model }} → {{ detail.expected_model }}</div>
         <div :class="detail.verdict === 'matched' ? 'text-green-300' : detail.verdict === 'mismatched' ? 'text-red-300' : 'text-gray-300'">{{ resultLabel(detail) }}</div>
+        <div v-if="summary.enabled && streakLabel(detail)" class="text-green-300">{{ streakLabel(detail) }}</div>
         <div v-if="detail.upstream_model && detail.upstream_model !== detail.model" class="text-gray-400">{{ t('modeltrace.actual') }}: {{ detail.upstream_model }}</div>
         <div class="text-[10px] text-gray-400">{{ timestamp(detail.finished_at) }}</div>
       </div>
     </div>
     </div>
     </Teleport>
+    <ModelTraceHistory :show="historyOpen" :account-id="accountId" @close="closeHistory" />
   </span>
 </template>

@@ -22,7 +22,12 @@ export interface ModelTraceDetail {
   error?: string
   finished_at: string
   bank_version: string
+  matched_since: string | null
 }
+export interface ModelTraceHistoryEntry extends Omit<ModelTraceDetail, 'matched_since'> { id: number }
+export interface ModelTraceHistoryPage { items: ModelTraceHistoryEntry[]; next_cursor?: string }
+export const getModelTraceHistory = async (params: { account_id: number; protocol?: ProbeProtocol; model?: string; cursor?: string }) =>
+  (await apiClient.get<ModelTraceHistoryPage>('/admin/modeltrace/history', { params })).data
 export interface ModelTraceSummary { enabled: boolean; running: boolean; matched: number; mismatched: number; details: ModelTraceDetail[] }
 export interface ModelTraceSettingsResponse { config: ModelTraceConfig; accounts: { id: number; name: string }[]; candidates: string[]; bank_version: string }
 export const getModelTraceSettings = async () => (await apiClient.get<ModelTraceSettingsResponse>('/admin/settings/modeltrace')).data

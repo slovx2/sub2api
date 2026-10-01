@@ -250,7 +250,7 @@
                 {{ accountDisplayEmail(row) }}
               </span>
               <ExcelBPS403Badge :account="row" />
-              <ModelTraceBadge :summary="row.modeltrace_summary" />
+              <ModelTraceBadge :account-id="row.id" :summary="row.modeltrace_summary" @history-open="showModelTraceHistory = $event" />
             </div>
           </template>
           <template #cell-notes="{ value }">
@@ -1358,8 +1358,10 @@ watch(accounts, (rows) => {
   )
 })
 
+const showModelTraceHistory = ref(false)
 const isAnyModalOpen = computed(() => {
   return (
+    showModelTraceHistory.value ||
     showCreate.value ||
     showEdit.value ||
     showSync.value ||

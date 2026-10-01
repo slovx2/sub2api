@@ -1,6 +1,8 @@
 package admin
 
 import (
+	"strconv"
+
 	"github.com/Wei-Shaw/sub2api/internal/pkg/modeltrace"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -44,4 +46,18 @@ func (h *AccountHandler) RunModelTrace(c *gin.Context) {
 		return
 	}
 	response.Success(c, result)
+}
+
+func (h *AccountHandler) GetModelTraceHistory(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Query("account_id"), 10, 64)
+	if err != nil || id <= 0 {
+		response.BadRequest(c, "账号 ID 无效")
+		return
+	}
+	page, err := h.modeltrace.History(c.Request.Context(), id, c.Query("protocol"), c.Query("model"), c.Query("cursor"))
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, page)
 }

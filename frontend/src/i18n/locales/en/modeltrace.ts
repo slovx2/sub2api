@@ -1,4 +1,8 @@
 export default {
+    history: 'Probe history · last 24 hours', historyHint: 'Expectations and verdicts are recorded at probe time. Later changes do not rewrite history.', historyExpected: 'Expected at probe time',
+    protocol: 'Protocol', allProtocols: 'All protocols', filter: 'Filter / refresh', time: 'Completed', result: 'Verdict',
+    noHistory: 'No probes in the last 24 hours', historyError: 'Unable to load probe history', loadMore: 'Load more',
+    streak: 'Matching for {duration}', streakUnderMinute: 'Matching for less than a minute', days: '{n}d', hours: '{n}h', minutes: '{n}m',
     description: 'Identify models returned by OpenAI OAuth accounts on a schedule. Probes do not change account state.',
     enabled: 'Enable probes', all: 'All accounts (including new accounts)', selected: 'Select accounts', selectAll: 'Select all current accounts', clear: 'Clear', search: 'Search accounts',
     interval: 'Interval (minutes, minimum 10)', concurrency: 'Concurrent accounts', request: 'Requested model', expected: 'Expected model (defaults to requested model)', add: 'Add model', remove: 'Remove',

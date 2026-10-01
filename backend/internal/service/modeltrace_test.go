@@ -125,10 +125,11 @@ func (r *modelTraceMultiAccounts) GetByID(_ context.Context, id int64) (*Account
 
 type modelTraceMemoryRepo struct {
 	ModelTraceRepository
-	mu     sync.Mutex
-	states map[int64]ModelTraceState
-	owners map[int64]string
-	saved  []ModelTraceResult
+	settings *SettingService
+	mu       sync.Mutex
+	states   map[int64]ModelTraceState
+	owners   map[int64]string
+	saved    []ModelTraceResult
 }
 
 func (r *modelTraceMemoryRepo) Recover(context.Context, time.Duration) error { return nil }
@@ -189,13 +190,44 @@ func (r *modelTraceMemoryRepo) Claim(_ context.Context, id int64, owner string) 
 	r.owners[id] = owner
 	return true, nil
 }
-func (r *modelTraceMemoryRepo) Save(_ context.Context, result ModelTraceResult, owner string) error {
+func (r *modelTraceMemoryRepo) Save(_ context.Context, result ModelTraceResult, owner string, _ ModelTraceProbeSnapshot) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.owners[result.AccountID] == owner {
 		r.saved = append(r.saved, result)
 	}
 	return nil
+}
+
+func (r *modelTraceMemoryRepo) BeginProbe(ctx context.Context, id int64, target ModelTraceTarget) (*ModelTraceProbeSnapshot, error) {
+	cfg, err := r.settings.GetModelTraceSettings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	target, active := cfg.ActiveTarget(id, target.Protocol, target.Model)
+	if !active {
+		return nil, nil
+	}
+	return &ModelTraceProbeSnapshot{Target: target, Generation: 1}, nil
+}
+func (r *modelTraceMemoryRepo) UpdateSettings(ctx context.Context, cfg ModelTraceSettings, ids []int64) error {
+	previous, err := r.settings.GetModelTraceSettings(ctx)
+	if err != nil {
+		return err
+	}
+	if err = r.settings.SaveModelTraceSettings(ctx, cfg); err != nil {
+		return err
+	}
+	if !cfg.Enabled {
+		return r.ClearQueue(ctx)
+	}
+	var requested []int64
+	for _, id := range ids {
+		if cfg.includesID(id) && (!previous.Enabled || !previous.includesID(id) || modelTraceTargetsKey(cfg) != modelTraceTargetsKey(previous)) {
+			requested = append(requested, id)
+		}
+	}
+	return r.Reschedule(ctx, requested)
 }
 func (r *modelTraceMemoryRepo) Finish(_ context.Context, id int64, owner string, interval time.Duration) error {
 	r.mu.Lock()
@@ -244,7 +276,7 @@ func TestModelTraceRunnerConcurrencyAndCancellation(t *testing.T) {
 		accounts.accounts = append(accounts.accounts, a)
 	}
 	before, _ := json.Marshal(accounts.accounts)
-	repo := &modelTraceMemoryRepo{states: map[int64]ModelTraceState{}, owners: map[int64]string{}}
+	repo := &modelTraceMemoryRepo{settings: settings, states: map[int64]ModelTraceState{}, owners: map[int64]string{}}
 	caller := &modelTraceBlockingCaller{started: make(chan int64, 50), release: make(chan struct{})}
 	svc := &ModelTraceService{settings: settings, accounts: accounts, repo: repo, caller: caller, wake: make(chan struct{}, 1)}
 	ctx, cancel := context.WithCancel(context.Background())

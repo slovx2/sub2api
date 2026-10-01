@@ -138,24 +138,27 @@ type ModelTraceSample struct {
 	Error      string `json:"error,omitempty"`
 }
 type ModelTraceResult struct {
-	AccountID     int64                  `json:"account_id"`
-	Protocol      string                 `json:"protocol"`
-	Model         string                 `json:"model"`
-	UpstreamModel string                 `json:"upstream_model,omitempty"`
-	Status        string                 `json:"status"`
-	Prediction    string                 `json:"prediction,omitempty"`
-	Probability   float64                `json:"probability"`
-	Candidates    []modeltrace.Candidate `json:"candidates,omitempty"`
-	Samples       []ModelTraceSample     `json:"samples,omitempty"`
-	Error         string                 `json:"error,omitempty"`
-	BankVersion   string                 `json:"bank_version"`
-	StartedAt     time.Time              `json:"started_at"`
-	FinishedAt    time.Time              `json:"finished_at"`
+	MatchedSince   *time.Time             `json:"-"`
+	StreakExpected string                 `json:"-"`
+	AccountID      int64                  `json:"account_id"`
+	Protocol       string                 `json:"protocol"`
+	Model          string                 `json:"model"`
+	UpstreamModel  string                 `json:"upstream_model,omitempty"`
+	Status         string                 `json:"status"`
+	Prediction     string                 `json:"prediction,omitempty"`
+	Probability    float64                `json:"probability"`
+	Candidates     []modeltrace.Candidate `json:"candidates,omitempty"`
+	Samples        []ModelTraceSample     `json:"samples,omitempty"`
+	Error          string                 `json:"error,omitempty"`
+	BankVersion    string                 `json:"bank_version"`
+	StartedAt      time.Time              `json:"started_at"`
+	FinishedAt     time.Time              `json:"finished_at"`
 }
 type ModelTraceDetail struct {
 	ModelTraceResult
-	Expected string `json:"expected_model"`
-	Verdict  string `json:"verdict"`
+	Expected     string     `json:"expected_model"`
+	Verdict      string     `json:"verdict"`
+	MatchedSince *time.Time `json:"matched_since"`
 }
 type ModelTraceSummary struct {
 	Enabled    bool               `json:"enabled"`
@@ -177,14 +180,14 @@ func modelTraceSummary(cfg ModelTraceSettings, results []ModelTraceResult, runni
 			r = ModelTraceResult{Protocol: t.Protocol, Model: t.Model, Status: "pending"}
 		}
 		d := ModelTraceDetail{ModelTraceResult: r, Expected: t.ExpectedModel(), Verdict: "unknown"}
-		if r.Status == "success" && r.Probability > .9 {
-			if r.Prediction == d.Expected {
-				d.Verdict = "matched"
-				summary.Matched++
-			} else {
-				d.Verdict = "mismatched"
-				summary.Mismatched++
+		d.Verdict = ModelTraceVerdict(r, d.Expected)
+		if d.Verdict == "matched" {
+			summary.Matched++
+			if cfg.Enabled && cfg.includesID(r.AccountID) && r.StreakExpected == d.Expected {
+				d.MatchedSince = r.MatchedSince
 			}
+		} else if d.Verdict == "mismatched" {
+			summary.Mismatched++
 		}
 		summary.Details = append(summary.Details, d)
 	}
@@ -206,6 +209,10 @@ type ModelTraceLease interface {
 	Close()
 }
 type ModelTraceRepository interface {
+	UpdateSettings(context.Context, ModelTraceSettings, []int64) error
+	BeginProbe(context.Context, int64, ModelTraceTarget) (*ModelTraceProbeSnapshot, error)
+	History(context.Context, ModelTraceHistoryQuery) (ModelTraceHistoryPage, error)
+	PruneHistory(context.Context) error
 	Acquire(context.Context) (ModelTraceLease, error)
 	Recover(context.Context, time.Duration) error
 	ClearQueue(context.Context) error
@@ -213,7 +220,7 @@ type ModelTraceRepository interface {
 	Enqueue(context.Context, []int64) (ModelTraceQueueResult, error)
 	Reschedule(context.Context, []int64) error
 	Claim(context.Context, int64, string) (bool, error)
-	Save(context.Context, ModelTraceResult, string) error
+	Save(context.Context, ModelTraceResult, string, ModelTraceProbeSnapshot) error
 	Finish(context.Context, int64, string, time.Duration) error
 	Latest(context.Context, []int64) (map[int64][]ModelTraceResult, error)
 }

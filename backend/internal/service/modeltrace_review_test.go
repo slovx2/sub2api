@@ -23,7 +23,7 @@ func modelTraceReviewService(t *testing.T, accounts ...Account) (*ModelTraceServ
 	cfg.Targets = []ModelTraceTarget{{Protocol: "codex", Model: "gpt-6-astra"}}
 	settings := NewSettingService(&modelTraceSettingsStub{}, nil)
 	require.NoError(t, settings.SaveModelTraceSettings(context.Background(), cfg))
-	repo := &modelTraceMemoryRepo{states: map[int64]ModelTraceState{}, owners: map[int64]string{}}
+	repo := &modelTraceMemoryRepo{settings: settings, states: map[int64]ModelTraceState{}, owners: map[int64]string{}}
 	svc := &ModelTraceService{settings: settings, accounts: &modelTraceMultiAccounts{accounts: accounts}, repo: repo, wake: make(chan struct{}, 1)}
 	return svc, repo, cfg
 }

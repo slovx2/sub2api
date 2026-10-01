@@ -54,17 +54,17 @@ func TestModelTraceRepositoryIsolationAndLeases(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, queued.Running)
 	result := service.ModelTraceResult{AccountID: account.ID, Protocol: "bps", Model: "gpt-6-astra", Status: "success", Probability: .99, Prediction: "gpt-6-astra", StartedAt: time.Now(), FinishedAt: time.Now()}
-	require.NoError(t, repo.Save(ctx, result, "owner"))
+	require.NoError(t, repo.Save(ctx, result, "owner", service.ModelTraceProbeSnapshot{Target: service.ModelTraceTarget{Protocol: result.Protocol, Model: result.Model}}))
 	result.Status = "error"
 	result.Error = "HTTP 403"
-	require.NoError(t, repo.Save(ctx, result, "owner"))
+	require.NoError(t, repo.Save(ctx, result, "owner", service.ModelTraceProbeSnapshot{Target: service.ModelTraceTarget{Protocol: result.Protocol, Model: result.Model}}))
 	results, err := repo.Latest(ctx, []int64{account.ID})
 	require.NoError(t, err)
 	require.Len(t, results[account.ID], 1)
 	require.Equal(t, "error", results[account.ID][0].Status)
 	require.NoError(t, repo.Recover(ctx, 30*time.Minute))
 	result.Status = "success"
-	require.NoError(t, repo.Save(ctx, result, "owner"))
+	require.NoError(t, repo.Save(ctx, result, "owner", service.ModelTraceProbeSnapshot{Target: service.ModelTraceTarget{Protocol: result.Protocol, Model: result.Model}}))
 	results, err = repo.Latest(ctx, []int64{account.ID})
 	require.NoError(t, err)
 	require.Equal(t, "error", results[account.ID][0].Status, "旧执行者不能覆盖恢复后的结果")
