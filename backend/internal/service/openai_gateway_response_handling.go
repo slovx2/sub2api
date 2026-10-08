@@ -641,7 +641,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				line = "data: " + data
 				eventType = effectiveOpenAISSEEventType(dataBytes, eventType)
 			}
-			restoredData, restoreErr := restoreGrokResponsesClientToolPayload(c, dataBytes)
+			restoredData, restoreErr := restoreGrokResponsesClientToolPayload(c, normalizeGrokFunctionCallArgumentsPayload(account, dataBytes))
 			if restoreErr != nil {
 				streamEarlyErr = fmt.Errorf("restore Grok Responses client tool response: %w", restoreErr)
 				return
@@ -1650,7 +1650,7 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 	if originalModel != mappedModel {
 		body = s.replaceModelInResponseBody(body, mappedModel, originalModel)
 	}
-	body, err = restoreGrokResponsesClientToolPayload(c, body)
+	body, err = restoreGrokResponsesClientToolPayload(c, normalizeGrokFunctionCallArgumentsPayload(account, body))
 	if err != nil {
 		return nil, fmt.Errorf("restore Grok Responses client tool response: %w", err)
 	}
@@ -1750,7 +1750,7 @@ func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Conte
 		}
 		// Correct tool calls in final response
 		body = s.correctToolCallsInResponseBody(body)
-		restoredBody, restoreErr := restoreGrokResponsesClientToolPayload(c, body)
+		restoredBody, restoreErr := restoreGrokResponsesClientToolPayload(c, normalizeGrokFunctionCallArgumentsPayload(account, body))
 		if restoreErr != nil {
 			return nil, fmt.Errorf("restore Grok Responses client tool response: %w", restoreErr)
 		}
