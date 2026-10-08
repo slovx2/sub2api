@@ -231,13 +231,16 @@ func rewriteClientToolHistory(value any, adapter *ResponsesClientToolMapping) (b
 			typ := strings.TrimSpace(stringValue(typed["type"]))
 			switch typ {
 			case "custom_tool_call":
-				if adapter.CustomTools[strings.TrimSpace(stringValue(typed["name"]))] {
-					typed["type"] = "function_call"
-					typed["arguments"] = customToolCallArguments(stringValue(typed["input"]))
-					delete(typed, "input")
-					normalizeLoweredFunctionItemID(typed)
-					changed = true
-				}
+				// 历史调用一律降级，不看本轮是否仍声明同名 custom 工具：其 output 无条件
+				// 降级为 function_call_output，调用若保留 custom 类型就会与输出失配。跨模型
+				// 切换时（如 GPT code mode 的 exec → DeepSeek Direct 模式不再声明 exec），
+				// 只认 function 的上游会丢弃 custom 调用、留下孤立的 tool 消息而 400。
+				// 回程还原只依据本轮声明（adapter.CustomTools），不受此处影响。
+				typed["type"] = "function_call"
+				typed["arguments"] = customToolCallArguments(stringValue(typed["input"]))
+				delete(typed, "input")
+				normalizeLoweredFunctionItemID(typed)
+				changed = true
 			case "custom_tool_call_output":
 				typed["type"] = "function_call_output"
 				normalizeLoweredFunctionItemID(typed)

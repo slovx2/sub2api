@@ -463,6 +463,40 @@ func TestAdaptResponsesClientToolsWithInheritedMapping_LowersFollowupHistoryWith
 	require.Equal(t, []any{map[string]any{"type": "input_text", "text": "ok"}}, output["output"])
 }
 
+// 跨模型切换：历史里是 GPT code mode 的 exec 调用，本轮（DeepSeek Direct 模式）只声明
+// apply_patch 等工具、不再声明 exec。调用与输出必须成对降级，否则只认 function 的上游
+// 丢掉 custom 调用后会留下孤立的 tool 消息而 400（WakeQora#374）。
+func TestAdaptResponsesClientTools_LowersUndeclaredCustomHistoryCallWithItsOutput(t *testing.T) {
+	req := map[string]any{
+		"tools": []any{
+			map[string]any{"type": "function", "name": "shell_command", "parameters": map[string]any{"type": "object"}},
+			map[string]any{"type": "custom", "name": "apply_patch", "format": map[string]any{"type": "grammar"}},
+		},
+		"input": []any{
+			map[string]any{"type": "message", "role": "user", "content": "查一下"},
+			map[string]any{"type": "custom_tool_call", "id": "ctc_prev", "call_id": "call_1", "name": "exec", "input": "await tools.exec_command({cmd:\"ls\"})"},
+			map[string]any{"type": "custom_tool_call_output", "call_id": "call_1", "output": []any{map[string]any{"type": "input_text", "text": "ok"}}},
+		},
+	}
+
+	mapping, changed, err := AdaptResponsesClientTools(req)
+
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Equal(t, map[string]bool{"apply_patch": true}, mapping.CustomTools, "回程还原只依据本轮声明")
+	input := requireResponsesClientToolValue[[]any](t, req["input"])
+	call := requireResponsesClientToolValue[map[string]any](t, input[1])
+	require.Equal(t, "function_call", call["type"])
+	require.Equal(t, "exec", call["name"])
+	require.Equal(t, "call_1", call["call_id"])
+	require.Equal(t, "fc_prev", call["id"])
+	require.JSONEq(t, `{"input":"await tools.exec_command({cmd:\"ls\"})"}`, requireResponsesClientToolValue[string](t, call["arguments"]))
+	require.NotContains(t, call, "input")
+	output := requireResponsesClientToolValue[map[string]any](t, input[2])
+	require.Equal(t, "function_call_output", output["type"])
+	require.Equal(t, "call_1", output["call_id"])
+}
+
 func TestAdaptResponsesClientTools_NormalizesCustomToolOutput(t *testing.T) {
 	tests := []struct {
 		name       string
