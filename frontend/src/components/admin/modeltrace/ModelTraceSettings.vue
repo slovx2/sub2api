@@ -12,6 +12,7 @@ const accounts = ref<{ id: number; name: string }[]>([])
 const candidates = ref<string[]>([])
 const saved = ref('')
 const search = ref('')
+const autoSearch = ref('')
 const busy = ref(false)
 const loadError = ref(false)
 const protocols: ProbeProtocol[] = ['codex', 'bps']
@@ -25,6 +26,11 @@ function targetKey(target: ModelTraceTarget): number {
 }
 const dirty = computed(() => JSON.stringify(config.value) !== saved.value)
 const filtered = computed(() => accounts.value.filter(a => a.name.toLowerCase().includes(search.value.toLowerCase())))
+const autoFiltered = computed(() => accounts.value.filter(a => a.name.toLowerCase().includes(autoSearch.value.toLowerCase())))
+// 自动调度可以预先勾选；只有同时纳入探测的账号才会生效。
+function probed(id: number): boolean {
+  return !!config.value && (config.value.account_mode === 'all' || config.value.account_ids.includes(id))
+}
 async function load() {
   loadError.value = false
   try {
@@ -39,6 +45,7 @@ function toggleProtocol(protocol: ProbeProtocol, enabled: boolean) {
   else config.value.targets = config.value.targets.filter(target => target.protocol !== protocol)
 }
 function selectAll() { if (config.value) config.value.account_ids = accounts.value.map(a => a.id) }
+function selectAllAuto() { if (config.value) config.value.auto_schedule_account_ids = accounts.value.map(a => a.id) }
 async function save() {
   if (!config.value) return
   busy.value = true
@@ -103,6 +110,22 @@ onMounted(load)
         <button v-if="config.targets.some(t => t.protocol === protocol)" type="button" class="btn btn-secondary text-xs" @click="config.targets.push({ protocol, model: '', expected_model: '' })">{{ t('modeltrace.add') }}</button>
       </fieldset>
       <p class="text-xs text-gray-500">{{ t('modeltrace.bank') }}</p>
+      <fieldset class="space-y-2 rounded-lg border border-gray-200 p-3 dark:border-gray-700" data-testid="modeltrace-auto-schedule">
+        <legend class="px-1 text-sm font-medium">{{ t('modeltrace.autoSchedule') }}</legend>
+        <p class="text-xs text-gray-500">{{ t('modeltrace.autoScheduleHint') }}</p>
+        <div class="flex flex-wrap items-center gap-2">
+          <input v-model="autoSearch" class="input max-w-xs" :placeholder="t('modeltrace.search')" :aria-label="t('modeltrace.search')">
+          <button type="button" class="btn btn-secondary text-xs" @click="selectAllAuto">{{ t('modeltrace.selectAll') }}</button>
+          <button type="button" class="btn btn-secondary text-xs" @click="config.auto_schedule_account_ids = []">{{ t('modeltrace.clear') }}</button>
+        </div>
+        <div class="grid max-h-48 gap-2 overflow-auto rounded-lg border border-gray-200 p-3 text-sm dark:border-gray-700 sm:grid-cols-2 lg:grid-cols-3">
+          <label v-for="account in autoFiltered" :key="account.id" class="flex flex-wrap items-center gap-2">
+            <input v-model="config.auto_schedule_account_ids" type="checkbox" :value="account.id">{{ account.name }} <span class="text-xs text-gray-400">#{{ account.id }}</span>
+            <span v-if="config.auto_schedule_account_ids.includes(account.id) && !probed(account.id)" class="text-xs text-amber-600 dark:text-amber-400">{{ t('modeltrace.notProbed') }}</span>
+          </label>
+          <span v-if="!accounts.length" class="text-gray-500">{{ t('modeltrace.empty') }}</span>
+        </div>
+      </fieldset>
       <div class="flex flex-wrap items-center gap-3">
         <button type="button" class="btn btn-primary" :disabled="busy" @click="save">{{ t('modeltrace.save') }}</button>
         <button type="button" class="btn btn-secondary" :disabled="busy || dirty || !config.enabled" @click="run">{{ t('modeltrace.run') }}</button>

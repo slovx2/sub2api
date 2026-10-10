@@ -1073,7 +1073,8 @@ func ProvideChannelMonitorV2Aggregator(repo ChannelMonitorV2Repository, db *sql.
 	return aggregator
 }
 
-// ProvideModelTraceService 启动独立探测调度，不接入账号状态处理链。
+// ProvideModelTraceService 启动独立探测调度，不接入账号状态处理链；
+// 仅对勾选自动调度的账号按探测结果写入调度开关。
 func ProvideModelTraceService(settings *SettingService, accounts AccountRepository, repo ModelTraceRepository, transport *OpenAIProbeTransport) *ModelTraceService {
 	svc := NewModelTraceService(settings, accounts, repo, transport)
 	svc.Start()

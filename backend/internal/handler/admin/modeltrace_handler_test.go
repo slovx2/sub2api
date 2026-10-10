@@ -123,6 +123,7 @@ func TestModelTraceSettingsAndRunEndpoints(t *testing.T) {
 	rec := request(http.MethodGet, "/settings", "")
 	require.Equal(t, 200, rec.Code)
 	require.Equal(t, int64(30), gjson.Get(rec.Body.String(), "data.config.interval_minutes").Int())
+	require.Equal(t, "[]", gjson.Get(rec.Body.String(), "data.config.auto_schedule_account_ids").Raw)
 	require.Len(t, gjson.Get(rec.Body.String(), "data.candidates").Array(), 13)
 	require.Len(t, gjson.Get(rec.Body.String(), "data.accounts").Array(), 1)
 	require.NotContains(t, rec.Body.String(), "never-expose")
@@ -131,11 +132,15 @@ func TestModelTraceSettingsAndRunEndpoints(t *testing.T) {
 	cfg.Enabled = true
 	cfg.AccountMode = "all"
 	cfg.Targets = []service.ModelTraceTarget{{Protocol: "bps", Model: " custom-model ", Expected: " gpt-6-astra "}}
+	// 自动调度列表在全部账号模式下保留；已删除账号的残留 ID 不阻止保存。
+	cfg.AutoScheduleAccountIDs = []int64{1, 99}
 	raw, _ := json.Marshal(cfg)
 	rec = request(http.MethodPut, "/settings", string(raw))
 	require.Equal(t, 200, rec.Code, rec.Body.String())
+	require.Equal(t, "[1,99]", gjson.Get(rec.Body.String(), "data.auto_schedule_account_ids").Raw)
 	require.Equal(t, 1, repo.queued)
 	rec = request(http.MethodGet, "/settings", "")
+	require.Equal(t, "[1,99]", gjson.Get(rec.Body.String(), "data.config.auto_schedule_account_ids").Raw)
 	require.Equal(t, "custom-model", gjson.Get(rec.Body.String(), "data.config.targets.0.model").String())
 	require.Equal(t, "gpt-6-astra", gjson.Get(rec.Body.String(), "data.config.targets.0.expected_model").String())
 	require.Equal(t, 200, request(http.MethodPost, "/run", "").Code)
@@ -171,6 +176,11 @@ func TestModelTraceSummaryIncludedInListETag(t *testing.T) {
 		require.Equal(t, since.Format(time.RFC3339Nano), gjson.GetBytes(encoded, "0.modeltrace_summary.details.0.matched_since").String())
 	}
 	require.Equal(t, withStreak, buildAccountsListETag(lite, 1, 1, 20, "openai", "oauth", "", "", true))
+	summary.AutoSchedule = true
+	require.NotEqual(t, withStreak, buildAccountsListETag(lite, 1, 1, 20, "openai", "oauth", "", "", true))
+	encoded, err := json.Marshal(lite)
+	require.NoError(t, err)
+	require.True(t, gjson.GetBytes(encoded, "0.modeltrace_summary.auto_schedule").Bool())
 }
 
 type modelTraceHistoryHandlerRepo struct {

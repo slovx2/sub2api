@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -28,20 +29,24 @@ func (t ModelTraceTarget) ExpectedModel() string {
 func (t ModelTraceTarget) key() string { return t.Protocol + "\x00" + t.Model }
 
 type ModelTraceSettings struct {
-	Enabled         bool               `json:"enabled"`
-	AccountMode     string             `json:"account_mode"`
-	AccountIDs      []int64            `json:"account_ids"`
-	Targets         []ModelTraceTarget `json:"targets"`
-	IntervalMinutes int                `json:"interval_minutes"`
-	Concurrency     int                `json:"concurrency"`
+	Enabled                bool               `json:"enabled"`
+	AccountMode            string             `json:"account_mode"`
+	AccountIDs             []int64            `json:"account_ids"`
+	AutoScheduleAccountIDs []int64            `json:"auto_schedule_account_ids"`
+	Targets                []ModelTraceTarget `json:"targets"`
+	IntervalMinutes        int                `json:"interval_minutes"`
+	Concurrency            int                `json:"concurrency"`
 }
 
 func DefaultModelTraceSettings() ModelTraceSettings {
-	return ModelTraceSettings{AccountMode: "selected", AccountIDs: []int64{}, Targets: []ModelTraceTarget{}, IntervalMinutes: 30, Concurrency: 5}
+	return ModelTraceSettings{AccountMode: "selected", AccountIDs: []int64{}, AutoScheduleAccountIDs: []int64{}, Targets: []ModelTraceTarget{}, IntervalMinutes: 30, Concurrency: 5}
 }
 func (s *ModelTraceSettings) Validate() error {
 	if s.AccountIDs == nil {
 		s.AccountIDs = []int64{}
+	}
+	if s.AutoScheduleAccountIDs == nil {
+		s.AutoScheduleAccountIDs = []int64{}
 	}
 	if s.Targets == nil {
 		s.Targets = []ModelTraceTarget{}
@@ -78,12 +83,15 @@ func (s *ModelTraceSettings) Validate() error {
 		}
 		seen[t.key()] = true
 	}
-	ids := map[int64]bool{}
-	for _, id := range s.AccountIDs {
-		if id <= 0 || ids[id] {
-			return fmt.Errorf("账号 ID 无效或重复")
+	// 自动调度列表不要求账号仍可探测：已删除账号的残留 ID 在界面不可见，运行时读取账号后再判断。
+	for _, list := range [][]int64{s.AccountIDs, s.AutoScheduleAccountIDs} {
+		ids := map[int64]bool{}
+		for _, id := range list {
+			if id <= 0 || ids[id] {
+				return fmt.Errorf("账号 ID 无效或重复")
+			}
+			ids[id] = true
 		}
-		ids[id] = true
 	}
 	return nil
 }
@@ -106,6 +114,12 @@ func (s ModelTraceSettings) includesID(accountID int64) bool {
 		}
 	}
 	return false
+}
+
+// autoSchedulesID 判断账号的调度开关是否由探测结果接管：功能启用、纳入探测、勾选开关三者同时成立。
+// 勾选列表与纳入范围独立保存，未纳入探测的账号也可以预先勾选。
+func (s ModelTraceSettings) autoSchedulesID(accountID int64) bool {
+	return s.Enabled && s.includesID(accountID) && slices.Contains(s.AutoScheduleAccountIDs, accountID)
 }
 func (s *SettingService) GetModelTraceSettings(ctx context.Context) (ModelTraceSettings, error) {
 	cfg := DefaultModelTraceSettings()
@@ -161,11 +175,12 @@ type ModelTraceDetail struct {
 	MatchedSince *time.Time `json:"matched_since"`
 }
 type ModelTraceSummary struct {
-	Enabled    bool               `json:"enabled"`
-	Running    bool               `json:"running"`
-	Matched    int                `json:"matched"`
-	Mismatched int                `json:"mismatched"`
-	Details    []ModelTraceDetail `json:"details"`
+	Enabled      bool               `json:"enabled"`
+	Running      bool               `json:"running"`
+	AutoSchedule bool               `json:"auto_schedule"`
+	Matched      int                `json:"matched"`
+	Mismatched   int                `json:"mismatched"`
+	Details      []ModelTraceDetail `json:"details"`
 }
 
 func modelTraceSummary(cfg ModelTraceSettings, results []ModelTraceResult, running bool) *ModelTraceSummary {
@@ -224,7 +239,10 @@ type ModelTraceRepository interface {
 	Finish(context.Context, int64, string, time.Duration) error
 	Latest(context.Context, []int64) (map[int64][]ModelTraceResult, error)
 }
-type modelTraceAccountReader interface {
+
+// modelTraceAccounts 是探测对账号的全部访问面：读取，以及自动调度写入的调度开关。
+type modelTraceAccounts interface {
 	GetByID(context.Context, int64) (*Account, error)
 	ListAllWithFilters(context.Context, string, string, string, string, int64, string) ([]Account, error)
+	SetSchedulable(context.Context, int64, bool) error
 }

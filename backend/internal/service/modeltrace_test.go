@@ -34,15 +34,27 @@ func TestModelTraceSettingsValidation(t *testing.T) {
 	cfg.Concurrency = 5
 	cfg.Targets = append(cfg.Targets, cfg.Targets[0])
 	require.Error(t, cfg.Validate())
+	cfg.Targets = cfg.Targets[:1]
+	// 自动调度列表独立于账号范围：全部账号模式下保留，且不要求在已选账号内。
+	cfg.AutoScheduleAccountIDs = nil
+	require.NoError(t, cfg.Validate())
+	require.NotNil(t, cfg.AutoScheduleAccountIDs)
+	cfg.AutoScheduleAccountIDs = []int64{7, 8}
+	require.NoError(t, cfg.Validate())
+	require.Equal(t, []int64{7, 8}, cfg.AutoScheduleAccountIDs)
+	cfg.AutoScheduleAccountIDs = []int64{7, 7}
+	require.Error(t, cfg.Validate())
+	cfg.AutoScheduleAccountIDs = []int64{0}
+	require.Error(t, cfg.Validate())
 }
 func TestModelTraceSummaryThresholdAndCurrentExpectation(t *testing.T) {
 	cfg := DefaultModelTraceSettings()
 	cfg.Targets = []ModelTraceTarget{{Protocol: "codex", Model: "requested", Expected: "actual"}}
 	result := ModelTraceResult{Protocol: "codex", Model: "requested", Status: "success", Prediction: "actual"}
-	for _, probability := range []float64{.899999, .9, .900001, .99} {
+	for _, probability := range []float64{.599999, .6, .600001, .99} {
 		result.Probability = probability
 		s := modelTraceSummary(cfg, []ModelTraceResult{result}, false)
-		if probability > .9 {
+		if probability > .6 {
 			require.Equal(t, 1, s.Matched)
 		} else {
 			require.Zero(t, s.Matched)
@@ -102,6 +114,21 @@ type modelTraceMultiAccounts struct {
 	lists    atomic.Int32
 	gets     atomic.Int32
 	accounts []Account
+	// 记录自动调度写入的目标值；其余账号写入方法仍经 nil 接口 panic。
+	schedules []bool
+}
+
+func (r *modelTraceMultiAccounts) SetSchedulable(_ context.Context, id int64, schedulable bool) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i := range r.accounts {
+		if r.accounts[i].ID == id {
+			r.accounts[i].Schedulable = schedulable
+			r.schedules = append(r.schedules, schedulable)
+			return nil
+		}
+	}
+	return fmt.Errorf("missing")
 }
 
 func (r *modelTraceMultiAccounts) ListAllWithFilters(context.Context, string, string, string, string, int64, string) ([]Account, error) {

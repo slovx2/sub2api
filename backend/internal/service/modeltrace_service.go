@@ -16,7 +16,7 @@ import (
 
 type ModelTraceService struct {
 	settings *SettingService
-	accounts modelTraceAccountReader
+	accounts modelTraceAccounts
 	repo     ModelTraceRepository
 	caller   modelTraceCaller
 	cancel   context.CancelFunc
@@ -158,6 +158,7 @@ func (s *ModelTraceService) Summaries(ctx context.Context, accounts []Account) (
 		a := &accounts[i]
 		if cfg.Includes(a) && len(cfg.Targets) > 0 || len(results[a.ID]) > 0 {
 			out[a.ID] = modelTraceSummary(cfg, results[a.ID], states[a.ID].Running)
+			out[a.ID].AutoSchedule = cfg.autoSchedulesID(a.ID)
 		}
 	}
 	return out, nil
@@ -322,27 +323,75 @@ func (s *ModelTraceService) runAccount(ctx context.Context, id int64, cfg ModelT
 			slog.Warn("modeltrace_finish_failed", "account_id", id)
 		}
 	}()
+	round := s.probeTargets(ctx, id, cfg, owner)
+	// 配置变化或停用而取消的轮次不改调度；此时账号仍处于 running，与下一轮串行。
+	if ctx.Err() == nil {
+		s.applyAutoSchedule(ctx, id, round)
+	}
+}
+
+// probeTargets 顺序探测全部目标，返回本轮已保存的结果；出错或取消时提前结束。
+func (s *ModelTraceService) probeTargets(ctx context.Context, id int64, cfg ModelTraceSettings, owner string) []ModelTraceResult {
+	var round []ModelTraceResult
 	for _, target := range cfg.Targets {
 		if ctx.Err() != nil {
-			return
+			return round
 		}
 		snapshot, err := s.repo.BeginProbe(ctx, id, target)
 		if err != nil {
 			slog.Warn("modeltrace_probe_snapshot_failed", "account_id", id)
-			return
+			return round
 		}
 		if snapshot == nil {
 			continue
 		}
 		result := s.probe(ctx, id, snapshot.Target)
 		if ctx.Err() != nil {
-			return
+			return round
 		}
 		if err := s.repo.Save(ctx, result, owner, *snapshot); err != nil {
 			slog.Warn("modeltrace_result_save_failed", "account_id", id)
-			return
+			return round
 		}
+		round = append(round, result)
 	}
+	return round
+}
+
+// applyAutoSchedule 按本轮结果接管账号的调度开关。开关不参与执行键，
+// 因此读取最新配置并按最新预期判定，轮次中途修改预期或增删目标不会误开误关。
+func (s *ModelTraceService) applyAutoSchedule(ctx context.Context, id int64, round []ModelTraceResult) {
+	cfg, err := s.Settings(ctx)
+	if err != nil {
+		slog.Warn("modeltrace_auto_schedule_failed", "account_id", id, "error", err)
+		return
+	}
+	if !cfg.autoSchedulesID(id) {
+		return
+	}
+	schedulable := modelTraceAutoSchedule(cfg.Targets, round)
+	if schedulable == nil {
+		return
+	}
+	account, err := s.accounts.GetByID(ctx, id)
+	if err != nil {
+		slog.Warn("modeltrace_auto_schedule_failed", "account_id", id, "error", err)
+		return
+	}
+	if !ModelTraceEligible(account) || account.Schedulable == *schedulable {
+		return
+	}
+	if *schedulable && !modelTraceCanOpen(account, time.Now()) {
+		return
+	}
+	// 写入与调度事件不随轮次取消而中断：状态一致后不会再补发。
+	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := s.accounts.SetSchedulable(writeCtx, id, *schedulable); err != nil {
+		slog.Warn("modeltrace_auto_schedule_failed", "account_id", id, "error", err)
+		return
+	}
+	slog.Info("modeltrace_auto_schedule", "account_id", id, "schedulable", *schedulable)
 }
 func (s *ModelTraceService) probe(parent context.Context, id int64, target ModelTraceTarget) ModelTraceResult {
 	ctx, cancel := context.WithTimeout(parent, 10*time.Minute)

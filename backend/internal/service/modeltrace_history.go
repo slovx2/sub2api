@@ -23,14 +23,52 @@ func (s ModelTraceSettings) ActiveTarget(id int64, protocol, model string) (Mode
 	return ModelTraceTarget{}, false
 }
 
+// modelTraceMinProbability 是计入匹配或不匹配所需的置信度下限，最高概率必须严格大于它。
+const modelTraceMinProbability = .6
+
 func ModelTraceVerdict(r ModelTraceResult, expected string) string {
-	if r.Status != "success" || r.Probability <= .9 {
+	if r.Status != "success" || r.Probability <= modelTraceMinProbability {
 		return "unknown"
 	}
 	if r.Prediction == expected {
 		return "matched"
 	}
 	return "mismatched"
+}
+
+// modelTraceAutoSchedule 沿用连续匹配的口径聚合一轮结果：完成评分但不符合预期即关闭调度，
+// 当前目标全部匹配才打开；只有失败或缺少结果时返回 nil，保持现状。
+func modelTraceAutoSchedule(targets []ModelTraceTarget, round []ModelTraceResult) *bool {
+	byKey := map[string]ModelTraceResult{}
+	for _, r := range round {
+		byKey[r.Protocol+"\x00"+r.Model] = r
+	}
+	matched := 0
+	for _, t := range targets {
+		r, ok := byKey[t.key()]
+		if !ok || r.Status != "success" {
+			continue
+		}
+		if ModelTraceVerdict(r, t.ExpectedModel()) != "matched" {
+			schedulable := false
+			return &schedulable
+		}
+		matched++
+	}
+	if matched == 0 || matched != len(targets) {
+		return nil
+	}
+	schedulable := true
+	return &schedulable
+}
+
+// modelTraceCanOpen 排除被其它机制关闭、不应由探测重新打开的账号：BPS 403 停调需人工确认，
+// error 状态必须保持不可调度，已过期账号会被过期任务再次暂停。
+func modelTraceCanOpen(a *Account, now time.Time) bool {
+	if a.Extra[ExcelBPS403DisabledAtKey] != nil || a.Status == StatusError {
+		return false
+	}
+	return !a.AutoPauseOnExpired || a.ExpiresAt == nil || now.Before(*a.ExpiresAt)
 }
 
 // 错误（含样本不足）保留起点；只有完成评分才能建立或中断连续段。

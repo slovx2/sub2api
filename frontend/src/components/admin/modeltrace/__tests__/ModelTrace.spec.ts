@@ -12,9 +12,9 @@ const api = vi.hoisted(() => ({ get: vi.fn(), save: vi.fn(), run: vi.fn(), histo
 vi.mock('@/api/admin/modeltrace', () => ({ getModelTraceSettings: api.get, saveModelTraceSettings: api.save, runModelTrace: api.run, getModelTraceHistory: api.history }))
 vi.mock('@/stores', () => ({ useAppStore: () => ({ showSuccess: api.success, showError: api.error }) }))
 const i18n = () => createI18n({ legacy: false, locale: 'zh', messages: { zh: { modeltrace: Object.fromEntries(Object.entries(zh).map(([key, value]) => [key, (ctx: { named: (key: string) => unknown }) => value.replace(/\{(\w+)\}/g, (_, name: string) => String(ctx.named(name)))])) } } })
-const summary = (): ModelTraceSummary => ({ enabled: true, running: false, matched: 1, mismatched: 0, details: [
-  { protocol: 'codex', model: 'requested', expected_model: 'actual', prediction: 'actual', probability: 0.90001, status: 'success', verdict: 'matched', finished_at: '2026-10-01T01:00:00Z', bank_version: 'bank', matched_since: null },
-  { protocol: 'bps', model: 'requested', expected_model: 'actual', prediction: 'other', probability: 0.9, status: 'success', verdict: 'unknown', finished_at: '2026-10-01T01:00:00Z', bank_version: 'bank', matched_since: null },
+const summary = (): ModelTraceSummary => ({ enabled: true, running: false, auto_schedule: false, matched: 1, mismatched: 0, details: [
+  { protocol: 'codex', model: 'requested', expected_model: 'actual', prediction: 'actual', probability: 0.60001, status: 'success', verdict: 'matched', finished_at: '2026-10-01T01:00:00Z', bank_version: 'bank', matched_since: null },
+  { protocol: 'bps', model: 'requested', expected_model: 'actual', prediction: 'other', probability: 0.6, status: 'success', verdict: 'unknown', finished_at: '2026-10-01T01:00:00Z', bank_version: 'bank', matched_since: null },
 ] })
 afterEach(() => { vi.useRealTimers(); document.body.innerHTML = '' })
 beforeEach(() => { vi.clearAllMocks(); api.history.mockResolvedValue({ items: [] }) })
@@ -81,7 +81,7 @@ describe('ModelTrace 摘要', () => {
     expect(tooltip.style.display).toBe('none')
     wrapper.unmount()
   })
-  it('仅外显匹配计数，键盘聚焦显示详情，90% 仍显示概率', async () => {
+  it('仅外显匹配计数，键盘聚焦显示详情，60% 仍显示概率', async () => {
     const wrapper = mount(ModelTraceBadge, { props: { accountId: 42, summary: summary() }, attachTo: document.body, global: { plugins: [i18n()] } })
     const button = wrapper.get('button')
     expect(button.text()).toBe('匹配 1·不匹配 0')
@@ -90,10 +90,31 @@ describe('ModelTrace 摘要', () => {
     await flushPromises()
     const tooltip = document.querySelector('[role="tooltip"]')!
     expect((tooltip as HTMLElement).style.display).not.toBe('none')
-    expect(tooltip.textContent).toContain('other 90.0%')
-    expect(tooltip.textContent).not.toContain('90.001')
+    expect(tooltip.textContent).toContain('other 60.0%')
+    expect(tooltip.textContent).not.toContain('60.001')
     await button.trigger('keydown', { key: 'Escape' })
     expect((tooltip as HTMLElement).style.display).toBe('none')
+    wrapper.unmount()
+  })
+  it('是否显示概率跟随后端判定，不在前端重复阈值', async () => {
+    const value = summary()
+    value.details[0].probability = 0.5
+    value.details[1] = { ...value.details[1], probability: 0.99, verdict: 'unknown' }
+    const wrapper = mount(ModelTraceBadge, { props: { accountId: 42, summary: value }, attachTo: document.body, global: { plugins: [i18n()] } })
+    await wrapper.get('button').trigger('focusin')
+    const text = document.querySelector('[role="tooltip"]')!.textContent
+    expect(text).not.toContain('50.0%')
+    expect(text).toContain('other 99.0% · 无法确定')
+    wrapper.unmount()
+  })
+  it('调度由探测接管时在详情中标识', async () => {
+    const wrapper = mount(ModelTraceBadge, { props: { accountId: 42, summary: summary() }, attachTo: document.body, global: { plugins: [i18n()] } })
+    await wrapper.get('button').trigger('focusin')
+    const tooltip = () => document.querySelector('[role="tooltip"]')!.textContent
+    expect(tooltip()).not.toContain('自动调度')
+    await wrapper.setProps({ summary: { ...summary(), auto_schedule: true } })
+    expect(tooltip()).toContain('自动调度')
+    expect(wrapper.get('button').text()).toBe('匹配 1·不匹配 0')
     wrapper.unmount()
   })
   it('显示失败和停用，不添加外层状态', async () => {
@@ -150,7 +171,7 @@ describe('ModelTrace 历史', () => {
 })
 describe('ModelTrace 设置', () => {
   it('删除首行保留后续输入框的 DOM 身份，编辑模型名不会替换输入框', async () => {
-    api.get.mockResolvedValue({ config: { enabled: true, account_mode: 'all', account_ids: [], targets: [
+    api.get.mockResolvedValue({ config: { enabled: true, account_mode: 'all', account_ids: [], auto_schedule_account_ids: [], targets: [
       { protocol: 'codex', model: 'first', expected_model: '' },
       { protocol: 'codex', model: 'second', expected_model: '' },
     ], interval_minutes: 30, concurrency: 5 }, accounts: [], candidates: [] })
@@ -167,7 +188,7 @@ describe('ModelTrace 设置', () => {
     wrapper.unmount()
   })
   it('保存全量选择和自填预期模型，脏配置禁止立即探测', async () => {
-    api.get.mockResolvedValue({ config: { enabled: true, account_mode: 'all', account_ids: [], targets: [{ protocol: 'codex', model: 'requested', expected_model: '' }], interval_minutes: 30, concurrency: 5 }, accounts: [{ id: 1, name: 'test' }], candidates: ['actual'], bank_version: 'bank' })
+    api.get.mockResolvedValue({ config: { enabled: true, account_mode: 'all', account_ids: [], auto_schedule_account_ids: [], targets: [{ protocol: 'codex', model: 'requested', expected_model: '' }], interval_minutes: 30, concurrency: 5 }, accounts: [{ id: 1, name: 'test' }], candidates: ['actual'], bank_version: 'bank' })
     api.save.mockImplementation(async value => JSON.parse(JSON.stringify(value)))
     api.run.mockResolvedValue({ accepted: 1, running: 0, unavailable: 0 })
     const wrapper = mount(ModelTraceSettings, { global: { plugins: [i18n()] } })
@@ -184,6 +205,29 @@ describe('ModelTrace 设置', () => {
     expect(run().attributes('disabled')).toBeUndefined()
     await run().trigger('click'); await flushPromises()
     expect(api.run).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+  it('自动调度可勾选未纳入探测的账号并提示暂不生效，全部账号模式下同样可选', async () => {
+    api.get.mockResolvedValue({ config: { enabled: true, account_mode: 'selected', account_ids: [1], auto_schedule_account_ids: [], targets: [{ protocol: 'codex', model: 'requested', expected_model: '' }], interval_minutes: 30, concurrency: 5 }, accounts: [{ id: 1, name: 'probed' }, { id: 2, name: 'idle' }], candidates: ['requested'], bank_version: 'bank' })
+    api.save.mockImplementation(async value => JSON.parse(JSON.stringify(value)))
+    const wrapper = mount(ModelTraceSettings, { global: { plugins: [i18n()] } })
+    await flushPromises()
+    const block = () => wrapper.get('[data-testid="modeltrace-auto-schedule"]')
+    const boxes = () => block().findAll('input[type="checkbox"]')
+    expect(boxes()).toHaveLength(2)
+    await boxes()[0].setValue(true)
+    expect(block().text()).not.toContain('未纳入探测，暂不生效')
+    await boxes()[1].setValue(true)
+    expect(block().text().match(/未纳入探测，暂不生效/g)).toHaveLength(1)
+    await wrapper.findAll('button').find(b => b.text() === '保存探测设置')!.trigger('click')
+    await flushPromises()
+    expect(api.save).toHaveBeenCalledWith(expect.objectContaining({ account_ids: [1], auto_schedule_account_ids: [1, 2] }))
+    // 切到全部账号后列表仍在，且都已纳入探测。
+    await wrapper.get('input[type="radio"][value="all"]').setValue(true)
+    expect(boxes()).toHaveLength(2)
+    expect(block().text()).not.toContain('未纳入探测，暂不生效')
+    await block().findAll('button').find(b => b.text() === '清空')!.trigger('click')
+    expect(boxes().every(box => !(box.element as HTMLInputElement).checked)).toBe(true)
     wrapper.unmount()
   })
 })

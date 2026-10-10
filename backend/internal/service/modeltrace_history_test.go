@@ -17,9 +17,9 @@ func TestModelTraceStreakTransitions(t *testing.T) {
 		probability              float64
 		keep, clear              bool
 	}{
-		{"匹配", "success", "expected", .91, true, false},
-		{"恰好90", "success", "expected", .9, false, true},
-		{"低概率", "success", "expected", .89, false, true},
+		{"匹配", "success", "expected", .61, true, false},
+		{"恰好60", "success", "expected", .6, false, true},
+		{"低概率", "success", "expected", .59, false, true},
 		{"明确不匹配", "success", "other", .99, false, true},
 		{"网络失败", "error", "", 0, true, false},
 		{"样本不足", "error", "", 0, true, false},
@@ -59,7 +59,7 @@ func TestModelTraceStreakSummaryVisibility(t *testing.T) {
 			case "error":
 				result.Status = "error"
 			case "uncertain":
-				result.Probability = .9
+				result.Probability = .6
 			case "mismatch":
 				result.Prediction = "other"
 			case "disabled":

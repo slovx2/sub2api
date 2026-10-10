@@ -76,7 +76,7 @@ func TestModelTraceHistoryStreakPersistenceAndCleanup(t *testing.T) {
 	latest, err = r.Latest(ctx, []int64{id})
 	require.NoError(t, err)
 	require.WithinDuration(t, start, *latest[id][0].MatchedSince, time.Microsecond)
-	result.Probability = .9
+	result.Probability = .6
 	require.NoError(t, r.Save(ctx, result, "owner", *snapshot))
 	latest, err = r.Latest(ctx, []int64{id})
 	require.NoError(t, err)

@@ -6,6 +6,7 @@ export interface ModelTraceConfig {
   enabled: boolean
   account_mode: 'all' | 'selected'
   account_ids: number[]
+  auto_schedule_account_ids: number[]
   targets: ModelTraceTarget[]
   interval_minutes: number
   concurrency: number
@@ -28,7 +29,7 @@ export interface ModelTraceHistoryEntry extends Omit<ModelTraceDetail, 'matched_
 export interface ModelTraceHistoryPage { items: ModelTraceHistoryEntry[]; next_cursor?: string }
 export const getModelTraceHistory = async (params: { account_id: number; protocol?: ProbeProtocol; model?: string; cursor?: string }) =>
   (await apiClient.get<ModelTraceHistoryPage>('/admin/modeltrace/history', { params })).data
-export interface ModelTraceSummary { enabled: boolean; running: boolean; matched: number; mismatched: number; details: ModelTraceDetail[] }
+export interface ModelTraceSummary { enabled: boolean; running: boolean; auto_schedule: boolean; matched: number; mismatched: number; details: ModelTraceDetail[] }
 export interface ModelTraceSettingsResponse { config: ModelTraceConfig; accounts: { id: number; name: string }[]; candidates: string[]; bank_version: string }
 export const getModelTraceSettings = async () => (await apiClient.get<ModelTraceSettingsResponse>('/admin/settings/modeltrace')).data
 export const saveModelTraceSettings = async (config: ModelTraceConfig) => (await apiClient.put<ModelTraceConfig>('/admin/settings/modeltrace', config)).data

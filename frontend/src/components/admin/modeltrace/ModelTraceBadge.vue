@@ -62,7 +62,7 @@ onBeforeUnmount(() => {
 function resultLabel(detail: ModelTraceDetail): string {
   if (detail.status === 'pending') return t('modeltrace.pending')
   if (detail.status !== 'success') return `${t('modeltrace.failed')} · ${detail.error || '—'}`
-  if (detail.probability > 0.9) return detail.prediction || '—'
+  if (detail.verdict !== 'unknown') return detail.prediction || '—'
   return `${detail.prediction} ${(detail.probability * 100).toFixed(1)}% · ${t('modeltrace.uncertain')}`
 }
 function timestamp(value: string): string { return value && !value.startsWith('0001-') ? new Date(value).toLocaleString() : '' }
@@ -78,7 +78,7 @@ function timestamp(value: string): string { return value && !value.startsWith('0
     <Teleport to="body">
     <div v-show="show" :id="tooltipID" ref="tooltip" role="tooltip" :style="position" class="fixed z-[99999] w-max max-w-[min(560px,90vw)] rounded-lg bg-gray-900 p-3 text-xs leading-relaxed text-white shadow-xl before:absolute before:inset-x-0 before:-inset-y-2 before:-z-10 dark:bg-gray-800" @mouseleave="leave">
     <div class="max-h-80 space-y-2 overflow-y-auto">
-      <div class="flex gap-2 font-medium"><span>ModelTrace</span><span v-if="!summary.enabled" class="text-gray-300">{{ t('modeltrace.disabled') }}</span><span v-else-if="summary.running">{{ t('modeltrace.running') }}</span></div>
+      <div class="flex gap-2 font-medium"><span>ModelTrace</span><span v-if="!summary.enabled" class="text-gray-300">{{ t('modeltrace.disabled') }}</span><span v-else-if="summary.running">{{ t('modeltrace.running') }}</span><span v-if="summary.auto_schedule" class="text-amber-300">{{ t('modeltrace.autoScheduled') }}</span></div>
       <div v-for="detail in summary.details" :key="`${detail.protocol}/${detail.model}`" class="border-t border-white/15 pt-2">
         <div class="break-all">{{ detail.protocol }} / {{ detail.model }} → {{ detail.expected_model }}</div>
         <div :class="detail.verdict === 'matched' ? 'text-green-300' : detail.verdict === 'mismatched' ? 'text-red-300' : 'text-gray-300'">{{ resultLabel(detail) }}</div>
