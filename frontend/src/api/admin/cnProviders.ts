@@ -12,7 +12,7 @@ export interface CNQuotaTier {
   reset_at?: string
 }
 
-/** 额度探测结果（kimi / zhipu Coding Plan，或通用 /usage/windows 规范），
+/** 额度探测结果（Coding Plan / OpenCode Go / Command Code，或通用 /usage/windows 规范），
  *  对齐后端 CNProviderQuotaProbeResult。 */
 export interface CNProviderQuotaProbeResult {
   provider: string
@@ -27,6 +27,8 @@ export interface CNProviderQuotaProbeResult {
   fetched_at: number
   persisted: boolean
   error?: string
+  /** 同一次探测得到的余额（Command Code 积分与窗口同源），其余供应商为空。 */
+  balance?: CNProviderBalanceResult
 }
 
 /** 单币种余额明细（deepseek 双币种账号含 CNY + USD 两条）。 */

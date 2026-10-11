@@ -74,16 +74,9 @@ const props = defineProps<{
 
 const { t } = useI18n()
 
-const readMode = (): string => {
-  const mode = props.account.credentials?.account_mode
-  return typeof mode === 'string' ? mode : ''
-}
-
 // payg 平台（deepseek）只有在拿到过快照时才显示：快照存在 = 上游支持通用
 // /usage/windows 规范；上游 404（官方没有该端点）时没有快照，单元格整体隐藏。
-const visible = computed(() =>
-  cnQuotaCellVisible(props.account.platform, readMode(), snapshotData.value !== null)
-)
+const visible = computed(() => cnQuotaCellVisible(props.account, snapshotData.value !== null))
 
 const loading = ref(false)
 const error = ref<string | null>(null)

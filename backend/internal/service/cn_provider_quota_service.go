@@ -78,9 +78,13 @@ type CNProviderQuotaProbeResult struct {
 	FetchedAt   int64         `json:"fetched_at"`
 	Persisted   bool          `json:"persisted"`
 	Error       string        `json:"error,omitempty"`
+
+	// Balance 为同一次探测得到的余额（Command Code 积分与窗口同源），其余供应商为空。
+	Balance *CNProviderBalanceResult `json:"balance,omitempty"`
 }
 
-// CNProviderQuotaService 探测 Kimi / Zhipu Coding Plan 的滚动窗口用量。
+// CNProviderQuotaService 探测 Kimi / Zhipu / MiniMax Coding Plan、OpenCode Go、
+// Command Code 与 Cline（ClinePass）的滚动窗口用量。
 type CNProviderQuotaService struct {
 	accountRepo  AccountRepository
 	proxyRepo    ProxyRepository
@@ -147,6 +151,12 @@ func (s *CNProviderQuotaService) QueryUsageForAccount(ctx context.Context, accou
 
 func (s *CNProviderQuotaService) queryUsageForAccount(ctx context.Context, account *Account) (*CNProviderQuotaProbeResult, error) {
 	provider := account.GetCodingPlanProvider()
+	if provider == PlatformCommandCode {
+		return s.queryCommandCodeUsage(ctx, account)
+	}
+	if provider == PlatformCline {
+		return s.queryClineUsage(ctx, account)
+	}
 	// 非 kimi/zhipu/minimax/opencode_go Coding Plan（例如 deepseek payg、或挂在国产平台下的自定义中转）
 	// 走通用「用量窗口」规范；上游没有该端点时回 404 → Unsupported，不落快照也不报错。
 	if provider == "" {
@@ -450,6 +460,18 @@ func validateCodingPlanAccount(account *Account) error {
 	if account.IsOpenCodeGoPlan() {
 		return nil
 	}
+	if account.IsCommandCode() {
+		if !account.commandCodeUsageSupported() {
+			return infraerrors.New(http.StatusBadRequest, "CN_QUOTA_NOT_CODING_PLAN", "command code usage is only available for api key accounts on the official host")
+		}
+		return nil
+	}
+	if account.IsCline() {
+		if !account.clineAccountAPISupported() {
+			return infraerrors.New(http.StatusBadRequest, "CN_QUOTA_NOT_CODING_PLAN", "cline usage is only available for api key accounts on the official host")
+		}
+		return nil
+	}
 	if account.IsOpenCodeGo() {
 		return infraerrors.New(http.StatusBadRequest, "CN_QUOTA_NOT_CODING_PLAN", "opencode zen accounts have no subscription quota window")
 	}
@@ -464,16 +486,17 @@ func validateCodingPlanAccount(account *Account) error {
 
 // validateCNQuotaAccount 是额度探测的入口校验：kimi/zhipu/minimax 的 Coding Plan 走各自
 // 的额度端点，其余国产供应商账号（deepseek payg、以及任何挂在该平台下的自定义中转）
-// 走通用 /usage/windows 规范 —— 因此这里只要求是国产供应商账号，具体端点由
-// queryUsageForAccount 按平台分派。
+// 走通用 /usage/windows 规范 —— 因此国产供应商账号只要求平台归属，具体端点由
+// queryUsageForAccount 按平台分派。OpenCode Go、Command Code、Cline 不是国产供应商，
+// 没有通用窗口可回落，沿用各自的额度端点校验。
 func validateCNQuotaAccount(account *Account) error {
 	if account == nil {
 		return infraerrors.New(http.StatusNotFound, "CN_QUOTA_ACCOUNT_NOT_FOUND", "account not found")
 	}
-	if !account.IsCNProvider() {
-		return infraerrors.New(http.StatusBadRequest, "CN_QUOTA_INVALID_PLATFORM", "account is not a CN provider account")
+	if account.IsCNProvider() {
+		return nil
 	}
-	return nil
+	return validateCodingPlanAccount(account)
 }
 
 func (s *CNProviderQuotaService) resolveProxyURL(ctx context.Context, account *Account) string {
