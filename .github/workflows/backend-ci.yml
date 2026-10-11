@@ -1,8 +1,14 @@
 name: CI
 
+# fork：不在 push 上运行，只保留 PR 和手动触发，降低 Actions 用量（上游含 push）
 on:
-  push:
+  workflow_dispatch:
   pull_request:
+
+# fork：同一分支或 PR 上有新运行时取消旧运行，只保留最新一次
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

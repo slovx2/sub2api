@@ -1,7 +1,8 @@
 name: Security Scan
 
+# fork：不在 push 上运行，只保留 PR、每周定时和手动触发，降低 Actions 用量（上游含 push）
 on:
-  push:
+  workflow_dispatch:
   pull_request:
   schedule:
     - cron: '0 3 * * 1'
