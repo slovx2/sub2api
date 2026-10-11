@@ -105,6 +105,9 @@ func (s *GatewayService) ForwardAsChatCompletions(
 
 	if shouldMimicClaudeCode {
 		anthropicBody = s.applyClaudeCodeOAuthMimicryToBody(ctx, c, account, anthropicBody, anthropicReq.System, mappedModel)
+	} else {
+		// 伪装链路自带断点；其余账号的转换结果没有任何 cache_control，在这里补上。
+		anthropicBody = addConvertedClaudeCacheBreakpoints(anthropicBody, mappedModel)
 	}
 
 	// 7. Enforce cache_control block limit

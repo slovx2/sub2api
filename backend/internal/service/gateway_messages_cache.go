@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/tidwall/gjson"
@@ -87,6 +88,36 @@ func addMessageCacheBreakpoints(body []byte) []byte {
 	return body
 }
 
+// addSystemCacheBreakpoint 在 system 的最后一个块上注入 cache 断点。上游按
+// tools → system → messages 渲染，这个断点同时覆盖 tools 与 system 前缀。
+// 空白的 string system 保持原样：上游拒绝带 cache_control 的空文本块。
+func addSystemCacheBreakpoint(body []byte) []byte {
+	system := gjson.GetBytes(body, "system")
+	if system.Type == gjson.String && strings.TrimSpace(system.String()) == "" {
+		return body
+	}
+	return injectCacheControlOnLastBlock(body, "system", system)
+}
+
+// addConvertedClaudeCacheBreakpoints 给协议转换（Responses / Chat Completions →
+// Anthropic Messages）产出的请求体补 cache 断点。这两种入站协议没有 cache_control，
+// 转换结果是零断点，而 API Key 上游只认显式的块级断点，不打就完全不命中缓存。
+//
+// 断点位置：tools 末项、system 末块、messages 尾部（末条消息，以及消息数 ≥ 4 时
+// 倒数第二条 user 消息），合计不超过 4 个。
+//
+// 只对映射后的上游模型是 Claude 的请求生效：DeepSeek / Kimi / GLM 等 Anthropic
+// 兼容端点是否接受 cache_control 没有验证过。OAuth 账号的断点由 Claude Code 伪装
+// 链路（applyClaudeCodeOAuthMimicryToBody）负责，调用方不要对它再调用本函数。
+func addConvertedClaudeCacheBreakpoints(body []byte, upstreamModel string) []byte {
+	if platform, ok := DetectModelPlatform(upstreamModel); !ok || platform != PlatformAnthropic {
+		return body
+	}
+	body = applyToolsLastCacheBreakpoint(body)
+	body = addSystemCacheBreakpoint(body)
+	return addMessageCacheBreakpoints(body)
+}
+
 // rewriteMessageCacheControlIfEnabled 按系统设置决定是否执行旧版 messages 缓存断点改写。
 func (s *GatewayService) rewriteMessageCacheControlIfEnabled(ctx context.Context, body []byte) []byte {
 	if s == nil || !s.isRewriteMessageCacheControlEnabled(ctx) {
@@ -112,15 +143,20 @@ func (s *GatewayService) isRewriteMessageCacheControlEnabled(ctx context.Context
 //
 // msg 是调用方已持有的 gjson.Result 快照，用于省一次 GetBytes。
 func injectCacheControlOnLastContentBlock(body []byte, idx int, msg *gjson.Result) []byte {
-	content := msg.Get("content")
+	return injectCacheControlOnLastBlock(body, fmt.Sprintf("messages.%d.content", idx), msg.Get("content"))
+}
 
+// injectCacheControlOnLastBlock 把 cache_control 断点打在 path 处内容的最后一个块上。
+// content 是 path 处的值快照：string 会升级成单块 text 数组，数组取末块；末块已有
+// 带 ttl 的断点时不动，缺 ttl 时只补默认 ttl。
+func injectCacheControlOnLastBlock(body []byte, path string, content gjson.Result) []byte {
 	if content.Type == gjson.String {
 		text := content.String()
 		blockRaw := fmt.Sprintf(
 			`[{"type":"text","text":%s,"cache_control":{"type":"ephemeral","ttl":%q}}]`,
 			mustJSONString(text), claude.DefaultCacheControlTTL,
 		)
-		if next, err := sjson.SetRawBytes(body, fmt.Sprintf("messages.%d.content", idx), []byte(blockRaw)); err == nil {
+		if next, err := sjson.SetRawBytes(body, path, []byte(blockRaw)); err == nil {
 			body = next
 		}
 		return body
@@ -140,7 +176,7 @@ func injectCacheControlOnLastContentBlock(body []byte, idx int, msg *gjson.Resul
 		return body
 	}
 
-	pathPrefix := fmt.Sprintf("messages.%d.content.%d.cache_control", idx, lastBlockIdx)
+	pathPrefix := fmt.Sprintf("%s.%d.cache_control", path, lastBlockIdx)
 	existingCC := lastBlock.Get("cache_control")
 	if existingCC.Exists() {
 		if next, err := sjson.SetBytes(body, pathPrefix+".ttl", claude.DefaultCacheControlTTL); err == nil {

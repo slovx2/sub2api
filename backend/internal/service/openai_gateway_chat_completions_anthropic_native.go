@@ -97,6 +97,8 @@ func (s *OpenAIGatewayService) forwardChatCompletionsViaNativeAnthropic(
 	// 与 /v1/messages 直通路径相同的 pre-filter。
 	anthropicBody = StripEmptyTextBlocks(anthropicBody)
 	anthropicBody = FilterWebSearchHistoryBlocks(anthropicBody, upstreamModel)
+	// 转换结果没有任何 cache_control；上游是 Claude 时补上断点，否则不会命中缓存。
+	anthropicBody = addConvertedClaudeCacheBreakpoints(anthropicBody, upstreamModel)
 	anthropicBody = enforceCacheControlLimit(anthropicBody)
 
 	apiKey := strings.TrimSpace(account.GetOpenAIProtocolAPIKey())
