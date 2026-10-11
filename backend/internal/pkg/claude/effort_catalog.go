@@ -27,6 +27,8 @@ var effortFamilies = []struct {
 	{family: "claude-opus-4-5", levels: effortLowMediumHigh},
 	{family: "claude-opus-5-5", levels: effortLowMediumHighXHighMax},
 	{family: "claude-opus-5", levels: effortLowMediumHighXHighMax},
+	// Haiku 5.5 的 xhigh / max 还没有在上游实测过，先只放行确定可用的三档。
+	{family: "claude-haiku-5-5", levels: effortLowMediumHigh},
 }
 
 // EffortLevelsForModel returns the output_config.effort values accepted by a
@@ -51,6 +53,11 @@ func IsSonnet55(model string) bool {
 	return normalizeEffortModelID(model) == "claude-sonnet-5-5"
 }
 
+// IsHaiku55 识别固定的 Haiku 5.5 模型 ID（已做供应商前缀与本地后缀归一）。
+func IsHaiku55(model string) bool {
+	return normalizeEffortModelID(model) == "claude-haiku-5-5"
+}
+
 func normalizeEffortModelID(model string) string {
 	id := strings.ToLower(strings.TrimSpace(model))
 	id = strings.TrimPrefix(id, "models/")
@@ -69,6 +76,9 @@ func normalizeEffortModelID(model string) string {
 	}
 	if id == "claude-sonnet-5.5" {
 		id = "claude-sonnet-5-5"
+	}
+	if id == "claude-haiku-5.5" {
+		id = "claude-haiku-5-5"
 	}
 	if mapped, ok := ModelIDReverseOverrides[id]; ok {
 		id = mapped

@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
@@ -56,7 +57,7 @@ func ResponsesToAnthropicRequest(req *ResponsesRequest) (*AnthropicRequest, erro
 		out.ToolChoice = tc
 	}
 
-	// The 5.5 models reject manual thinking and forced tool use. Sonnet 5.5
+	// Opus 5.5 and Sonnet 5.5 reject manual thinking and forced tool use. Sonnet 5.5
 	// additionally supports between_tools to disable up-front thinking.
 	// Resolve the upstream model before conversion: client aliases need not
 	// identify a Claude model.
@@ -103,6 +104,22 @@ func ResponsesToAnthropicRequest(req *ResponsesRequest) (*AnthropicRequest, erro
 		}
 		out.Thinking = &AnthropicThinking{Type: "adaptive"}
 		out.OutputConfig = &AnthropicOutputConfig{Effort: effort}
+		return out, nil
+	}
+
+	// Haiku 5.5 同样拒绝手动思考预算（thinking.type=enabled 会被上游 400），只接受
+	// adaptive + output_config.effort。它的约束比 Opus/Sonnet 5.5 少：强制 tool_choice
+	// 可用，采样参数也不在这里拦截；客户端没给 reasoning.effort 时不替它开启思考，
+	// 交给上游默认行为。
+	if claude.IsHaiku55(req.Model) {
+		if req.Reasoning != nil && req.Reasoning.Effort != "" {
+			levels := claude.EffortLevelsForModel(req.Model)
+			if !slices.Contains(levels, req.Reasoning.Effort) {
+				return nil, fmt.Errorf("%s does not support reasoning effort %q; use %s", req.Model, req.Reasoning.Effort, strings.Join(levels, ", "))
+			}
+			out.Thinking = &AnthropicThinking{Type: "adaptive"}
+			out.OutputConfig = &AnthropicOutputConfig{Effort: req.Reasoning.Effort}
+		}
 		return out, nil
 	}
 
