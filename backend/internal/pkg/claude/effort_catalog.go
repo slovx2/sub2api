@@ -27,8 +27,8 @@ var effortFamilies = []struct {
 	{family: "claude-opus-4-5", levels: effortLowMediumHigh},
 	{family: "claude-opus-5-5", levels: effortLowMediumHighXHighMax},
 	{family: "claude-opus-5", levels: effortLowMediumHighXHighMax},
-	// Haiku 5.5 的 xhigh / max 还没有在上游实测过，先只放行确定可用的三档。
-	{family: "claude-haiku-5-5", levels: effortLowMediumHigh},
+	// Haiku 5.5 的五档都经上游实测可用（2026-10-11，adaptive + output_config.effort）。
+	{family: "claude-haiku-5-5", levels: effortLowMediumHighXHighMax},
 }
 
 // EffortLevelsForModel returns the output_config.effort values accepted by a

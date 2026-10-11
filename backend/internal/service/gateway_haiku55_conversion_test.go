@@ -109,7 +109,7 @@ func haiku55ConversionPaths() []haiku55ConversionPath {
 func TestHaiku55ConversionUsesAdaptiveThinking(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, path := range haiku55ConversionPaths() {
-		for _, effort := range []string{"low", "medium", "high"} {
+		for _, effort := range []string{"low", "medium", "high", "xhigh", "max"} {
 			for _, forced := range []bool{false, true} {
 				name := path.name + "/" + effort
 				if forced {
@@ -140,14 +140,14 @@ func TestHaiku55ConversionUsesAdaptiveThinking(t *testing.T) {
 func TestHaiku55ConversionRejectsUnsupportedEffort(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, path := range haiku55ConversionPaths() {
-		for _, effort := range []string{"xhigh", "max"} {
+		for _, effort := range []string{"minimal"} {
 			t.Run(path.name+"/"+effort, func(t *testing.T) {
 				rec, upstreamBody, err := path.forward(t, effort, false)
 
 				require.ErrorContains(t, err, "does not support reasoning effort")
 				require.Nil(t, upstreamBody)
 				require.Equal(t, http.StatusBadRequest, rec.Code)
-				require.Contains(t, rec.Body.String(), "use low, medium, high")
+				require.Contains(t, rec.Body.String(), "use low, medium, high, xhigh, max")
 			})
 		}
 	}

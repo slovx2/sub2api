@@ -34,10 +34,10 @@ func TestHaiku55ResponsesThinking(t *testing.T) {
 		{name: "forced_tool_with_thinking", effort: "high", toolChoice: `{"type":"function","name":"lookup"}`, wantThinking: "adaptive", wantEffort: "high", wantToolChoice: "tool"},
 		{name: "forced_any_without_reasoning", toolChoice: `"required"`, wantToolChoice: "any"},
 		{name: "sampling_passes_through", effort: "low", temperature: &temperature, topP: &topP, wantThinking: "adaptive", wantEffort: "low"},
-		{name: "xhigh_rejected", effort: "xhigh", wantErr: `does not support reasoning effort "xhigh"; use low, medium, high`},
-		{name: "max_rejected", effort: "max", wantErr: "does not support reasoning effort"},
+		{name: "xhigh", effort: "xhigh", wantThinking: "adaptive", wantEffort: "xhigh"},
+		{name: "max", effort: "max", wantThinking: "adaptive", wantEffort: "max"},
 		{name: "none_rejected", effort: "none", wantErr: "does not support reasoning effort"},
-		{name: "minimal_rejected", effort: "minimal", wantErr: "does not support reasoning effort"},
+		{name: "minimal_rejected", effort: "minimal", wantErr: `does not support reasoning effort "minimal"; use low, medium, high, xhigh, max`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
