@@ -1,5 +1,14 @@
 export default {
     accounts: {
+      devin: {
+        description: '使用 Devin CLI 登录凭据，可在下方登录或直接填写 session token。',
+        keepToken: '留空保留已保存的凭据', login: '生成 Devin 登录链接', openLogin: '打开 Devin 登录页面',
+        codeHint: '完成登录后，粘贴页面显示的授权码。链接有效期为 10 分钟。', code: '授权码',
+        exchange: '获取登录凭据', received: '已取得登录凭据，保存账号后生效。',
+        baseURL: '上游地址（可选）', failed: 'Devin 登录失败，请重新生成登录链接。',
+        invalidToken: '请填写有效的 Devin session token，或通过登录链接获取。',
+        billing: 'ChatGPT 额度需在 Devin 中关联账号并开启使用。额度归属由 Devin 决定，耗尽后可能回退 Devin 额度。'
+      },
       title: '账号管理',
       description: '管理 AI 平台账号和 Cookie',
       createAccount: '添加账号',

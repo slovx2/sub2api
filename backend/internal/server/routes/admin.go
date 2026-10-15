@@ -489,6 +489,8 @@ func registerAntigravityOAuthRoutes(admin *gin.RouterGroup, h *handler.Handlers)
 
 func registerGrokOAuthRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	grok := admin.Group("/grok")
+	admin.POST("/devin/oauth/auth-url", h.Admin.DevinOAuth.DevinAuthURL)
+	admin.POST("/devin/oauth/exchange-code", h.Admin.DevinOAuth.DevinExchangeCode)
 	{
 		grok.GET("/oauth/capabilities", h.Admin.GrokOAuth.GetCapabilities)
 		grok.POST("/oauth/auth-url", h.Admin.GrokOAuth.GenerateAuthURL)

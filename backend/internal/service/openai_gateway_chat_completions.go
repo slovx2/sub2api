@@ -72,6 +72,10 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	compatPromptCacheTenantIsolated bool,
 ) (*OpenAIForwardResult, error) {
 	rememberOpenCodeInboundBody(c, body)
+	rememberDevinRequest(c, account, body)
+	if err := validateDevinClientTools(c, account, body, false); err != nil {
+		return nil, err
+	}
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)
 	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
@@ -119,7 +123,7 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	}
 	// 按模型分流与 adaptive 账号按请求体形状处理 Responses 形状入站；其余账号
 	// 维持原样把请求体交给所选路径。
-	convertResponsesShape := isResponsesShape && (account.routesByModel() || account.IsAdaptiveAPIProtocol())
+	convertResponsesShape := isResponsesShape && (account.IsDevin() || account.routesByModel() || account.IsAdaptiveAPIProtocol())
 
 	// 上游协议统一由 resolveUpstreamProtocol 判定（按模型分流时带上游模型目录）。Anthropic 分流必须先于
 	// ShouldUseResponsesAPI：Anthropic 协议账号经 probe 落标

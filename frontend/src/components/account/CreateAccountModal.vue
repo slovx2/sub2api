@@ -173,6 +173,10 @@
             <PlatformIcon platform="typesafe" size="sm" />
             TypeSafe / Jev
           </button>
+          <button type="button" @click="selectDevinPlatform()"
+            :class="['flex flex-1 items-center justify-center rounded-md px-4 py-2.5 text-sm font-medium', form.platform === 'devin' ? 'bg-white text-blue-600 shadow-sm dark:bg-dark-600' : 'text-gray-600 dark:text-gray-400']">
+            Devin
+          </button>
         </div>
         <!-- 国产厂商：Kimi / Zhipu GLM / DeepSeek / MiniMax -->
         <div class="mt-2 flex flex-wrap rounded-lg bg-gray-100 p-1 dark:bg-dark-700" data-testid="platform-row-cn">
@@ -1422,6 +1426,8 @@
       </div>
 
       <!-- API Key input (only for apikey type, excluding Antigravity which has its own fields) -->
+      <DevinCredentialsForm v-if="form.platform === 'devin'" v-model:token="devinToken"
+        v-model:base-url="devinBaseUrl" :proxy-id="form.proxy_id" />
       <div v-if="form.type === 'apikey' && form.platform !== 'antigravity'" class="space-y-4">
         <div v-if="!isMultiProtocolPlatform || apiProtocol !== 'adaptive'">
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
@@ -2366,7 +2372,7 @@
 
       <!-- OpenAI OAuth Model Mapping (OAuth 类型没有 apikey 容器，需要独立的模型映射区域) -->
       <div
-        v-if="(form.platform === 'openai' || form.platform === 'grok') && isOAuthFlow"
+        v-if="((form.platform === 'openai' || form.platform === 'grok') && isOAuthFlow) || form.platform === 'devin'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
@@ -4004,6 +4010,7 @@ import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
+import DevinCredentialsForm from '@/components/account/DevinCredentialsForm.vue'
 import CnBaseUrlPresets from '@/components/account/CnBaseUrlPresets.vue'
 import OpenCodeGoProtocolRulesEditor from '@/components/account/OpenCodeGoProtocolRulesEditor.vue'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
@@ -4232,6 +4239,8 @@ const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock' | 'service_acco
 const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-token'
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
+const devinToken = ref('')
+const devinBaseUrl = ref('')
 const upstreamBillingAutoProbeEnabled = ref(true)
 
 // ── 国产供应商（Kimi / Zhipu / DeepSeek）账号类型、API 协议与端点 ──
@@ -4365,6 +4374,11 @@ function selectTypeSafePlatform() {
   accountCategory.value = 'apikey'
   apiKeyBaseUrl.value = 'https://api.typesafe.ai'
   allowedModels.value = ['jev-latest']
+}
+function selectDevinPlatform() {
+  form.platform = 'devin'
+  form.type = 'oauth'
+  accountCategory.value = 'oauth-based'
 }
 function selectGenericMultiProtocolPlatform(platform: string) {
   form.platform = platform
@@ -4844,6 +4858,7 @@ const form = reactive({
 
 // Helper to check if current type needs OAuth flow
 const isOAuthFlow = computed(() => {
+  if (form.platform === 'devin') return false
   // Antigravity upstream 类型不需要 OAuth 流程
   if (form.platform === 'antigravity' && antigravityAccountType.value === 'upstream') {
     return false
@@ -4963,6 +4978,11 @@ watch(
     allowedModels.value = []
     upstreamModelsPreviewed.value = false
     modelMappings.value = []
+    if (newPlatform === 'devin') {
+      form.type = 'oauth'
+      accountCategory.value = 'oauth-based'
+      modelRestrictionMode.value = 'whitelist'
+    }
     if (newPlatform === 'typesafe') {
       accountCategory.value = 'apikey'
       // Grok 等平台会把模式切到映射；TypeSafe 只用白名单写入 jev-latest。
@@ -5434,6 +5454,8 @@ const resetForm = () => {
   adaptiveBaseUrls.value = { chat_completions: '', anthropic: '', responses: '' }
   apiKeyBaseUrl.value = 'https://api.anthropic.com'
   apiKeyValue.value = ''
+  devinToken.value = ''
+  devinBaseUrl.value = ''
   upstreamRequestIdHeader.value = ''
   upstreamBillingAutoProbeEnabled.value = true
   editQuotaLimit.value = null
@@ -5738,6 +5760,22 @@ const handleVertexServiceAccountDrop = async (event: DragEvent) => {
 }
 
 const handleSubmit = async () => {
+  if (form.platform === 'devin') {
+    if (!form.name.trim()) {
+      appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
+      return
+    }
+    if (!devinToken.value.trim().startsWith('devin-session-token$')) {
+      appStore.showError(t('admin.accounts.devin.invalidToken'))
+      return
+    }
+    const credentials: Record<string, unknown> = { session_token: devinToken.value.trim() }
+    if (devinBaseUrl.value.trim()) credentials.base_url = devinBaseUrl.value.trim()
+    const mapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+    if (mapping) credentials.model_mapping = mapping
+    await createAccountAndFinish('devin', 'oauth', credentials)
+    return
+  }
   // For OAuth-based type, handle OAuth flow (goes to step 2)
   if (isOAuthFlow.value) {
     if (!isGrokSSOInputMethod.value && !form.name.trim()) {

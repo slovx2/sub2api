@@ -1787,6 +1787,10 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 	if !a.IsOpenAICompatible() {
 		return false
 	}
+	if a.IsDevin() {
+		// Responses 客户端可走文本转换；此能力标志特指原生 Responses 功能。
+		return capability == OpenAIEndpointCapabilityChatCompletions
+	}
 	if a.IsGrok() {
 		switch capability {
 		case OpenAIEndpointCapabilityChatCompletions:

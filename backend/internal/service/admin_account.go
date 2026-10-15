@@ -436,6 +436,11 @@ func normalizeOpenAILongContextBillingUpdateExtra(account *Account, input *Updat
 // Grok media eligibility helpers live in account_grok_media_eligibility.go.
 
 func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]any) (*Account, error) {
+	if input.Platform == PlatformDevin {
+		if err := validateDevinCredentials(input.Type, input.Credentials); err != nil {
+			return nil, err
+		}
+	}
 	if input.Platform == PlatformTypeSafe && input.Type != AccountTypeAPIKey {
 		return nil, errors.New("typesafe accounts only support apikey credentials")
 	}
@@ -606,6 +611,19 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	account, err := s.accountRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	if account.IsDevin() {
+		kind := account.Type
+		if input.Type != "" {
+			kind = input.Type
+		}
+		credentials := account.Credentials
+		if input.Credentials != nil {
+			credentials = MergePreservingSensitiveCreds(account.Credentials, input.Credentials)
+		}
+		if err := validateDevinCredentials(kind, credentials); err != nil {
+			return nil, err
+		}
 	}
 	if account.Platform == PlatformTypeSafe && input.Type != "" && input.Type != AccountTypeAPIKey {
 		return nil, errors.New("typesafe accounts only support apikey credentials")

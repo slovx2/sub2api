@@ -219,6 +219,20 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
   afterEach(() => vi.useRealTimers())
 
+  it('创建 Devin OAuth 账号时保存 session_token 并跳过通用 OAuth 第二步', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'Devin')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Devin test')
+    await wrapper.get('#devin-token').setValue('devin-session-token$test')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({
+      platform: 'devin', type: 'oauth', credentials: { session_token: 'devin-session-token$test' }
+    })
+    wrapper.unmount()
+  })
+
   it('sets month and year expiry presets without submitting the account form', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-01-31T12:34:00'))

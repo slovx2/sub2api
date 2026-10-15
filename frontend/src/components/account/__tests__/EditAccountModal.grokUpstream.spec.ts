@@ -124,6 +124,20 @@ describe('EditAccountModal Grok OAuth upstream config', () => {
     checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
   })
 
+  it('编辑 Devin 时留空保留凭据，输入新 token 后替换', async () => {
+    const account = { ...buildGrokOAuthAccount(), platform: 'devin', credentials: {} }
+    updateAccountMock.mockResolvedValue(account)
+    const wrapper = mountModal(account)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await vi.waitFor(() => expect(updateAccountMock).toHaveBeenCalledTimes(1))
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials?.session_token).toBeUndefined()
+    await wrapper.get('#devin-token').setValue('devin-session-token$new')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await vi.waitFor(() => expect(updateAccountMock).toHaveBeenCalledTimes(2))
+    expect(updateAccountMock.mock.calls[1]?.[1]?.credentials?.session_token).toBe('devin-session-token$new')
+    wrapper.unmount()
+  })
+
   it('enabling the custom base URL toggle and saving persists base_url', async () => {
     const account = buildGrokOAuthAccount({ base_url: 'https://cli-chat-proxy.grok.com/v1' })
     updateAccountMock.mockResolvedValue(account)

@@ -1,5 +1,14 @@
 export default {
     accounts: {
+      devin: {
+        description: 'Sign in with Devin CLI credentials or paste an existing session token.',
+        keepToken: 'Leave blank to keep saved credentials', login: 'Generate Devin login link', openLogin: 'Open Devin sign-in',
+        codeHint: 'Paste the authorization code shown after signing in. The link expires in 10 minutes.', code: 'Authorization code',
+        exchange: 'Get credentials', received: 'Credentials received. Save the account to apply them.',
+        baseURL: 'Upstream URL (optional)', failed: 'Devin sign-in failed. Generate a new login link.',
+        invalidToken: 'Enter a valid Devin session token or use the login link to obtain one.',
+        billing: 'Link ChatGPT and enable its plan in Devin. Devin controls billing and may fall back to Devin credits when that allowance is exhausted.'
+      },
       title: 'Account Management',
       description: 'Manage AI platform accounts and credentials',
       createAccount: 'Create Account',

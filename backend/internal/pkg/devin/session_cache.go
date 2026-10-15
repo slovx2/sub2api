@@ -1,0 +1,95 @@
+// 源自 CLIProxyAPI；为 Devin 会话计数提供有界缓存，见 NOTICE。
+package devin
+
+import (
+	"container/list"
+	"sync"
+)
+
+type boundedLRUEntry[K comparable, V any] struct {
+	key   K
+	value V
+}
+type BoundedLRU[K comparable, V any] struct {
+	mu       sync.Mutex
+	capacity int
+	entries  map[K]*list.Element
+	order    *list.List
+	onEvict  func(K, V)
+}
+
+func NewBoundedLRU[K comparable, V any](capacity int, onEvict func(K, V)) *BoundedLRU[K, V] {
+	if capacity < 1 {
+		capacity = 1
+	}
+	return &BoundedLRU[K, V]{
+		capacity: capacity,
+		entries:  make(map[K]*list.Element, capacity),
+		order:    list.New(),
+		onEvict:  onEvict,
+	}
+}
+func (cache *BoundedLRU[K, V]) GetOrAdd(key K, create func() V) V {
+	cache.mu.Lock()
+	if element, ok := cache.entries[key]; ok {
+		cache.order.MoveToFront(element)
+		value := element.Value.(boundedLRUEntry[K, V]).value
+		cache.mu.Unlock()
+		return value
+	}
+
+	value := create()
+	element := cache.order.PushFront(boundedLRUEntry[K, V]{key: key, value: value})
+	cache.entries[key] = element
+
+	var evicted boundedLRUEntry[K, V]
+	didEvict := false
+	if cache.order.Len() > cache.capacity {
+		oldest := cache.order.Back()
+		evicted = oldest.Value.(boundedLRUEntry[K, V])
+		delete(cache.entries, evicted.key)
+		cache.order.Remove(oldest)
+		didEvict = true
+	}
+	cache.mu.Unlock()
+
+	if didEvict && cache.onEvict != nil {
+		cache.onEvict(evicted.key, evicted.value)
+	}
+	return value
+}
+
+func (cache *BoundedLRU[K, V]) Get(key K) (V, bool) {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	if element, ok := cache.entries[key]; ok {
+		cache.order.MoveToFront(element)
+		return element.Value.(boundedLRUEntry[K, V]).value, true
+	}
+	var zero V
+	return zero, false
+}
+
+func (cache *BoundedLRU[K, V]) Delete(key K) bool {
+	cache.mu.Lock()
+	element, ok := cache.entries[key]
+	if !ok {
+		cache.mu.Unlock()
+		return false
+	}
+	entry := element.Value.(boundedLRUEntry[K, V])
+	delete(cache.entries, key)
+	cache.order.Remove(element)
+	cache.mu.Unlock()
+
+	if cache.onEvict != nil {
+		cache.onEvict(entry.key, entry.value)
+	}
+	return true
+}
+
+func (cache *BoundedLRU[K, V]) Len() int {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	return len(cache.entries)
+}

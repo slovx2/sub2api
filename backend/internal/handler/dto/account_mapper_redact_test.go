@@ -17,6 +17,7 @@ func TestAccountFromServiceShallow_RedactsSensitiveCredentials(t *testing.T) {
 		Type:     "oauth",
 		Credentials: map[string]any{
 			"access_token":  "at-secret",
+			"session_token": "devin-session-token$secret",
 			"refresh_token": "rt-secret",
 			"id_token":      "id-secret",
 			"api_key":       "sk-secret",
@@ -30,6 +31,7 @@ func TestAccountFromServiceShallow_RedactsSensitiveCredentials(t *testing.T) {
 
 	// 敏感键不在 Credentials 里
 	require.NotContains(t, got.Credentials, "access_token")
+	require.NotContains(t, got.Credentials, "session_token")
 	require.NotContains(t, got.Credentials, "refresh_token")
 	require.NotContains(t, got.Credentials, "id_token")
 	require.NotContains(t, got.Credentials, "api_key")
@@ -39,6 +41,7 @@ func TestAccountFromServiceShallow_RedactsSensitiveCredentials(t *testing.T) {
 
 	// 状态 map 标记敏感键存在
 	require.True(t, got.CredentialsStatus["has_access_token"])
+	require.True(t, got.CredentialsStatus["has_session_token"])
 	require.True(t, got.CredentialsStatus["has_refresh_token"])
 	require.True(t, got.CredentialsStatus["has_id_token"])
 	require.True(t, got.CredentialsStatus["has_api_key"])

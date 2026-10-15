@@ -285,6 +285,14 @@ func anthropicAssistantToChatMessages(raw json.RawMessage) ([]ChatMessage, error
 	}
 
 	msg.ReasoningContent = anthropicThinkingToReasoningContent(blocks, len(msg.ToolCalls) > 0)
+	for _, block := range blocks {
+		if block.Type == "thinking" && strings.HasPrefix(block.Signature, "devin#") {
+			msg.ReasoningSignature = block.Signature
+			if msg.ReasoningContent == "" {
+				msg.ReasoningContent = block.Thinking
+			}
+		}
+	}
 
 	return []ChatMessage{msg}, nil
 }
@@ -451,10 +459,11 @@ func chatMessageToAnthropicBlocks(message ChatMessage) []AnthropicContentBlock {
 	var blocks []AnthropicContentBlock
 	reasoning := message.reasoningText()
 
-	if reasoning != "" {
+	if reasoning != "" || message.ReasoningSignature != "" {
 		blocks = append(blocks, AnthropicContentBlock{
-			Type:     "thinking",
-			Thinking: reasoning,
+			Type:      "thinking",
+			Thinking:  reasoning,
+			Signature: message.ReasoningSignature,
 		})
 	}
 
@@ -644,6 +653,10 @@ func ChatCompletionsChunkToAnthropicEvents(
 			})...)
 		}
 
+		if choice.Delta.ReasoningSignature != "" {
+			events = append(events, ensureCCAnthropicThinkingBlock(state)...)
+			events = append(events, ccAnthropicDelta(state, &AnthropicDelta{Type: "signature_delta", Signature: choice.Delta.ReasoningSignature})...)
+		}
 		// Text content → text block (closes any open thinking block first).
 		if choice.Delta.Content != nil && *choice.Delta.Content != "" {
 			events = append(events, closeCCAnthropicBlockIfOpen(state, "thinking")...)

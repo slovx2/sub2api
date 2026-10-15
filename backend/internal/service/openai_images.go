@@ -604,6 +604,9 @@ func (s *OpenAIGatewayService) ForwardImages(
 	parsed *OpenAIImagesRequest,
 	channelMappedModel string,
 ) (*OpenAIForwardResult, error) {
+	if account.IsDevin() {
+		return nil, fmt.Errorf("Devin does not support image generation endpoints")
+	}
 	if parsed == nil {
 		return nil, fmt.Errorf("parsed images request is required")
 	}

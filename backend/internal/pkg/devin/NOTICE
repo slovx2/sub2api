@@ -1,0 +1,15 @@
+Devin 协议参考与移植来源：
+https://github.com/router-for-me/CLIProxyAPI
+提交：5fc580b1d72d87a7bcfe5cfb6f479c1aea5625b3
+许可证：MIT，完整许可见 LICENSE.CPA。
+
+wire.go、session_cache.go、models.go 及模型目录参考/改编自：
+internal/runtime/executor/helps/devin_wire.go
+internal/cache/bounded_lru.go
+internal/runtime/executor/helps/devin_models.go
+internal/registry/models/devin_models.json
+
+登录流程参考 internal/auth/devin/ 和 sdk/auth/devin.go。
+请求/响应适配参考 internal/runtime/executor/devin_executor.go。
+本项目复用 sub2api 的入站协议、账号代理、用量计费与错误处理；不引入 CPA 服务进程。
+协议层保留调用方的系统指令和工具定义，不移植 CPA 的品牌文案过滤与混淆规则。

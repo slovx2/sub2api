@@ -408,6 +408,7 @@ func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessa
 	// across an assistant message (so a following tool call in the same turn
 	// still receives it); any other role ends the thinking span.
 	var pendingReasoning string
+	var pendingSignature string
 	// lastTurnReasoning is the most recent reasoning text of the current turn,
 	// surviving tool outputs. DeepSeek emits reasoning only once per turn, so
 	// chained tool calls (reasoning → call A → output A → call B) leave call B's
@@ -447,8 +448,15 @@ func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessa
 
 		role := chatCompletionsBridgeRole(rawString(item["role"]))
 		itemType := rawString(item["type"])
+		if role == "user" && (itemType == "message" || itemType == "") {
+			pendingSignature = ""
+		}
 		switch itemType {
 		case "reasoning":
+			pendingSignature = ""
+			if sig := rawString(item["encrypted_content"]); strings.HasPrefix(sig, "devin#") {
+				pendingSignature = sig
+			}
 			if txt := extractResponsesReasoningText(item); txt != "" {
 				pendingReasoning = txt
 			} else if opts != nil && opts.ReasoningContentByID != nil {
@@ -501,6 +509,7 @@ func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessa
 				},
 			}
 			messages = appendAssistantToolCall(messages, toolCall, reasoningForAssistant())
+			messages[len(messages)-1].ReasoningSignature = pendingSignature
 			pendingReasoning = ""
 			continue
 		case "tool_search_call":
@@ -522,6 +531,7 @@ func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessa
 				},
 			}
 			messages = appendAssistantToolCall(messages, toolCall, reasoningForAssistant())
+			messages[len(messages)-1].ReasoningSignature = pendingSignature
 			pendingReasoning = ""
 			continue
 		case "custom_tool_call":
@@ -538,6 +548,7 @@ func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessa
 				},
 			}
 			messages = appendAssistantToolCall(messages, toolCall, reasoningForAssistant())
+			messages[len(messages)-1].ReasoningSignature = pendingSignature
 			pendingReasoning = ""
 			continue
 		case "function_call_output", "custom_tool_call_output", "tool_search_output":
@@ -641,6 +652,7 @@ func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessa
 		// appendAssistantToolCall merges into this message and only fills
 		// ReasoningContent when it is still empty.
 		if role == "assistant" {
+			msg.ReasoningSignature = pendingSignature
 			msg.ReasoningContent = reasoningForAssistant()
 			pendingReasoning = ""
 		} else {
@@ -1396,10 +1408,11 @@ func chatServiceTier(resp *ChatCompletionsResponse) string {
 func chatMessageToResponsesOutput(message ChatMessage, customTools, functionTools map[string]bool, toolSearch bool, namespaceTools map[string]NamespacedToolName) []ResponsesOutput {
 	var outputs []ResponsesOutput
 	reasoning := message.reasoningText()
-	if reasoning != "" {
+	if reasoning != "" || message.ReasoningSignature != "" {
 		outputs = append(outputs, ResponsesOutput{
-			Type: "reasoning",
-			ID:   generateItemID(),
+			Type:             "reasoning",
+			ID:               generateItemID(),
+			EncryptedContent: message.ReasoningSignature,
 			Summary: []ResponsesSummary{{
 				Type: "summary_text",
 				Text: reasoning,
@@ -1579,10 +1592,11 @@ type ChatCompletionsToResponsesStreamState struct {
 	// reasoning_content before any content, so reasoning is modeled as its own
 	// "reasoning" output item that must be opened (output_item.added) before any
 	// reasoning delta and closed before the message/tool items open.
-	ReasoningItemID string
-	ReasoningIndex  int
-	ReasoningOpen   bool
-	ReasoningDone   bool
+	ReasoningItemID    string
+	ReasoningIndex     int
+	ReasoningOpen      bool
+	ReasoningDone      bool
+	ReasoningSignature string
 
 	// Message item + output_text content-part lifecycle.
 	MessageItemID string
@@ -1712,6 +1726,10 @@ func ChatCompletionsChunkToResponsesEvents(
 		// (output_item.added + reasoning_summary_part.added) before the first
 		// delta, otherwise a strict client discards the delta. The leading
 		// empty-string reasoning delta upstreams send is filtered out.
+		if choice.Delta.ReasoningSignature != "" {
+			events = append(events, ensureChatReasoningItem(state)...)
+			state.ReasoningSignature = choice.Delta.ReasoningSignature
+		}
 		reasoning := choice.Delta.reasoningText()
 		if reasoning != nil && *reasoning != "" {
 			events = append(events, ensureChatReasoningItem(state)...)
@@ -1933,10 +1951,11 @@ func closeChatReasoningItem(state *ChatCompletionsToResponsesStreamState) []Resp
 		chatToResponsesEvent(state, "response.output_item.done", &ResponsesStreamEvent{
 			OutputIndex: state.ReasoningIndex,
 			Item: &ResponsesOutput{
-				Type:    "reasoning",
-				ID:      state.ReasoningItemID,
-				Status:  "completed",
-				Summary: []ResponsesSummary{{Type: "summary_text", Text: reasoning}},
+				Type:             "reasoning",
+				ID:               state.ReasoningItemID,
+				Status:           "completed",
+				Summary:          []ResponsesSummary{{Type: "summary_text", Text: reasoning}},
+				EncryptedContent: state.ReasoningSignature,
 			},
 		}),
 	}
@@ -2166,10 +2185,11 @@ func closeChatToolItems(state *ChatCompletionsToResponsesStreamState) []Response
 
 func (state *ChatCompletionsToResponsesStreamState) chatOutput() []ResponsesOutput {
 	var outputs []ResponsesOutput
-	if state.Reasoning.Len() > 0 {
+	if state.Reasoning.Len() > 0 || state.ReasoningSignature != "" {
 		outputs = append(outputs, ResponsesOutput{
-			Type: "reasoning",
-			ID:   generateItemID(),
+			Type:             "reasoning",
+			ID:               nonEmpty(state.ReasoningItemID, generateItemID()),
+			EncryptedContent: state.ReasoningSignature,
 			Summary: []ResponsesSummary{{
 				Type: "summary_text",
 				Text: state.Reasoning.String(),

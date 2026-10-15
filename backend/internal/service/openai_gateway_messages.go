@@ -43,6 +43,10 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		body = sanitized
 	}
 	rememberOpenCodeInboundBody(c, body)
+	rememberDevinRequest(c, account, body)
+	if err := validateDevinClientTools(c, account, body, true); err != nil {
+		return nil, err
+	}
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)
 	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {

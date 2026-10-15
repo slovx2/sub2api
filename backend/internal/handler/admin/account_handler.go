@@ -1438,6 +1438,9 @@ func (h *AccountHandler) refreshSingleAccount(ctx context.Context, account *serv
 	}
 
 	var newCredentials map[string]any
+	if account.IsDevin() {
+		return nil, "", infraerrors.BadRequest("DEVIN_RELOGIN_REQUIRED", "Devin credentials must be renewed through the account edit login flow")
+	}
 
 	if account.IsOpenAI() {
 		tokenInfo, err := h.openaiOAuthService.RefreshAccountToken(ctx, account)
@@ -2829,7 +2832,7 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	}
 
 	// Handle OpenAI accounts
-	if account.IsOpenAI() {
+	if account.IsOpenAI() || account.IsDevin() {
 		// Prefer the shared, account-keyed upstream catalog. If discovery fails,
 		// retain the legacy local catalog below so the test dialog remains usable.
 		if h.accountTestService != nil {
