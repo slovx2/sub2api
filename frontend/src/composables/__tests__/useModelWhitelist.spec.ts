@@ -8,6 +8,19 @@ import { buildModelMappingObject, getModelsByPlatform, getPresetMappingsByPlatfo
 import { BUILTIN_PLATFORM_CATALOG, resetPlatformCatalog, setPlatformCatalog } from '@/constants/platformCatalog'
 
 describe('useModelWhitelist', () => {
+  it('Devin 使用自己的多供应商模型 ID 和映射，不回退到 Claude', () => {
+    const models = getModelsByPlatform('devin')
+    expect(models).toEqual(expect.arrayContaining([
+      'gpt-6-astra', 'gpt-5-5', 'claude-opus-5-5', 'gemini-3-8-flash', 'kimi-k3'
+    ]))
+    expect(models).not.toContain('claude-3-5-sonnet-20241022')
+    expect(models).not.toContain('gpt-5.5')
+    expect(getPresetMappingsByPlatform('devin')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: 'GPT-5.5', from: 'gpt-5-5', to: 'gpt-5-5' })
+    ]))
+    expect(getPresetMappingsByPlatform('devin').every(preset => models.includes(preset.to))).toBe(true)
+  })
+
   it('平台清单中没有内置模型列表的多协议供应商不预填白名单', () => {
     setPlatformCatalog({
       ...BUILTIN_PLATFORM_CATALOG,

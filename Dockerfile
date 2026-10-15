@@ -41,6 +41,8 @@ RUN --mount=type=cache,id=sub2api-pnpm-store,target=/root/.local/share/pnpm/stor
 # Copy only that subtree to keep the build dependency minimal.
 COPY frontend/ ./
 COPY docs/legal/ /app/docs/legal/
+# Devin 模型选择器与后端共用同一份目录。
+COPY backend/internal/pkg/devin/models.json /app/backend/internal/pkg/devin/models.json
 RUN pnpm run build
 
 # -----------------------------------------------------------------------------

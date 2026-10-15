@@ -86,6 +86,21 @@ function findModelRow(wrapper: ReturnType<typeof mountSelector>, modelId: string
 }
 
 describe('ModelWhitelistSelector', () => {
+  it('Devin 下拉及填充使用多供应商目录，保留已有自定义选择', async () => {
+    const wrapper = mountSelector({ platform: 'devin', modelValue: ['custom-model'] })
+    await wrapper.get('div.cursor-pointer').trigger('click')
+    for (const model of ['gpt-6-astra', 'gpt-5-5', 'claude-opus-5-5', 'gemini-3-8-flash']) {
+      expect(findModelRow(wrapper, model).exists()).toBe(true)
+    }
+    const options = wrapper.findAll('[data-testid="model-option"]')
+    expect(options.some(row => row.text().includes('claude-3-5-sonnet-20241022'))).toBe(false)
+    expect(options.filter(row => row.text() === 'gpt-6-astra')).toHaveLength(1)
+    await wrapper.findAll('button').find(button => button.text() === 'admin.accounts.fillRelatedModels')!.trigger('click')
+    expect(wrapper.emitted('update:modelValue')?.[0]?.[0]).toEqual(expect.arrayContaining([
+      'custom-model', 'gpt-6-astra', 'gpt-5-5', 'claude-opus-5-5', 'gemini-3-8-flash'
+    ]))
+  })
+
   beforeEach(() => {
     copyToClipboard.mockClear()
     showError.mockReset()

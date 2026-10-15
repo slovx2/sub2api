@@ -1,4 +1,14 @@
 import { getProviderProfile } from '@/constants/platformCatalog'
+import devinCatalog from '../../../backend/internal/pkg/devin/models.json'
+
+// 与后端共用 CPA 模型目录，避免预填其他平台的模型 ID。
+const devinModels = devinCatalog.map(model => model.id)
+const devinPresetMappings = devinCatalog.map(model => ({
+  label: model.display_name,
+  from: model.id,
+  to: model.id,
+  color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400'
+}))
 
 // =====================
 // 模型列表（硬编码，与 new-api 一致）
@@ -273,11 +283,12 @@ const allModelsList: string[] = [
   ...baiduModels,
   ...sparkModels,
   ...hunyuanModels,
-  ...perplexityModels
+  ...perplexityModels,
+  ...devinModels
 ]
 
 // 转换为下拉选项格式
-export const allModels = allModelsList.map(m => ({ value: m, label: m }))
+export const allModels = [...new Set(allModelsList)].map(m => ({ value: m, label: m }))
 
 // =====================
 // 预设映射
@@ -449,6 +460,7 @@ export const commonErrorCodes = [
 // 按平台获取模型
 export function getModelsByPlatform(platform: string): string[] {
   switch (platform) {
+    case 'devin': return devinModels
     case 'openai': return openaiModels
     case 'anthropic':
     case 'claude': return claudeModels
@@ -493,6 +505,7 @@ export function getModelsByPlatform(platform: string): string[] {
 
 // 按平台获取预设映射
 export function getPresetMappingsByPlatform(platform: string) {
+  if (platform === 'devin') return devinPresetMappings
   if (platform === 'openai') return openaiPresetMappings
   if (platform === 'gemini') return geminiPresetMappings
   if (platform === 'grok' || platform === 'xai') return grokPresetMappings
