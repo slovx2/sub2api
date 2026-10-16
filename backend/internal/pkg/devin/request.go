@@ -112,15 +112,16 @@ func NewChatRequest(ctx context.Context, baseURL, token, sessionID string, body 
 			if fn.Get("name").String() == "" {
 				return nil, fmt.Errorf("tool name is required")
 			}
+			description := rewriteCodexExecCommandDescription(fn.Get("description").String())
 			if format, custom := opts.CustomTools[fn.Get("name").String()]; custom {
-				tools = append(tools, customDevinTool(fn.Get("name").String(), fn.Get("description").String(), format))
+				tools = append(tools, customDevinTool(fn.Get("name").String(), description, format))
 				continue
 			}
 			params := fn.Get("parameters").Raw
 			if params == "" {
 				params = `{"type":"object","properties":{}}`
 			}
-			tools = append(tools, DevinTool{Name: fn.Get("name").String(), Description: fn.Get("description").String(), Parameters: []byte(params)})
+			tools = append(tools, DevinTool{Name: fn.Get("name").String(), Description: description, Parameters: []byte(params)})
 		}
 	}
 	if structured != nil {
