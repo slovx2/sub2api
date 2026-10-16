@@ -112,7 +112,7 @@ func NewChatRequest(ctx context.Context, baseURL, token, sessionID string, body 
 			if fn.Get("name").String() == "" {
 				return nil, fmt.Errorf("tool name is required")
 			}
-			description := rewriteCodexExecCommandDescription(fn.Get("description").String())
+			description := rewriteCodexToolDescription(fn.Get("description").String())
 			if format, custom := opts.CustomTools[fn.Get("name").String()]; custom {
 				tools = append(tools, customDevinTool(fn.Get("name").String(), description, format))
 				continue
