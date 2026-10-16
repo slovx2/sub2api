@@ -27,7 +27,7 @@ func (s *AccountTestService) testDevinAccountConnection(c *gin.Context, account 
 	if account.GetDevinSessionToken() == "" {
 		return s.sendErrorAndEnd(c, "Devin session token is missing")
 	}
-	req, err := devin.NewChatRequest(c.Request.Context(), baseURL, account.GetDevinSessionToken(), uuid.NewString(), body)
+	req, err := devin.NewChatRequest(c.Request.Context(), baseURL, account.GetDevinSessionToken(), uuid.NewString(), body, devin.RequestOptions{ModelLevels: devinAccountModelLevels(account)})
 	if err != nil {
 		return s.sendErrorAndEnd(c, err.Error())
 	}
@@ -43,7 +43,7 @@ func (s *AccountTestService) testDevinAccountConnection(c *gin.Context, account 
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to contact Devin")
 	}
-	resp, err = devin.ConvertChatResponse(resp, model, false)
+	resp, err = devin.ConvertChatResponse(resp, model, false, false)
 	if err != nil {
 		return s.sendErrorAndEnd(c, err.Error())
 	}

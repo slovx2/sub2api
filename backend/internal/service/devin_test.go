@@ -133,11 +133,12 @@ func TestDevinSessionIsolationAndCatalog(t *testing.T) {
 	id = devinSessionID(c, a, nil)
 	c.Set("api_key", &APIKey{ID: 99})
 	require.NotEqual(t, id, devinSessionID(c, a, nil))
+	// 账号模型同步改为实时拉取（见 upstream_models_devin_test.go），不再回落内置目录。
 	s := &AccountTestService{}
-	models, body, err := s.fetchUpstreamModelList(context.Background(), a)
-	require.NoError(t, err)
-	require.Contains(t, models, "swe-2")
-	require.True(t, json.Valid(body))
+	_, _, err := s.fetchUpstreamModelList(context.Background(), a)
+	var syncErr *UpstreamModelSyncError
+	require.ErrorAs(t, err, &syncErr)
+	require.Equal(t, UpstreamModelSyncErrorConfiguration, syncErr.Kind)
 	require.Equal(t, devin.ModelIDs(), defaultModelsListCandidateIDs(PlatformDevin))
 }
 

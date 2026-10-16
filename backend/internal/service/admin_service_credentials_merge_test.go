@@ -115,3 +115,46 @@ func TestUpdateAccount_EmptyCredentialsSkipsUpdate(t *testing.T) {
 	require.Equal(t, "rt-existing", repo.account.Credentials["refresh_token"], "空 credentials 不应触碰已有 token")
 	require.Equal(t, "renamed", repo.account.Name)
 }
+
+// Devin 凭据脱敏后只剩 model_mapping；清空白名单提交 credentials:{} 也必须落库，敏感 token 保留。
+func TestUpdateAccount_EmptyCredentialsClearsDevinModelMapping(t *testing.T) {
+	accountID := int64(384)
+	repo := &updateAccountCredsRepoStub{
+		account: &Account{
+			ID:       accountID,
+			Platform: PlatformDevin,
+			Type:     AccountTypeOAuth,
+			Status:   StatusActive,
+			Credentials: map[string]any{
+				"session_token": "devin-session-token$existing",
+				"model_mapping": map[string]any{"gpt-6-astra": "gpt-6-astra"},
+			},
+		},
+	}
+	svc := &adminServiceImpl{accountRepo: repo}
+
+	_, err := svc.UpdateAccount(context.Background(), accountID, &UpdateAccountInput{Credentials: map[string]any{}})
+
+	require.NoError(t, err)
+	require.Equal(t, "devin-session-token$existing", repo.account.Credentials["session_token"])
+	require.NotContains(t, repo.account.Credentials, "model_mapping")
+}
+
+func TestUpdateAccount_NilCredentialsKeepsExisting(t *testing.T) {
+	accountID := int64(385)
+	repo := &updateAccountCredsRepoStub{
+		account: &Account{
+			ID:          accountID,
+			Platform:    PlatformAnthropic,
+			Type:        AccountTypeOAuth,
+			Status:      StatusActive,
+			Credentials: map[string]any{"refresh_token": "rt", "base_url": "https://keep.example.com"},
+		},
+	}
+	svc := &adminServiceImpl{accountRepo: repo}
+
+	_, err := svc.UpdateAccount(context.Background(), accountID, &UpdateAccountInput{})
+
+	require.NoError(t, err)
+	require.Equal(t, "https://keep.example.com", repo.account.Credentials["base_url"])
+}

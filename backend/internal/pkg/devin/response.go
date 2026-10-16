@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -30,7 +31,12 @@ type chatDecoder struct {
 	toolIDs        map[string]int
 	toolNames      map[int]string
 	toolArguments  map[int]*UTF8SplitBuffer
+	toolCustom     map[int]bool
 	lastTool       int
+	// structured 为 json_schema 模拟模式：结构化工具调用不下发，正文先缓存，收尾时统一转成正文。
+	structured     bool
+	structuredArgs map[int]*strings.Builder
+	structuredText strings.Builder
 	text, thinking UTF8SplitBuffer
 	readBytes      int
 	signature      bytes.Buffer
@@ -90,6 +96,24 @@ func (d *chatDecoder) next() (map[string]any, error) {
 			case 11:
 				reason = "content_filter"
 			}
+			if d.structured {
+				text, err := d.structuredContent()
+				if err != nil {
+					return nil, err
+				}
+				if text != "" {
+					d.queued = append(d.queued, d.chunk(map[string]any{"content": text}, nil))
+				}
+				if len(d.structuredArgs) > 0 && len(d.structuredArgs) == len(d.toolIDs) {
+					reason = "stop"
+				}
+			}
+			// custom 调用的参数以 {"input":" 开头逐段转义下发，收尾时补齐。
+			for index := 0; index < len(d.toolIDs); index++ {
+				if d.toolCustom[index] {
+					d.queued = append(d.queued, d.chunk(map[string]any{"tool_calls": []map[string]any{{"index": index, "function": map[string]any{"arguments": `"}`}}}}, nil))
+				}
+			}
 			chunk := d.chunk(map[string]any{}, reason)
 			input := d.usage.PromptTokens + d.usage.CachedTokens
 			chunk["usage"] = map[string]any{"prompt_tokens": input, "completion_tokens": d.usage.CompletionTokens, "total_tokens": input + d.usage.CompletionTokens,
@@ -146,7 +170,11 @@ func (d *chatDecoder) next() (map[string]any, error) {
 		}
 		delta := map[string]any{}
 		if text := d.text.Feed([]byte(frame.ContentText)); text != "" {
-			delta["content"] = text
+			if d.structured {
+				_, _ = d.structuredText.WriteString(text)
+			} else {
+				delta["content"] = text
+			}
 		}
 		if text := d.thinking.Feed([]byte(frame.ThinkingText)); text != "" {
 			delta["reasoning_content"] = text
@@ -179,6 +207,26 @@ func (d *chatDecoder) next() (map[string]any, error) {
 				d.toolArguments[index] = &UTF8SplitBuffer{}
 			}
 			args = d.toolArguments[index].Feed([]byte(args))
+			if first && d.structured && tc.Name == StructuredOutputToolName {
+				d.structuredArgs[index] = &strings.Builder{}
+			}
+			if builder := d.structuredArgs[index]; builder != nil {
+				_, _ = builder.WriteString(args)
+				if tc.Name != "" {
+					d.toolNames[index] = tc.Name
+				}
+				continue
+			}
+			if first && tc.IsCustomToolCall {
+				d.toolCustom[index] = true
+			}
+			if d.toolCustom[index] {
+				// 回程沿用 chat 投影的 custom 降级约定（{"input": 原始文本}），由通用桥还原为 custom_tool_call。
+				args = jsonStringFragment(args)
+				if first {
+					args = `{"input":"` + args
+				}
+			}
 			fn := map[string]any{"arguments": args}
 			if tc.Name != "" {
 				if previous := d.toolNames[index]; previous == "" {
@@ -219,6 +267,37 @@ func (d *chatDecoder) next() (map[string]any, error) {
 	}
 }
 
+// structuredContent 决定 json_schema 模拟模式的最终正文：最后一次结构化工具调用优先；
+// 同时有真实工具调用时是中间轮次，正文原样返回；否则正文必须是 JSON，不是则报错。
+func (d *chatDecoder) structuredContent() (string, error) {
+	last := -1
+	for index := range d.structuredArgs {
+		last = max(last, index)
+	}
+	if last >= 0 {
+		args := strings.TrimSpace(d.structuredArgs[last].String())
+		if !json.Valid([]byte(args)) {
+			return "", &UpstreamError{http.StatusBadGateway, "Devin returned invalid structured output"}
+		}
+		return args, nil
+	}
+	text := d.structuredText.String()
+	if len(d.toolIDs) > 0 {
+		return text, nil
+	}
+	trimmed := strings.TrimSpace(text)
+	if json.Valid([]byte(trimmed)) && (strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[")) {
+		return trimmed, nil
+	}
+	return "", &UpstreamError{http.StatusBadGateway, "Devin did not return structured output"}
+}
+
+// jsonStringFragment 返回字符串转义后的 JSON 片段（不含引号）；输入已按 UTF-8 边界切分。
+func jsonStringFragment(text string) string {
+	encoded, _ := json.Marshal(text)
+	return string(encoded[1 : len(encoded)-1])
+}
+
 func (d *chatDecoder) chunk(delta map[string]any, finish any) map[string]any {
 	return map[string]any{"id": d.id, "object": "chat.completion.chunk", "created": d.created, "model": d.model,
 		"choices": []any{map[string]any{"index": 0, "delta": delta, "finish_reason": finish}}}
@@ -226,11 +305,13 @@ func (d *chatDecoder) chunk(delta map[string]any, finish any) map[string]any {
 
 // ConvertChatResponse 在首个有效输出前检查 Connect 错误，使账号切换仍然可用。
 // 使用按需读取的适配器，不为每个请求创建常驻缓冲 goroutine。
-func ConvertChatResponse(resp *http.Response, model string, stream bool) (*http.Response, error) {
+// structured 表示请求带 json_schema（见 structuredOutputTool），结构化工具调用会转成正文。
+func ConvertChatResponse(resp *http.Response, model string, stream, structured bool) (*http.Response, error) {
 	if resp.StatusCode >= 400 {
 		return resp, nil
 	}
-	d := &chatDecoder{body: resp.Body, id: "chatcmpl-" + uuid.NewString(), model: model, created: time.Now().Unix(), toolIDs: map[string]int{}, toolNames: map[int]string{}, toolArguments: map[int]*UTF8SplitBuffer{}, lastTool: -1}
+	d := &chatDecoder{body: resp.Body, id: "chatcmpl-" + uuid.NewString(), model: model, created: time.Now().Unix(), toolIDs: map[string]int{}, toolNames: map[int]string{}, toolArguments: map[int]*UTF8SplitBuffer{}, toolCustom: map[int]bool{}, lastTool: -1,
+		structured: structured, structuredArgs: map[int]*strings.Builder{}}
 	first, err := d.next()
 	if err != nil {
 		return convertedError(resp, err)

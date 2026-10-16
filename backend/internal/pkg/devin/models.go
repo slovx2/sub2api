@@ -79,7 +79,9 @@ func NormalizeThinkingLevel(level string, budgetTokens int) string {
 
 	return ""
 }
-func ResolveDevinChatModelUID(rawModel string, thinkingLevel string, budgetTokens int) string {
+// accountLevels 返回账号同步到的思考档位（按规范化基础模型名查询），优先于内置目录；
+// 账号未同步或模型无档位时回到内置目录。
+func ResolveDevinChatModelUID(rawModel string, thinkingLevel string, budgetTokens int, accountLevels func(string) []string) string {
 	model := strings.TrimSpace(rawModel)
 	if model == "" {
 		return "swe-2-high"
@@ -139,6 +141,11 @@ func ResolveDevinChatModelUID(rawModel string, thinkingLevel string, budgetToken
 	var allowedLevels []string
 	if modelInfo != nil && modelInfo.Thinking != nil && len(modelInfo.Thinking.Levels) > 0 {
 		allowedLevels = modelInfo.Thinking.Levels
+	}
+	if accountLevels != nil {
+		if levels := accountLevels(canonicalBase); len(levels) > 0 {
+			allowedLevels = levels
+		}
 	}
 	switch canonicalBase {
 	case "swe-1-7":

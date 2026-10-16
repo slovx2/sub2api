@@ -63,7 +63,7 @@ func TestNativeRequestPreservesSystemToolsAndSignature(t *testing.T) {
 	id := EncodeDevinToolCallID("call/中文")
 	sig := packSignature([]byte("sealed.v1.test"), "sealed")
 	body := `{"model":"gpt-5.4","reasoning_effort":"high","messages":[{"role":"system","content":"Do not change my system instructions"},{"role":"user","content":"hello"},{"role":"assistant","reasoning_content":"plan","reasoning_signature":"` + sig + `","tool_calls":[{"id":"` + id + `","type":"function","function":{"name":"lookup","arguments":"{}"}}]},{"role":"tool","tool_call_id":"` + id + `","content":"done"}],"tools":[{"type":"function","function":{"name":"lookup","description":"Original tool description","parameters":{"type":"object"}}}]}`
-	req, err := NewChatRequest(context.Background(), DevinDefaultBaseURL, "devin-session-token$test", "isolated-session", []byte(body))
+	req, err := NewChatRequest(context.Background(), DevinDefaultBaseURL, "devin-session-token$test", "isolated-session", []byte(body), RequestOptions{})
 	require.NoError(t, err)
 	require.Equal(t, DevinDefaultBaseURL+DevinChatPath, req.URL.String())
 	require.Equal(t, "Basic devin-session-token$test-devin-session-token$test", req.Header.Get("Authorization"))
@@ -89,7 +89,7 @@ func TestResponseSplitUTF8ToolsLateSignatureAndUsage(t *testing.T) {
 		usageFrame(), frame(2, []byte(`{}`)),
 	}, nil)
 	for _, stream := range []bool{false, true} {
-		resp, err := ConvertChatResponse(upstream(data), "gpt-5.4", stream)
+		resp, err := ConvertChatResponse(upstream(data), "gpt-5.4", stream, false)
 		require.NoError(t, err)
 		body, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
@@ -139,15 +139,15 @@ func TestResponseRejectsErrorsAndTruncation(t *testing.T) {
 		"invalid nested tool": frame(0, field(6, string([]byte{255}))),
 	} {
 		t.Run(name, func(t *testing.T) {
-			resp, err := ConvertChatResponse(upstream(data), "swe-2", false)
+			resp, err := ConvertChatResponse(upstream(data), "swe-2", false, false)
 			require.NoError(t, err)
 			require.Equal(t, 502, resp.StatusCode)
 		})
 	}
-	resp, err := ConvertChatResponse(upstream(frame(2, []byte(`{"error":{"code":"resource_exhausted","message":"quota exhausted"}}`))), "swe-2", true)
+	resp, err := ConvertChatResponse(upstream(frame(2, []byte(`{"error":{"code":"resource_exhausted","message":"quota exhausted"}}`))), "swe-2", true, false)
 	require.NoError(t, err)
 	require.Equal(t, 429, resp.StatusCode)
-	resp, err = ConvertChatResponse(upstream(append(frame(0, field(3, "hi")), frame(2, []byte(`{"error":{"code":"unavailable"}}`))...)), "swe-2", true)
+	resp, err = ConvertChatResponse(upstream(append(frame(0, field(3, "hi")), frame(2, []byte(`{"error":{"code":"unavailable"}}`))...)), "swe-2", true, false)
 	require.NoError(t, err)
 	b, err := io.ReadAll(resp.Body)
 	require.Error(t, err)
@@ -200,7 +200,7 @@ func TestToolArgumentsUTF8SplitAndRepeatedName(t *testing.T) {
 	}
 	frames = append(frames, usageFrame()...)
 	frames = append(frames, frame(2, []byte(`{}`))...)
-	resp, err := ConvertChatResponse(upstream(frames), "swe-2", true)
+	resp, err := ConvertChatResponse(upstream(frames), "swe-2", true, false)
 	require.NoError(t, err)
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
@@ -219,7 +219,7 @@ func TestToolArgumentsUTF8SplitAndRepeatedName(t *testing.T) {
 
 func TestRequestImagesAndUnsupportedOptions(t *testing.T) {
 	body := `{"model":"swe-2","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,aW1hZ2U="}}]}]}`
-	req, err := NewChatRequest(context.Background(), DevinDefaultBaseURL, "test", "test", []byte(body))
+	req, err := NewChatRequest(context.Background(), DevinDefaultBaseURL, "test", "test", []byte(body), RequestOptions{})
 	require.NoError(t, err)
 	_, payload, err := ReadConnectFrame(req.Body)
 	require.NoError(t, err)
@@ -230,7 +230,7 @@ func TestRequestImagesAndUnsupportedOptions(t *testing.T) {
 		strings.Replace(body, `"model":`, `"tool_choice":"required","model":`, 1),
 		strings.Replace(body, `"model":`, `"response_format":{"type":"json_object"},"model":`, 1),
 	} {
-		_, err := NewChatRequest(context.Background(), DevinDefaultBaseURL, "test", "test", []byte(invalid))
+		_, err := NewChatRequest(context.Background(), DevinDefaultBaseURL, "test", "test", []byte(invalid), RequestOptions{})
 		require.Error(t, err)
 	}
 	for _, id := range []string{"call_normal", "call/中文", "cpa_tid_v1_raw", "call with space"} {

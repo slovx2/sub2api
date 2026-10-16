@@ -41,11 +41,17 @@ type DevinTool struct {
 	Name        string
 	Description string
 	Parameters  []byte
+	// Custom 为自由文本工具（字段 9）；Grammar/GrammarSyntax 对应字段 10/11，
+	// 与 Devin CLI 声明 apply_patch 的方式一致。
+	Custom        bool
+	Grammar       string
+	GrammarSyntax string
 }
 type DevinToolCall struct {
 	ID        string
 	Name      string
-	Arguments string
+	Arguments string // custom 调用时为原始输入文本
+	Custom    bool   // 字段 6，与响应侧 IsCustomToolCall 对应
 }
 type DevinToolCallDelta struct {
 	ID               string
@@ -306,6 +312,10 @@ func BuildDevinGetChatMessageRequest(
 				tcBytes = protowire.AppendTag(tcBytes, 3, protowire.BytesType)
 				tcBytes = protowire.AppendString(tcBytes, tc.Arguments)
 			}
+			if tc.Custom {
+				tcBytes = protowire.AppendTag(tcBytes, 6, protowire.VarintType)
+				tcBytes = protowire.AppendVarint(tcBytes, 1)
+			}
 			pBytes = protowire.AppendTag(pBytes, 6, protowire.BytesType)
 			pBytes = protowire.AppendBytes(pBytes, tcBytes)
 		}
@@ -397,6 +407,16 @@ func BuildDevinGetChatMessageRequest(
 		if len(tool.Parameters) > 0 {
 			tBytes = protowire.AppendTag(tBytes, 3, protowire.BytesType)
 			tBytes = protowire.AppendBytes(tBytes, tool.Parameters)
+		}
+		if tool.Custom {
+			tBytes = protowire.AppendTag(tBytes, 9, protowire.VarintType)
+			tBytes = protowire.AppendVarint(tBytes, 1)
+			if tool.Grammar != "" {
+				tBytes = protowire.AppendTag(tBytes, 10, protowire.BytesType)
+				tBytes = protowire.AppendString(tBytes, tool.Grammar)
+				tBytes = protowire.AppendTag(tBytes, 11, protowire.BytesType)
+				tBytes = protowire.AppendString(tBytes, tool.GrammarSyntax)
+			}
 		}
 		reqBytes = protowire.AppendTag(reqBytes, 10, protowire.BytesType)
 		reqBytes = protowire.AppendBytes(reqBytes, tBytes)
@@ -870,6 +890,10 @@ func ParseDevinTrailerError(payload []byte) (statusCode int, err error) {
 	case "permission_denied":
 		if strings.Contains(msgLower, "high demand") {
 			httpCode = http.StatusTooManyRequests
+		} else if strings.Contains(msgLower, "mcp configuration issue") {
+			// Devin 按请求内容（工具描述/系统提示）拒绝，换号重放也一样被拒，账号本身无异常：
+			// 按请求错误返回，避免 403 链路把整组账号逐个永久禁用。
+			httpCode = http.StatusBadRequest
 		} else {
 			httpCode = http.StatusForbidden
 		}

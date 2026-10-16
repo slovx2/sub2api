@@ -9,6 +9,10 @@ internal/cache/bounded_lru.go
 internal/runtime/executor/helps/devin_models.go
 internal/registry/models/devin_models.json
 
+model_configs.go、model_uid_split.go 的账号模型列表拉取与 UID 聚合改编自 cmd/fetch_devin_models。
+models.json 在上述目录基础上补充了账号实时列表中已出现的 gpt-6-1-sol。
+custom 工具的声明字段（9/10/11）与调用标记（6）来自对 Devin CLI 3000.11.92 的分析与实测。
+
 登录流程参考 internal/auth/devin/ 和 sdk/auth/devin.go。
 请求/响应适配参考 internal/runtime/executor/devin_executor.go。
 本项目复用 sub2api 的入站协议、账号代理、用量计费与错误处理；不引入 CPA 服务进程。

@@ -334,6 +334,8 @@ type ResponsesTool struct {
 	Description string          `json:"description,omitempty"`
 	Parameters  json.RawMessage `json:"parameters,omitempty"`
 	Strict      *bool           `json:"strict,omitempty"`
+	// type=custom 的输入格式（text 或 grammar），原生支持 custom 工具的上游需要原样转发。
+	Format json.RawMessage `json:"format,omitempty"`
 
 	// type=namespace 的子工具列表（tools 与 children 二选一，语义相同）。
 	Tools    []ResponsesTool `json:"tools,omitempty"`
@@ -592,7 +594,9 @@ func (u *ResponsesUsage) UnmarshalJSON(data []byte) error {
 
 // ResponsesInputTokensDetails breaks down input token usage.
 type ResponsesInputTokensDetails struct {
-	CachedTokens        int `json:"cached_tokens,omitempty"`
+	// OpenAI 的 input_tokens_details 总带 cached_tokens；Codex 解析时它是必填字段，
+	// 只有缓存写入、没有命中时省略会导致 response.completed 解析失败。
+	CachedTokens        int `json:"cached_tokens"`
 	AudioTokens         int `json:"audio_tokens,omitempty"`
 	CacheCreationTokens int `json:"cache_creation_tokens,omitempty"`
 	CacheWriteTokens    int `json:"cache_write_tokens,omitempty"`

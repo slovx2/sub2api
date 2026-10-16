@@ -141,6 +141,7 @@ func EffectiveResponsesTools(req *ResponsesRequest) ([]ResponsesTool, error) {
 		}
 		tools = append(tools, item.Tools...)
 	}
+	tools = unwrapDefaultFunctionNamespace(tools)
 
 	// A completed client tool search can introduce tools for the remainder of
 	// the turn. Promote them before lowering to ChatCompletions, using the same
@@ -174,6 +175,28 @@ func EffectiveResponsesTools(req *ResponsesRequest) ([]ResponsesTool, error) {
 	return tools, nil
 }
 
+// DefaultFunctionNamespace 是 Codex 承载顶层 function/custom 工具的默认命名空间，
+// 与“无命名空间”等价：responses-lite 请求把顶层工具包进它，历史调用却不带 namespace。
+const DefaultFunctionNamespace = "functions"
+
+// unwrapDefaultFunctionNamespace 把默认命名空间的子工具还原为顶层工具，使 chat 投影
+// 保留 custom 子工具（如 exec），并让工具名与历史调用一致。
+func unwrapDefaultFunctionNamespace(tools []ResponsesTool) []ResponsesTool {
+	out := make([]ResponsesTool, 0, len(tools))
+	for _, tool := range tools {
+		if tool.Type != "namespace" || tool.Name != DefaultFunctionNamespace {
+			out = append(out, tool)
+			continue
+		}
+		children := tool.Tools
+		if len(children) == 0 {
+			children = tool.Children
+		}
+		out = append(out, children...)
+	}
+	return out
+}
+
 // CustomToolNames 收集 Responses 请求中 custom/freeform 工具的名字。chat 桥回程时
 // 需要据此把模型对这些工具的调用还原为 custom_tool_call 项（codex 只按该类型路由）。
 func CustomToolNames(tools []ResponsesTool) map[string]bool {
@@ -184,6 +207,21 @@ func CustomToolNames(tools []ResponsesTool) map[string]bool {
 				out = make(map[string]bool)
 			}
 			out[tool.Name] = true
+		}
+	}
+	return out
+}
+
+// CustomToolFormats 返回顶层 custom 工具名到 format 原文的映射（无 format 时为 nil 值），
+// 供原生支持 custom 工具的上游（如 Devin）按自由文本工具声明。
+func CustomToolFormats(tools []ResponsesTool) map[string]json.RawMessage {
+	var out map[string]json.RawMessage
+	for _, tool := range tools {
+		if tool.Type == "custom" && tool.Name != "" {
+			if out == nil {
+				out = make(map[string]json.RawMessage)
+			}
+			out[tool.Name] = tool.Format
 		}
 	}
 	return out
@@ -497,7 +535,7 @@ func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessa
 			name := rawString(item["name"])
 			// namespace 子工具的历史调用带 namespace 字段，需与请求方向的摊平
 			// 命名（namespaceChildrenToChatTools）保持一致。
-			if ns := rawString(item["namespace"]); ns != "" {
+			if ns := rawString(item["namespace"]); ns != "" && ns != DefaultFunctionNamespace {
 				name = flattenNamespaceToolName(ns, name)
 			}
 			toolCall := ChatToolCall{
@@ -1556,6 +1594,8 @@ func ChatUsageToResponsesUsage(usage *ChatUsage) *ResponsesUsage {
 	if out.TotalTokens == 0 {
 		out.TotalTokens = out.InputTokens + out.OutputTokens
 	}
+	// 与 OpenAI 原生一致：input_tokens_details.cached_tokens 始终存在（Codex 解析 ResponseCompleted 依赖它）。
+	out.InputTokensDetails = &ResponsesInputTokensDetails{}
 	if usage.PromptTokensDetails != nil && (usage.PromptTokensDetails.CachedTokens > 0 ||
 		usage.PromptTokensDetails.CacheCreationTokens > 0 || usage.PromptTokensDetails.CacheWriteTokens > 0) {
 		out.InputTokensDetails = &ResponsesInputTokensDetails{

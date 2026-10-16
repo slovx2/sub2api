@@ -693,7 +693,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	}
 	if account.IsCredentialShadow() && input.Credentials != nil {
 		account.Credentials = sanitizeSparkShadowCredentials(input.Credentials)
-	} else if len(input.Credentials) > 0 {
+	} else if input.Credentials != nil {
+		// 与 Extra 一致区分“未提供(nil)”与“显式提交”：脱敏后只剩 model_mapping 的账号
+		// （如 Devin）清空白名单时提交 credentials:{}，也必须落库。
 		// 敏感子键采用"incoming 没提供就保留"的合并语义：前端响应已脱敏，
 		// 全对象 PUT 编辑时不会再带回 token，避免覆盖时清空已有凭证。
 		account.Credentials = MergePreservingSensitiveCreds(account.Credentials, input.Credentials)

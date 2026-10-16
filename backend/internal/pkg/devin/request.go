@@ -13,9 +13,18 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+// RequestOptions 携带 chat 投影里丢失的入站信息。
+type RequestOptions struct {
+	// CustomTools 为入站 custom 工具名到 format 原文的映射。chat 投影把它们降级成
+	// {"input"} 函数，这里按名字还原为 Devin 原生自由文本工具。
+	CustomTools map[string]json.RawMessage
+	// ModelLevels 返回账号同步到的模型思考档位，用于解析内置目录之外的新模型（如 gpt-6-1-sol）。
+	ModelLevels func(model string) []string
+}
+
 // NewChatRequest 使用 CPA 的字段编号和客户端元数据构建原生 Devin 请求。
 // sessionID 由调用方按用户及账号隔离；不会把客户端凭证传给上游。
-func NewChatRequest(ctx context.Context, baseURL, token, sessionID string, body []byte) (*http.Request, error) {
+func NewChatRequest(ctx context.Context, baseURL, token, sessionID string, body []byte, opts RequestOptions) (*http.Request, error) {
 	if !json.Valid(body) {
 		return nil, fmt.Errorf("invalid chat JSON")
 	}
@@ -29,8 +38,9 @@ func NewChatRequest(ctx context.Context, baseURL, token, sessionID string, body 
 	if choice := root.Get("tool_choice"); choice.Exists() && choice.String() != "auto" && choice.String() != "none" {
 		return nil, fmt.Errorf("Devin does not support forced tool_choice")
 	}
-	if format := root.Get("response_format.type").String(); format != "" && format != "text" {
-		return nil, fmt.Errorf("Devin does not support response_format=%s", format)
+	structured, err := structuredOutputTool(root.Get("response_format"))
+	if err != nil {
+		return nil, err
 	}
 	var system []string
 	var prompts []DevinPrompt
@@ -80,6 +90,10 @@ func NewChatRequest(ctx context.Context, baseURL, token, sessionID string, body 
 			if call.ID == "" || call.Name == "" {
 				return nil, fmt.Errorf("tool call id and name are required")
 			}
+			if _, custom := opts.CustomTools[call.Name]; custom {
+				call.Custom = true
+				call.Arguments = gjson.Get(call.Arguments, "input").String()
+			}
 			pending[call.ID] = true
 			p.ToolCalls = append(p.ToolCalls, call)
 		}
@@ -98,6 +112,10 @@ func NewChatRequest(ctx context.Context, baseURL, token, sessionID string, body 
 			if fn.Get("name").String() == "" {
 				return nil, fmt.Errorf("tool name is required")
 			}
+			if format, custom := opts.CustomTools[fn.Get("name").String()]; custom {
+				tools = append(tools, customDevinTool(fn.Get("name").String(), fn.Get("description").String(), format))
+				continue
+			}
 			params := fn.Get("parameters").Raw
 			if params == "" {
 				params = `{"type":"object","properties":{}}`
@@ -105,8 +123,17 @@ func NewChatRequest(ctx context.Context, baseURL, token, sessionID string, body 
 			tools = append(tools, DevinTool{Name: fn.Get("name").String(), Description: fn.Get("description").String(), Parameters: []byte(params)})
 		}
 	}
+	if structured != nil {
+		for _, tool := range tools {
+			if tool.Name == StructuredOutputToolName {
+				return nil, fmt.Errorf("tool name %q is reserved for Devin structured output", StructuredOutputToolName)
+			}
+		}
+		tools = append(tools, *structured)
+		system = append(system, structuredOutputInstruction)
+	}
 	model := root.Get("model").String()
-	uid := ResolveDevinChatModelUID(model, root.Get("reasoning_effort").String(), 0)
+	uid := ResolveDevinChatModelUID(model, root.Get("reasoning_effort").String(), 0, opts.ModelLevels)
 	maxTokens := int(root.Get("max_completion_tokens").Int())
 	if maxTokens <= 0 {
 		maxTokens = int(root.Get("max_tokens").Int())
@@ -132,6 +159,16 @@ func NewChatRequest(ctx context.Context, baseURL, token, sessionID string, body 
 	req.Header.Set("Sentry-Trace", GenerateDevinSentryTrace())
 	req.Header["User-Agent"] = []string{""}
 	return req, nil
+}
+
+// customDevinTool 按 Responses custom 工具的 format 声明自由文本工具；text 或缺省格式只带 custom 标记。
+func customDevinTool(name, description string, format json.RawMessage) DevinTool {
+	tool := DevinTool{Name: name, Description: description, Custom: true}
+	if gjson.GetBytes(format, "type").String() == "grammar" {
+		tool.Grammar = gjson.GetBytes(format, "definition").String()
+		tool.GrammarSyntax = gjson.GetBytes(format, "syntax").String()
+	}
+	return tool
 }
 
 func chatContent(content gjson.Result) (string, []DevinImage, error) {

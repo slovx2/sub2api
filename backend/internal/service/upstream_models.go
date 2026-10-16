@@ -737,9 +737,7 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 		return models, nil, err
 	}
 	if account.IsDevin() {
-		body := devinModelsResponse().Body
-		models, err := extractUpstreamModelIDs(body)
-		return models, body, err
+		return s.fetchDevinUpstreamModelList(ctx, account)
 	}
 
 	if s.httpUpstream == nil {

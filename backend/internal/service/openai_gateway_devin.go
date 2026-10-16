@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/devin"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -19,6 +20,26 @@ func rememberDevinRequest(c *gin.Context, account *Account, body []byte) {
 	if account.IsDevin() && c != nil {
 		c.Set("devin_original_body", string(body))
 	}
+}
+
+const devinCustomToolsContextKey = "devin_custom_tools"
+
+// rememberDevinCustomTools 记下入站 custom 工具的 format；chat 投影会把它们降级成函数，
+// Devin 出站时据此还原为原生自由文本工具。
+func rememberDevinCustomTools(c *gin.Context, account *Account, tools []apicompat.ResponsesTool) {
+	if account.IsDevin() && c != nil {
+		c.Set(devinCustomToolsContextKey, apicompat.CustomToolFormats(tools))
+	}
+}
+
+func devinRequestOptions(c *gin.Context, account *Account) devin.RequestOptions {
+	opts := devin.RequestOptions{ModelLevels: devinAccountModelLevels(account)}
+	if c != nil {
+		if formats, ok := c.Get(devinCustomToolsContextKey); ok {
+			opts.CustomTools, _ = formats.(map[string]json.RawMessage)
+		}
+	}
+	return opts
 }
 
 // 转换前检查服务端工具，避免通用 CC 转换器丢弃 Devin 无法执行的声明。
@@ -98,7 +119,7 @@ func (s *OpenAIGatewayService) sendDevinUpstreamRequest(ctx context.Context, c *
 		return nil, fmt.Errorf("Devin session_token is required")
 	}
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
-	req, err := devin.NewChatRequest(upstreamCtx, baseURL, token, devinSessionID(c, account, body), body)
+	req, err := devin.NewChatRequest(upstreamCtx, baseURL, token, devinSessionID(c, account, body), body, devinRequestOptions(c, account))
 	releaseUpstreamCtx()
 	if err != nil {
 		payload, _ := json.Marshal(map[string]any{"error": map[string]string{"type": "invalid_request_error", "message": err.Error()}})
@@ -113,7 +134,18 @@ func (s *OpenAIGatewayService) sendDevinUpstreamRequest(ctx context.Context, c *
 	if err != nil {
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
 	}
-	return devin.ConvertChatResponse(resp, gjson.GetBytes(body, "model").String(), stream)
+	return devin.ConvertChatResponse(resp, gjson.GetBytes(body, "model").String(), stream, gjson.GetBytes(body, "response_format.type").String() == "json_schema")
+}
+
+// devinAccountModelLevels 读取账号同步上游模型时保存的思考档位。
+func devinAccountModelLevels(account *Account) func(string) []string {
+	return func(model string) []string {
+		metadata, ok := account.GetUpstreamModelMetadata(model)
+		if !ok {
+			return nil
+		}
+		return metadata.SupportedReasoningLevels
+	}
 }
 
 // Devin 模型目录来自固定版本 CPA；账号授权范围由上游最终判定。
