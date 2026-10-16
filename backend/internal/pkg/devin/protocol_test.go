@@ -97,7 +97,9 @@ func TestResponseSplitUTF8ToolsLateSignatureAndUsage(t *testing.T) {
 		if !stream {
 			require.Equal(t, "思考", gjson.GetBytes(body, "choices.0.message.reasoning_content").String())
 			require.Equal(t, `{"q":"ok"}`, gjson.GetBytes(body, "choices.0.message.tool_calls.0.function.arguments").String())
-			require.Equal(t, int64(12), gjson.GetBytes(body, "usage.prompt_tokens").Int())
+			// 用例用量帧：uncached=7、cache write=2、cache read=5，总输入按三桶之和上报。
+			require.Equal(t, int64(14), gjson.GetBytes(body, "usage.prompt_tokens").Int())
+			require.Equal(t, int64(5), gjson.GetBytes(body, "usage.prompt_tokens_details.cached_tokens").Int())
 			require.Equal(t, int64(2), gjson.GetBytes(body, "usage.prompt_tokens_details.cache_creation_tokens").Int())
 			continue
 		}

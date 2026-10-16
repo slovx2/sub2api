@@ -115,7 +115,10 @@ func (d *chatDecoder) next() (map[string]any, error) {
 				}
 			}
 			chunk := d.chunk(map[string]any{}, reason)
-			input := d.usage.PromptTokens + d.usage.CachedTokens
+			// Devin 的用量是三个互不重叠的桶：uncached prompt、cache write、cache read。
+			// 平台约定 prompt_tokens 是总输入（含缓存读写明细），记账时再拆回互斥桶；
+			// 少算 cache write 会让 input 被减成 0，所以三桶都要计入。
+			input := d.usage.PromptTokens + d.usage.CachedTokens + d.usage.CacheWriteTokens
 			chunk["usage"] = map[string]any{"prompt_tokens": input, "completion_tokens": d.usage.CompletionTokens, "total_tokens": input + d.usage.CompletionTokens,
 				"prompt_tokens_details": map[string]any{"cached_tokens": d.usage.CachedTokens, "cache_creation_tokens": d.usage.CacheWriteTokens}}
 			d.queued = append(d.queued, chunk)

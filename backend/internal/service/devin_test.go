@@ -79,7 +79,9 @@ func TestDevinGatewayAllEntrypoints(t *testing.T) {
 				require.Equal(t, "Basic devin-session-token$test-devin-session-token$test", up.lastReq.Header.Get("Authorization"))
 				require.Equal(t, devin.DevinChatPath, GetActualOpenAIUpstreamEndpoint(c))
 				require.Contains(t, rec.Body.String(), "ok")
-				require.Equal(t, 12, result.Usage.InputTokens)
+				// 用量帧 uncached=7 / cache write=2 / cache read=5：InputTokens 记总输入，
+				// 计费时再拆回互斥桶（7 走 input 价、5 走 cache read、2 走 cache write）。
+				require.Equal(t, 14, result.Usage.InputTokens)
 				require.Equal(t, 3, result.Usage.OutputTokens)
 				require.Equal(t, 5, result.Usage.CacheReadInputTokens)
 				require.Equal(t, 2, result.Usage.CacheCreationInputTokens)
