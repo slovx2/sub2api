@@ -1511,13 +1511,11 @@ func (s *GatewayService) resolveCompositeModelOwnership(ctx context.Context, gro
 		platforms[platform] = struct{}{}
 	}
 
-	ownership := CompositeModelOwnership{}
-	if len(platforms) == 1 {
-		for platform := range platforms {
-			ownership.TargetPlatform = platform
-		}
+	ownership := CompositeModelOwnership{Platforms: orderCompositePlatforms(platforms)}
+	if len(ownership.Platforms) == 1 {
+		ownership.TargetPlatform = ownership.Platforms[0]
 		ownership.Matched = true
-	} else if len(platforms) > 1 {
+	} else if len(ownership.Platforms) > 1 {
 		ownership.Ambiguous = true
 	}
 

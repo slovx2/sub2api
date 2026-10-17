@@ -113,8 +113,21 @@ func (r *CompositeRouteResolver) Resolve(ctx context.Context, groupID int64, mod
 				return decision, fmt.Errorf("resolve account model ownership: %w", err)
 			}
 		} else if ownership.Ambiguous {
-			decision.Reason = "model is exposed by multiple provider platforms"
-			return decision, nil
+			if !compositePlatformsMergeable(ownership.Platforms) {
+				decision.Conflict = true
+				decision.Reason = "model is exposed by multiple provider platforms that cannot be scheduled together: " + strings.Join(ownership.Platforms, ", ")
+				return decision, nil
+			}
+			return CompositeRouteDecision{
+				Matched:            true,
+				Source:             CompositeRouteSourceAccount,
+				GroupID:            groupID,
+				PublicModel:        model,
+				TargetPlatform:     ownership.Platforms[0],
+				UpstreamModel:      model,
+				Endpoint:           endpoint,
+				CandidatePlatforms: append([]string(nil), ownership.Platforms...),
+			}, nil
 		} else if ownership.Matched {
 			platform := strings.TrimSpace(ownership.TargetPlatform)
 			if !isConcreteRequestPlatform(platform) {

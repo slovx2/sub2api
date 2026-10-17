@@ -20,6 +20,10 @@ const (
 	// CompositeRouteSource 标识 composite 解析结果来自显式路由还是内置模型探测。
 	CompositeRouteSource Key = "ctx_composite_route_source"
 
+	// CompositeCandidatePlatforms 是 composite 分组中同时认领请求模型的多个平台；
+	// 调度器在这些平台的账号间合并选号。
+	CompositeCandidatePlatforms Key = "ctx_composite_candidate_platforms"
+
 	// RequestID 为服务端生成/透传的请求 ID。
 	RequestID Key = "ctx_request_id"
 

@@ -582,6 +582,14 @@ func compositeTargetPlatformMiddleware(resolver *service.CompositeRouteResolver)
 				c.Abort()
 				return
 			}
+			if decision.Conflict {
+				c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{
+					"type":    "invalid_request_error",
+					"message": "Model '" + model + "' is provided by multiple platforms that cannot be scheduled together; ask the administrator to add a composite model route for it (" + decision.Reason + ")",
+				}})
+				c.Abort()
+				return
+			}
 			if decision.Matched {
 				c.Request = c.Request.WithContext(service.WithCompositeRouteDecision(c.Request.Context(), decision))
 				if upstreamModel := strings.TrimSpace(decision.UpstreamModel); upstreamModel != "" && upstreamModel != model && gjson.ValidBytes(body) {

@@ -367,3 +367,60 @@ func TestCompositeLiveRouteDispatchesBySessionModelNotTopLevelAlias(t *testing.T
 
 	require.Equal(t, http.StatusNoContent, w.Code)
 }
+
+func newCompositeOwnershipTestRouter(t *testing.T, platforms []string, handler gin.HandlerFunc) *gin.Engine {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	resolver := service.NewCompositeRouteResolver(compositeRouteRepoStub{})
+	resolver.SetModelOwnershipResolver(func(context.Context, int64, string) (service.CompositeModelOwnership, error) {
+		return service.CompositeModelOwnership{Ambiguous: true, Platforms: platforms}, nil
+	})
+	router := gin.New()
+	router.Use(gin.HandlerFunc(servermiddleware.APIKeyAuthMiddleware(func(c *gin.Context) {
+		groupID := int64(1)
+		c.Set(string(servermiddleware.ContextKeyAPIKey), &service.APIKey{
+			GroupID: &groupID,
+			Group:   &service.Group{ID: groupID, Platform: service.PlatformComposite},
+		})
+		c.Next()
+	})))
+	router.Use(compositeTargetPlatformMiddleware(resolver))
+	router.POST("/v1/chat/completions", handler)
+	return router
+}
+
+func TestCompositeTargetPlatformMiddlewareMergesMultiProtocolOwners(t *testing.T) {
+	router := newCompositeOwnershipTestRouter(t, []string{service.PlatformDeepseek, service.PlatformOpenCodeGo}, func(c *gin.Context) {
+		platform, ok := service.ResolvedTargetPlatformFromContext(c.Request.Context())
+		require.True(t, ok)
+		require.Equal(t, service.PlatformDeepseek, platform)
+		candidates, ok := service.CompositeCandidatePlatformsFromContext(c.Request.Context())
+		require.True(t, ok)
+		require.Equal(t, []string{service.PlatformDeepseek, service.PlatformOpenCodeGo}, candidates)
+		require.Equal(t, service.PlatformDeepseek, getGroupPlatform(c))
+		c.Status(http.StatusNoContent)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"deepseek-flash","messages":[]}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusNoContent, w.Code)
+}
+
+func TestCompositeTargetPlatformMiddlewareRejectsUnmergeableOwners(t *testing.T) {
+	router := newCompositeOwnershipTestRouter(t, []string{service.PlatformAnthropic, service.PlatformDeepseek}, func(c *gin.Context) {
+		t.Fatal("handler must not run for an unmergeable ownership conflict")
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"shared-alias","messages":[]}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.Contains(t, w.Body.String(), "invalid_request_error")
+	require.Contains(t, w.Body.String(), "composite model route")
+	require.Contains(t, w.Body.String(), "anthropic, deepseek")
+}

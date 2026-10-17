@@ -476,6 +476,8 @@ func setOpsSelectedAccount(c *gin.Context, accountID int64, platform ...string) 
 			p := strings.TrimSpace(platform[0])
 			if p != "" {
 				ctx = context.WithValue(ctx, ctxkey.Platform, p)
+				// composite 多平台候选：目标平台跟随实际选中的账号。
+				ctx = service.RebindCompositeSelectedPlatform(ctx, p)
 			}
 		}
 		c.Request = c.Request.WithContext(ctx)

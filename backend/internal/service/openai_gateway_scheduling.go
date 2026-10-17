@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -401,7 +402,7 @@ func openAICompatibleAccountEligibilityFailureReasonBeforeProfit(ctx context.Con
 			return "account_model_not_owned"
 		}
 	}
-	if account.Platform != platform || !account.IsOpenAICompatible() {
+	if !openAIRequestPlatformMatches(ctx, account.Platform, platform) || !account.IsOpenAICompatible() {
 		return "platform_mismatch"
 	}
 	if !account.IsSchedulableForModelWithContext(ctx, requestedModel) {
@@ -1502,6 +1503,30 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 
 func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, groupID *int64, platform string) ([]Account, error) {
 	platform = NormalizeOpenAICompatiblePlatform(platform)
+	candidates, ok := CompositeCandidatePlatformsFromContext(ctx)
+	if !ok || !slices.Contains(candidates, platform) {
+		return s.listSchedulableAccountsForPlatform(ctx, groupID, platform)
+	}
+	// composite 多平台候选：合并各平台的可调度账号，交给同一套优先级/负载选号。
+	var merged []Account
+	seen := make(map[int64]struct{})
+	for _, candidate := range candidates {
+		accounts, err := s.listSchedulableAccountsForPlatform(ctx, groupID, candidate)
+		if err != nil {
+			return nil, err
+		}
+		for _, account := range accounts {
+			if _, dup := seen[account.ID]; dup {
+				continue
+			}
+			seen[account.ID] = struct{}{}
+			merged = append(merged, account)
+		}
+	}
+	return merged, nil
+}
+
+func (s *OpenAIGatewayService) listSchedulableAccountsForPlatform(ctx context.Context, groupID *int64, platform string) ([]Account, error) {
 	if s.schedulerSnapshot != nil {
 		accounts, _, err := s.schedulerSnapshot.ListSchedulableAccounts(ctx, groupID, platform, false)
 		if err != nil {

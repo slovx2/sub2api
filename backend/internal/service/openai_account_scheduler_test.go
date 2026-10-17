@@ -1280,7 +1280,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_AccountModelRouteOnlyUs
 	repo := schedulerTestOpenAIAccountRepo{accounts: []Account{owner, nonOwner}}
 	ownership, err := (&GatewayService{accountRepo: repo}).resolveCompositeModelOwnership(ctx, groupID, "team-alias")
 	require.NoError(t, err)
-	require.Equal(t, CompositeModelOwnership{TargetPlatform: PlatformOpenAI, Matched: true}, ownership)
+	require.Equal(t, CompositeModelOwnership{TargetPlatform: PlatformOpenAI, Matched: true, Platforms: []string{PlatformOpenAI}}, ownership)
 	ctx = WithCompositeRouteDecision(ctx, CompositeRouteDecision{
 		Matched: true, Source: CompositeRouteSourceAccount, GroupID: groupID,
 		PublicModel: "team-alias", TargetPlatform: ownership.TargetPlatform, UpstreamModel: "team-alias",
@@ -3950,7 +3950,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_LegacyAccountModelRoute
 	repo := schedulerTestOpenAIAccountRepo{accounts: []Account{owner, nonOwner}}
 	ownership, err := (&GatewayService{accountRepo: repo}).resolveCompositeModelOwnership(ctx, groupID, "team-alias")
 	require.NoError(t, err)
-	require.Equal(t, CompositeModelOwnership{TargetPlatform: PlatformOpenAI, Matched: true}, ownership)
+	require.Equal(t, CompositeModelOwnership{TargetPlatform: PlatformOpenAI, Matched: true, Platforms: []string{PlatformOpenAI}}, ownership)
 	ctx = WithCompositeRouteDecision(ctx, CompositeRouteDecision{
 		Matched: true, Source: CompositeRouteSourceAccount, GroupID: groupID,
 		PublicModel: "team-alias", TargetPlatform: ownership.TargetPlatform, UpstreamModel: "team-alias",

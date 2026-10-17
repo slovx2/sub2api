@@ -32,6 +32,8 @@ type CompositeModelOwnership struct {
 	TargetPlatform string
 	Matched        bool
 	Ambiguous      bool
+	// Platforms 是认领该模型的全部平台，按 composite 优先级排序。
+	Platforms []string
 }
 
 type CompositeModelOwnershipResolver func(context.Context, int64, string) (CompositeModelOwnership, error)
@@ -73,6 +75,11 @@ type CompositeRouteDecision struct {
 	Endpoint       string               `json:"endpoint"`
 	Route          *CompositeModelRoute `json:"route,omitempty"`
 	Reason         string               `json:"reason,omitempty"`
+	// CandidatePlatforms 非空表示多个平台同时认领该模型，调度器在这些平台的
+	// 账号间合并选号；TargetPlatform 为其中优先级最高的平台。
+	CandidatePlatforms []string `json:"candidate_platforms,omitempty"`
+	// Conflict 表示多个平台认领该模型但无法合并调度，需要配置显式路由。
+	Conflict bool `json:"conflict,omitempty"`
 }
 
 type CompositeRouteInput struct {

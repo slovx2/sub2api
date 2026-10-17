@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"slices"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
@@ -46,7 +47,70 @@ func WithCompositeRouteDecision(ctx context.Context, decision CompositeRouteDeci
 	if source := strings.TrimSpace(decision.Source); source != "" {
 		ctx = context.WithValue(ctx, ctxkey.CompositeRouteSource, source)
 	}
+	if len(decision.CandidatePlatforms) > 1 {
+		ctx = context.WithValue(ctx, ctxkey.CompositeCandidatePlatforms, append([]string(nil), decision.CandidatePlatforms...))
+	}
 	return ctx
+}
+
+// CompositeCandidatePlatformsFromContext 返回多个平台同时认领请求模型时的候选平台集合。
+func CompositeCandidatePlatformsFromContext(ctx context.Context) ([]string, bool) {
+	if ctx == nil {
+		return nil, false
+	}
+	platforms, ok := ctx.Value(ctxkey.CompositeCandidatePlatforms).([]string)
+	if !ok || len(platforms) < 2 {
+		return nil, false
+	}
+	return platforms, true
+}
+
+// RebindCompositeSelectedPlatform 在多平台候选的请求选中账号后，把目标平台改为
+// 该账号的平台，让转发、计费和日志按真实平台处理。不在候选集合内时原样返回。
+func RebindCompositeSelectedPlatform(ctx context.Context, platform string) context.Context {
+	platforms, ok := CompositeCandidatePlatformsFromContext(ctx)
+	if !ok || !slices.Contains(platforms, platform) {
+		return ctx
+	}
+	return WithResolvedTargetPlatform(ctx, platform)
+}
+
+// openAIRequestPlatformMatches 判断账号平台是否可调度到本次请求：默认要求与
+// platform 一致；多平台候选时，platform 与账号平台都在候选集合内即可。
+func openAIRequestPlatformMatches(ctx context.Context, accountPlatform, platform string) bool {
+	if accountPlatform == platform {
+		return true
+	}
+	platforms, ok := CompositeCandidatePlatformsFromContext(ctx)
+	return ok && slices.Contains(platforms, platform) && slices.Contains(platforms, accountPlatform)
+}
+
+// compositePlatformsMergeable 报告多个认领平台能否合并调度：只有全部为多协议
+// API Key 供应商（同走 OpenAI 网关、选号前无平台专属逻辑）时才可合并。
+func compositePlatformsMergeable(platforms []string) bool {
+	if len(platforms) < 2 {
+		return false
+	}
+	for _, platform := range platforms {
+		if !IsMultiProtocolAPIKeyProvider(platform) {
+			return false
+		}
+	}
+	return true
+}
+
+// orderCompositePlatforms 按 composite 平台优先级输出集合中的平台。
+func orderCompositePlatforms(set map[string]struct{}) []string {
+	if len(set) == 0 {
+		return nil
+	}
+	ordered := make([]string, 0, len(set))
+	for _, platform := range domain.CompositePrecedencePlatformIDs() {
+		if _, ok := set[platform]; ok {
+			ordered = append(ordered, platform)
+		}
+	}
+	return ordered
 }
 
 func ResolvedUpstreamModelFromContext(ctx context.Context) (string, bool) {
@@ -187,14 +251,16 @@ func (s *GatewayService) resolveCompositeRouteDecision(ctx context.Context, grou
 		if resolvedSource, sourceOK := CompositeRouteSourceFromContext(ctx); sourceOK {
 			source = resolvedSource
 		}
+		candidates, _ := CompositeCandidatePlatformsFromContext(ctx)
 		return CompositeRouteDecision{
-			Matched:        true,
-			Source:         source,
-			GroupID:        group.ID,
-			PublicModel:    requestedModel,
-			TargetPlatform: platform,
-			UpstreamModel:  upstreamModel,
-			Endpoint:       normalizeCompositeRouteEndpoint(endpoint),
+			Matched:            true,
+			Source:             source,
+			GroupID:            group.ID,
+			PublicModel:        requestedModel,
+			TargetPlatform:     platform,
+			UpstreamModel:      upstreamModel,
+			Endpoint:           normalizeCompositeRouteEndpoint(endpoint),
+			CandidatePlatforms: append([]string(nil), candidates...),
 		}, true, nil
 	}
 	decision, err := s.compositeResolver.Resolve(ctx, group.ID, requestedModel, endpoint)

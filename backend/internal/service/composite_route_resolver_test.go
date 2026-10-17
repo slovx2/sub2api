@@ -208,19 +208,45 @@ func TestCompositeRouteResolverExplicitRouteBeatsAccountOwnership(t *testing.T) 
 	require.Equal(t, "gpt-5", decision.UpstreamModel)
 }
 
-// Scenario: 跨平台同名别名不被猜测
-func TestCompositeRouteResolverDoesNotGuessAmbiguousAccountOwnership(t *testing.T) {
+// Scenario: 跨链路的多平台同名别名不被猜测，标记为冲突
+func TestCompositeRouteResolverFlagsUnmergeableAmbiguousAccountOwnership(t *testing.T) {
+	for _, platforms := range [][]string{
+		{PlatformAnthropic, PlatformDeepseek},
+		{PlatformOpenAI, PlatformDeepseek},
+		{PlatformGrok, PlatformOpenCodeGo},
+	} {
+		resolver := NewCompositeRouteResolver(nil)
+		resolver.SetModelOwnershipResolver(func(context.Context, int64, string) (CompositeModelOwnership, error) {
+			return CompositeModelOwnership{Ambiguous: true, Platforms: platforms}, nil
+		})
+
+		decision, err := resolver.Resolve(context.Background(), 7, "shared-alias", CompositeRouteEndpointChatCompletions)
+
+		require.NoError(t, err)
+		require.False(t, decision.Matched, "platforms=%v", platforms)
+		require.True(t, decision.Conflict, "platforms=%v", platforms)
+		require.Empty(t, decision.TargetPlatform)
+		require.Empty(t, decision.CandidatePlatforms)
+		require.Contains(t, decision.Reason, "cannot be scheduled together")
+	}
+}
+
+// Scenario: 多协议 API Key 供应商同名别名合并为候选集合
+func TestCompositeRouteResolverMergesMultiProtocolAccountOwnership(t *testing.T) {
 	resolver := NewCompositeRouteResolver(nil)
 	resolver.SetModelOwnershipResolver(func(context.Context, int64, string) (CompositeModelOwnership, error) {
-		return CompositeModelOwnership{Ambiguous: true}, nil
+		return CompositeModelOwnership{Ambiguous: true, Platforms: []string{PlatformDeepseek, PlatformOpenCodeGo}}, nil
 	})
 
-	decision, err := resolver.Resolve(context.Background(), 7, "shared-alias", CompositeRouteEndpointChatCompletions)
+	decision, err := resolver.Resolve(context.Background(), 7, "deepseek-flash", CompositeRouteEndpointChatCompletions)
 
 	require.NoError(t, err)
-	require.False(t, decision.Matched)
-	require.Empty(t, decision.TargetPlatform)
-	require.Equal(t, "model is exposed by multiple provider platforms", decision.Reason)
+	require.True(t, decision.Matched)
+	require.False(t, decision.Conflict)
+	require.Equal(t, CompositeRouteSourceAccount, decision.Source)
+	require.Equal(t, PlatformDeepseek, decision.TargetPlatform)
+	require.Equal(t, "deepseek-flash", decision.UpstreamModel)
+	require.Equal(t, []string{PlatformDeepseek, PlatformOpenCodeGo}, decision.CandidatePlatforms)
 }
 
 func TestCompositeRouteResolverOwnershipLookupErrorFallsBackOnlyForDetectableModels(t *testing.T) {
