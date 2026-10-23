@@ -79,7 +79,7 @@ func needsOpenAIResponsesClientToolAdaptation(body []byte) bool {
 		}
 		return !needsAdaptation
 	}
-	visit(gjson.ParseBytes(body))
+	visit(parseRawJSONView(body))
 	return needsAdaptation
 }
 
@@ -1912,6 +1912,15 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	// pendingLines 在首个可见输出前保留前导事件，确保无输出失败仍可安全 failover。
 	pendingLines := make([]string, 0, 8)
 
+	// 上游 context 与客户端脱钩且 Scan 阻塞读取：由看门狗在上游空闲超时、
+	// 客户端断开（无输出立即、有输出限时排空）时关闭上游 body，及时释放请求资源。
+	streamIdleTimeout := time.Duration(0)
+	if s.cfg != nil && s.cfg.Gateway.StreamDataIntervalTimeout > 0 {
+		streamIdleTimeout = time.Duration(s.cfg.Gateway.StreamDataIntervalTimeout) * time.Second
+	}
+	watchdog := startOpenAIPassthroughStreamWatchdog(ctx, resp.Body, streamIdleTimeout, openAIPassthroughDisconnectDrainTimeout)
+	defer watchdog.Stop()
+
 	// ── 首个可见输出之前的下游 keepalive ──────────────────────────────────
 	//
 	// 与 Forward 路径同源的问题。openai_gateway_response_handling.go 里那句注释
@@ -1987,6 +1996,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			return
 		}
 		clientOutputStarted = true
+		watchdog.MarkOutputStarted()
 		failureDelivered = true
 		flushPending = true
 		flushPendingOutput()
@@ -2014,6 +2024,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	}
 
 	for documentScanner.Scan() {
+		watchdog.Touch()
 		line := documentScanner.Text()
 		if eventType, ok := extractOpenAISSEEventLine(line); ok {
 			pendingSSEEventType = eventType
@@ -2221,6 +2232,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 				logger.LegacyPrintf("service.openai_gateway", "[OpenAI passthrough] Client disconnected during streaming, continue draining upstream for usage: account=%d", account.ID)
 			} else {
 				clientOutputStarted = true
+				watchdog.MarkOutputStarted()
 				flushPending = true
 				if line == "" {
 					flushPendingOutput()
@@ -2240,6 +2252,30 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			break
 		}
 	}
+	watchdog.Stop()
+	// watchdogCutError 返回看门狗主动关闭上游对应的错误；未触发时返回 nil。
+	watchdogCutError := func() error {
+		reason := watchdog.Reason()
+		switch reason {
+		case openAIPassthroughStreamCutNone:
+			return nil
+		case openAIPassthroughStreamCutIdleTimeout:
+			logger.LegacyPrintf("service.openai_gateway", "[OpenAI passthrough] Stream data interval timeout: account=%d model=%s interval=%s", account.ID, originalModel, streamIdleTimeout)
+			if s.rateLimitService != nil {
+				s.rateLimitService.HandleStreamTimeout(ctx, account, originalModel)
+			}
+			if clientDisconnected {
+				return errors.New("stream usage incomplete after timeout")
+			}
+			if !openAIStreamClientOutputStarted(c, clientOutputStarted) {
+				return s.newOpenAIStreamFailoverError(c, account, true, upstreamRequestID, nil, "OpenAI stream data interval timeout")
+			}
+			return errors.New("stream data interval timeout")
+		default:
+			logger.LegacyPrintf("service.openai_gateway", "[OpenAI passthrough] Upstream stream cancelled after client disconnect: account=%d reason=%s output_started=%t", account.ID, reason, clientOutputStarted)
+			return fmt.Errorf("stream usage incomplete after disconnect: %s", reason)
+		}
+	}
 	ensureResponseFailedTerminal()
 	if err := documentScanner.Err(); err != nil {
 		if (sawDone || sawTerminalEvent) && !sawFailedEvent {
@@ -2248,6 +2284,9 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 		}
 		if sawFailedEvent {
 			return resultWithUsage(), fmt.Errorf("upstream response failed: %s", failedMessage)
+		}
+		if cutErr := watchdogCutError(); cutErr != nil {
+			return resultWithUsage(), cutErr
 		}
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return resultWithUsage(), fmt.Errorf("stream usage incomplete: %w", err)
@@ -2278,6 +2317,11 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	}
 	if sawFailedEvent {
 		return resultWithUsage(), fmt.Errorf("upstream response failed: %s", failedMessage)
+	}
+	if !sawDone && !sawTerminalEvent {
+		if cutErr := watchdogCutError(); cutErr != nil {
+			return resultWithUsage(), cutErr
+		}
 	}
 	if !clientDisconnected && !sawDone && !sawTerminalEvent && ctx.Err() == nil {
 		logger.FromContext(ctx).With(

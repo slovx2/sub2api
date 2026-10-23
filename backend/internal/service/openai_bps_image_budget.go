@@ -66,5 +66,5 @@ func responsesImageCount(body []byte) int {
 		}
 		return n
 	}
-	return count(gjson.GetBytes(body, "input"))
+	return count(parseRawJSONView(body).Get("input"))
 }

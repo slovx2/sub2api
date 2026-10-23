@@ -25,7 +25,9 @@ func MarkOpenAINativeCompactionV2(c *gin.Context) {
 // NormalizeCompactionTriggerInputOrder keeps a single compaction trigger as
 // the final Responses input item, as required by the upstream v2 wire format.
 func NormalizeCompactionTriggerInputOrder(body []byte) ([]byte, bool, error) {
-	if len(body) == 0 {
+	// 零拷贝预检：绝大多数请求不含 compaction_trigger，跳过整体解码
+	// （带数十 MB 内联图片时一次解码会分配数百 MB）。
+	if !HasCompactionTriggerInInput(body) {
 		return body, false, nil
 	}
 	var payload map[string]any
@@ -166,7 +168,7 @@ func HasCompactionTriggerInInput(body []byte) bool {
 	if len(body) == 0 {
 		return false
 	}
-	input := gjson.GetBytes(body, "input")
+	input := parseRawJSONView(body).Get("input")
 	if !input.IsArray() {
 		return false
 	}

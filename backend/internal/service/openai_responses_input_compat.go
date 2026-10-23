@@ -2,6 +2,8 @@ package service
 
 import (
 	"strings"
+
+	"github.com/tidwall/gjson"
 )
 
 const openAIResponsesInputTextMaxChars = 10000000
@@ -69,6 +71,77 @@ func sanitizeOpenAIResponsesOrphanToolOutputs(reqBody map[string]any, input []an
 	}
 	reqBody["input"] = normalized
 	return true
+}
+
+// openAIResponsesInputHasOrphanToolOutputs 零拷贝预检 sanitizeOpenAIResponsesOrphanToolOutputs
+// 是否会删除条目，判定规则与其保持一致。为 false 时调用方可跳过整体解码：
+// OAuth 请求几乎都带 input 数组，带数十 MB 内联图片时每次解码会分配数百 MB。
+func openAIResponsesInputHasOrphanToolOutputs(body []byte) bool {
+	root := parseRawJSONView(body)
+	if gjsonNonEmptyString(root.Get("previous_response_id")) != "" {
+		return false
+	}
+	input := root.Get("input")
+	if !input.IsArray() {
+		return false
+	}
+
+	toolCallIDs := make(map[string]struct{})
+	referenceIDs := make(map[string]struct{})
+	input.ForEach(func(_, item gjson.Result) bool {
+		if !item.IsObject() {
+			return true
+		}
+		itemType := gjsonNonEmptyString(item.Get("type"))
+		if itemType == "item_reference" {
+			if id := gjsonNonEmptyString(item.Get("id")); id != "" {
+				referenceIDs[id] = struct{}{}
+			}
+			return true
+		}
+		if !isCodexToolCallContextItemType(itemType) {
+			return true
+		}
+		id := gjsonNonEmptyString(item.Get("call_id"))
+		if id == "" {
+			id = gjsonNonEmptyString(item.Get("id"))
+		}
+		if id != "" {
+			toolCallIDs[id] = struct{}{}
+		}
+		return true
+	})
+
+	orphan := false
+	input.ForEach(func(_, item gjson.Result) bool {
+		if !item.IsObject() {
+			return true
+		}
+		itemType := gjsonNonEmptyString(item.Get("type"))
+		if !isCodexToolCallOutputItemType(itemType) {
+			return true
+		}
+		callID := gjsonNonEmptyString(item.Get("call_id"))
+		if callID == "" && itemType == "function_call_output" && gjsonNonEmptyString(item.Get("name")) != "" {
+			return true
+		}
+		_, hasToolCall := toolCallIDs[callID]
+		_, hasReference := referenceIDs[callID]
+		if callID != "" && (hasToolCall || hasReference) {
+			return true
+		}
+		orphan = true
+		return false
+	})
+	return orphan
+}
+
+// gjsonNonEmptyString 与 firstNonEmptyString 对单个值的语义一致：仅取字符串并去除首尾空白。
+func gjsonNonEmptyString(value gjson.Result) string {
+	if value.Type != gjson.String {
+		return ""
+	}
+	return strings.TrimSpace(value.String())
 }
 
 func truncateOpenAIResponsesInputText(_ map[string]any) bool {

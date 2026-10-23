@@ -15,6 +15,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unsafe"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
@@ -1688,6 +1689,9 @@ func normalizeCodexAutomationBootstrap(body []byte) ([]byte, bool) {
 }
 
 func normalizeCodexCallOutputBootstrap(body []byte, isCandidate func(map[string]any) bool, allowHistoricalContext bool) ([]byte, bool) {
+	if !codexCallOutputBootstrapMayApply(body) {
+		return body, false
+	}
 	if !hasUniqueJSONMembers(body) {
 		return body, false
 	}
@@ -1768,6 +1772,30 @@ func normalizeCodexCallOutputBootstrap(body []byte, isCandidate func(map[string]
 		return body, false
 	}
 	return normalized, true
+}
+
+// codexCallOutputBootstrapMayApply 零拷贝预检 input 中是否存在 Codex 命名空间的
+// function_call_output。不存在时 bootstrap 规范化必然不改写请求，可跳过整体解码：
+// 带数十 MB 内联图片的请求每次解码会分配数百 MB。
+func codexCallOutputBootstrapMayApply(body []byte) bool {
+	if len(body) == 0 {
+		return false
+	}
+	// 同步只读解析，避免 gjson.GetBytes 复制整段 input。
+	input := gjson.Get(unsafe.String(unsafe.SliceData(body), len(body)), "input")
+	if !input.IsArray() {
+		return false
+	}
+	found := false
+	input.ForEach(func(_, item gjson.Result) bool {
+		if item.Get("type").String() != "function_call_output" {
+			return true
+		}
+		namespace := item.Get("namespace").String()
+		found = namespace == "codex_app" || namespace == "codex_tui"
+		return !found
+	})
+	return found
 }
 
 func hasUniqueJSONMembers(body []byte) bool {

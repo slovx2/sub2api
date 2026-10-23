@@ -220,3 +220,38 @@ func TestOpenAIGatewayService_PreservesOversizedToolOutputForUpstream(t *testing
 	require.Len(t, upstream.bodies, 1)
 	require.Equal(t, oversized, gjson.GetBytes(upstream.bodies[0], "input.1.output").String())
 }
+
+// 预检必须与 sanitizeOpenAIResponsesOrphanToolOutputs 是否删除条目保持一致，
+// 否则会漏掉应清理的孤立输出（假阴性）或白白整体解码（假阳性）。
+func TestOpenAIResponsesInputHasOrphanToolOutputsMatchesSanitizer(t *testing.T) {
+	cases := map[string]string{
+		"no input":                       `{"model":"gpt-5"}`,
+		"input not array":                `{"input":"hello"}`,
+		"empty input":                    `{"input":[]}`,
+		"plain messages":                 `{"input":[{"type":"message","role":"user","content":"hi"}]}`,
+		"paired function call":           `{"input":[{"type":"function_call","call_id":"c1"},{"type":"function_call_output","call_id":"c1","output":"ok"}]}`,
+		"paired via id fallback":         `{"input":[{"type":"custom_tool_call","id":"c2"},{"type":"custom_tool_call_output","call_id":"c2"}]}`,
+		"paired via item reference":      `{"input":[{"type":"item_reference","id":"c3"},{"type":"function_call_output","call_id":"c3"}]}`,
+		"orphan output":                  `{"input":[{"type":"function_call_output","call_id":"missing","output":"x"}]}`,
+		"orphan without call id":         `{"input":[{"type":"mcp_tool_call_output","output":"x"}]}`,
+		"named standalone output":        `{"input":[{"type":"function_call_output","name":"send_message_to_thread","namespace":"codex_app","output":"d"}]}`,
+		"blank call id is orphan":        `{"input":[{"type":"function_call","call_id":"  "},{"type":"function_call_output","call_id":"  "}]}`,
+		"numeric call id is orphan":      `{"input":[{"type":"function_call","call_id":1},{"type":"function_call_output","call_id":1}]}`,
+		"trimmed ids still pair":         `{"input":[{"type":"function_call","call_id":" c4 "},{"type":"function_call_output","call_id":"c4"}]}`,
+		"previous response id skips":     `{"previous_response_id":"resp_1","input":[{"type":"function_call_output","call_id":"missing"}]}`,
+		"blank previous response id":     `{"previous_response_id":" ","input":[{"type":"function_call_output","call_id":"missing"}]}`,
+		"non object items ignored":       `{"input":["text",1,null,{"type":"function_call","call_id":"c5"},{"type":"function_call_output","call_id":"c5"}]}`,
+		"output before call still pairs": `{"input":[{"type":"function_call_output","call_id":"c6"},{"type":"function_call","call_id":"c6"}]}`,
+	}
+	for name, raw := range cases {
+		t.Run(name, func(t *testing.T) {
+			var reqBody map[string]any
+			require.NoError(t, json.Unmarshal([]byte(raw), &reqBody))
+			want := false
+			if input, ok := reqBody["input"].([]any); ok {
+				want = sanitizeOpenAIResponsesOrphanToolOutputs(reqBody, input, strings.TrimSpace(firstNonEmptyString(reqBody["previous_response_id"])) != "")
+			}
+			require.Equal(t, want, openAIResponsesInputHasOrphanToolOutputs([]byte(raw)))
+		})
+	}
+}
