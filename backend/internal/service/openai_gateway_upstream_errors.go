@@ -62,13 +62,15 @@ func logOpenAIInstructionsRequiredDebug(
 	logger.FromContext(ctx).With(fields...).Warn("OpenAI 上游返回 Instructions are required，已记录请求详情用于排查")
 }
 
-// shouldLogDeepSeekResponsesBadRequestDebug 判定是否记录 DeepSeek 上游 400 的结构摘要。
+// shouldLogDeepSeekResponsesBadRequestDebug 判定是否记录 DeepSeek 上游 400/422 的结构摘要。
 //
-// 只对 DeepSeek 账号 + 400 生效：这类拒绝在 Codex 侧无法取证（rollout 不记录失败请求的
-// 入站 input），而 DeepSeek 的两种 400（reasoning 未回传、tool 调用与输出不配对）都只能靠
-// 看请求结构定位。其它平台和状态码不记录，避免无谓日志。
+// 只对 DeepSeek 账号 + 400/422 生效：这类拒绝在 Codex 侧无法取证（rollout 不记录失败请求的
+// 入站 input），而 DeepSeek 的两种 400（reasoning 未回传、tool 调用与输出不配对）和 422
+// （input item 反序列化失败，如 web_search_call 缺 queries）都只能靠看请求结构定位。
+// 其它平台和状态码不记录，避免无谓日志。
 func shouldLogDeepSeekResponsesBadRequestDebug(account *Account, upstreamStatusCode int) bool {
-	return account != nil && account.Platform == PlatformDeepseek && upstreamStatusCode == http.StatusBadRequest
+	return account != nil && account.Platform == PlatformDeepseek &&
+		(upstreamStatusCode == http.StatusBadRequest || upstreamStatusCode == http.StatusUnprocessableEntity)
 }
 
 // logDeepSeekResponsesBadRequestDebug 在 DeepSeek 上游以 400 拒绝请求时，记录发给上游的
@@ -883,7 +885,8 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 
 	MarkResponseCommitted(c)
 
-	// 上游 400 是确定性的请求错误：同一份请求体换账号、重试多少次都会失败。归一成
+	// 上游 400（及 invalid_request_error 型 422）是确定性的请求错误：同一份请求体换账号、
+	// 重试多少次都会失败。归一成
 	// 502 upstream_error 会让下游网关把它当成可重试的上游故障反复重放（#5479 实测
 	// 30 个失败请求被放大成 60 次上游调用），同时抹掉客户端定位问题所需的 code/param。
 	//
@@ -893,7 +896,7 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 	// 兄弟路径早已这么做：handleCompatErrorResponse（ChatCompletions / Anthropic）
 	// 回真实状态码 + invalid_request_error + 真实 message；/v1/images 还额外透传
 	// code/param。原生 Responses 是唯一漏掉的一条。
-	if isOpenAIDeterministicClientError(resp.StatusCode) {
+	if isOpenAIDeterministicClientError(resp.StatusCode, body) {
 		writeOpenAIUpstreamClientError(c, resp.StatusCode, body, upstreamMsg)
 		if upstreamMsg == "" {
 			return nil, fmt.Errorf("upstream error: %d", resp.StatusCode)

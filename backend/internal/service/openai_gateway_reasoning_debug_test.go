@@ -60,12 +60,13 @@ func TestSummarizeOpenAIResponsesReasoningInputTruncatesLongSequences(t *testing
 func TestShouldLogDeepSeekResponsesBadRequestDebug(t *testing.T) {
 	deepseek := &Account{Platform: PlatformDeepseek}
 	require.True(t, shouldLogDeepSeekResponsesBadRequestDebug(deepseek, 400))
+	require.True(t, shouldLogDeepSeekResponsesBadRequestDebug(deepseek, 422))
 	// 只对 DeepSeek 账号触发，避免其它平台产生无关日志。
 	for _, platform := range []string{PlatformOpenAI, PlatformKimi, PlatformZhipu} {
 		require.False(t, shouldLogDeepSeekResponsesBadRequestDebug(&Account{Platform: platform}, 400))
 	}
 	require.False(t, shouldLogDeepSeekResponsesBadRequestDebug(nil, 400))
-	// 非 400 不记录。
+	// 非 400/422 不记录。
 	require.False(t, shouldLogDeepSeekResponsesBadRequestDebug(deepseek, 500))
 	require.False(t, shouldLogDeepSeekResponsesBadRequestDebug(deepseek, 429))
 }

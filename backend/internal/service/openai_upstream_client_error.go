@@ -16,15 +16,26 @@ const openAIUpstreamClientErrorFallbackType = "invalid_request_error"
 // 仍然比 "Upstream request failed" 明确：它说明拒绝来自请求本身，而不是链路故障。
 const openAIUpstreamClientErrorFallbackMessage = "Upstream rejected the request"
 
-// isOpenAIDeterministicClientError 判断上游状态码是否表示「请求本身非法」。
+// isOpenAIDeterministicClientError 判断上游响应是否表示「请求本身非法」。
 //
-// 只认 400：同一份请求体换任何账号、重试多少次都会得到同样的结果。
+// 认 400，以及 error.type 为 invalid_request_error 的 422：同一份请求体换任何账号、
+// 重试多少次都会得到同样的结果。
+//   - 422 只在上游明确标为 invalid_request_error 时才算：DeepSeek 反序列化失败给的就是
+//     这种（"missing field `queries`"）；opencode 等中转会用 422 包装 server_error
+//     （"Endpoint is unavailable"），那是链路故障，保持原有处理。
 //   - 401/402/403 是网关运营方的凭据/账单问题，继续包成 502，不向客户端暴露上游账号状态。
 //   - 404/405 既可能是模型不存在，也可能是上游 base_url 配错，同属运营方问题，保持现状。
 //   - 429 已有独立分支映射成 429。
 //   - 413 在更上面就按 request-body-too-large 走 failover 了。
-func isOpenAIDeterministicClientError(statusCode int) bool {
-	return statusCode == http.StatusBadRequest
+func isOpenAIDeterministicClientError(statusCode int, body []byte) bool {
+	switch statusCode {
+	case http.StatusBadRequest:
+		return true
+	case http.StatusUnprocessableEntity:
+		return strings.TrimSpace(gjson.GetBytes(body, "error.type").String()) == openAIUpstreamClientErrorFallbackType
+	default:
+		return false
+	}
 }
 
 // writeOpenAIUpstreamClientError 以 OpenAI 错误体形状回写确定性客户端错误。

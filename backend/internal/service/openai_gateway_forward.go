@@ -177,6 +177,13 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			body = reorderedBody
 		}
 	}
+	// 其他上游托管搜索留下的 web_search_call 形态与 DeepSeek 不兼容（search 缺 queries），
+	// 会被 422 整轮拒绝。
+	if nativeDeepSeekResponses && !compactPath {
+		if repairedBody, repaired := normalizeDeepSeekResponsesWebSearchCalls(body); repaired {
+			body = repairedBody
+		}
+	}
 	// DeepSeek 原生 Responses 端点在请求携带 tools 时要求历史每条 assistant 消息都回传
 	// reasoning 明文，缺失/空串会被上游以 400 拒绝（跨 passthrough failover 剥离、远程
 	// 压缩、resume 旧会话都会造成缺失）。这里补非空占位，保证会话不中断。

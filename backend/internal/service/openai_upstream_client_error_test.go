@@ -24,6 +24,11 @@ const openAIInvalidFunctionParametersBody = `{"error":{` +
 	`"param":"input[8].tools[1].tools[2].parameters",` +
 	`"code":"invalid_function_parameters"}}`
 
+// DeepSeek 原生 Responses 收到只有 query 的 web_search_call 历史时返回的原始错误体。
+const deepSeekMissingQueries422Body = `{"error":{` +
+	"\"message\":\"Failed to deserialize the JSON body into the target type: input: missing field `queries` at line 1 column 337\"," +
+	`"type":"invalid_request_error","param":null,"code":"invalid_request_error"}}`
+
 func newOpenAIUpstreamErrorTestContext(t *testing.T) (*gin.Context, *httptest.ResponseRecorder) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -208,8 +213,29 @@ func TestHandleErrorResponse_Deterministic400WithNonJSONBody(t *testing.T) {
 	require.NotEmpty(t, gjson.Get(body, "error.message").String())
 }
 
-// 作用域守卫：本次只放行 400。其余落到 default 的状态码必须维持原样，
-// 避免后续有人顺手把 404/422/5xx 一起改掉。
+// DeepSeek 原生 Responses 反序列化失败时的 422：粘性会话把同一会话一直路由到该账号，
+// 包成 502 会让客户端当成链路故障无限重试。
+func TestHandleErrorResponse_InvalidRequest422PassesThrough(t *testing.T) {
+	c, rec := newOpenAIUpstreamErrorTestContext(t)
+	svc := &OpenAIGatewayService{cfg: &config.Config{}}
+
+	_, err := svc.handleErrorResponse(
+		context.Background(),
+		newOpenAIUpstreamErrorResponse(http.StatusUnprocessableEntity, deepSeekMissingQueries422Body),
+		c, &Account{ID: 1, Platform: PlatformDeepseek, Type: AccountTypeAPIKey, Name: "ds"}, nil,
+	)
+
+	require.Error(t, err)
+	var failoverErr *UpstreamFailoverError
+	require.False(t, errors.As(err, &failoverErr))
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code)
+	body := rec.Body.String()
+	require.Equal(t, "invalid_request_error", gjson.Get(body, "error.type").String())
+	require.Contains(t, gjson.Get(body, "error.message").String(), "missing field `queries`")
+}
+
+// 作用域守卫：只放行 400 与 invalid_request_error 型 422。其余落到 default 的状态码
+// （含未标 type 的 422）必须维持原样，避免后续有人顺手把 404/5xx 一起改掉。
 func TestHandleErrorResponse_NonDeterministicStatusesKeepGeneric502(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -279,14 +305,21 @@ func TestHandleErrorResponse_PassthroughRuleStillWinsOver400Branch(t *testing.T)
 }
 
 func TestIsOpenAIDeterministicClientError(t *testing.T) {
-	require.True(t, isOpenAIDeterministicClientError(http.StatusBadRequest))
+	require.True(t, isOpenAIDeterministicClientError(http.StatusBadRequest, nil))
+	// DeepSeek 反序列化失败：422 + invalid_request_error，换账号重试也一样失败。
+	require.True(t, isOpenAIDeterministicClientError(http.StatusUnprocessableEntity,
+		[]byte(deepSeekMissingQueries422Body)))
+	// opencode 用 422 包装的链路故障不算请求错误。
+	require.False(t, isOpenAIDeterministicClientError(http.StatusUnprocessableEntity,
+		[]byte(`{"error":{"type":"server_error","message":"Upstream request failed: Endpoint is unavailable."}}`)))
+	require.False(t, isOpenAIDeterministicClientError(http.StatusUnprocessableEntity, nil))
 	for _, status := range []int{
 		http.StatusUnauthorized, http.StatusPaymentRequired, http.StatusForbidden,
 		http.StatusNotFound, http.StatusMethodNotAllowed, http.StatusRequestEntityTooLarge,
-		http.StatusUnprocessableEntity, http.StatusTooManyRequests,
+		http.StatusTooManyRequests,
 		http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable,
 	} {
-		require.False(t, isOpenAIDeterministicClientError(status), "status %d", status)
+		require.False(t, isOpenAIDeterministicClientError(status, []byte(deepSeekMissingQueries422Body)), "status %d", status)
 	}
 }
 
