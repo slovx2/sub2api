@@ -318,16 +318,22 @@ func ensureDeepSeekResponsesReasoningPlaceholders(body []byte, knownHasTools boo
 				// （"The `reasoning_text` in the thinking mode must be passed back to the API."）。
 				//
 				// 跨模型切换时 xAI 等上游留下的是 summary-only 形态，summary 里就是真实推理，
-				// 直接提升为明文可以保住上下文；没有 summary 时退回空格占位。summary 一并移除，
-				// 因为该字段对 DeepSeek 无意义，留着只会让请求体翻倍。
+				// 直接提升为明文可以保住上下文；没有 summary 时退回空格占位。
+				//
+				// summary 改写成空数组而不是删掉：部分 DeepSeek 渠道（如 OpenCode）自己就只回
+				// summary 形态的推理，并且要求回传的 reasoning item 必须带 summary 数组，缺了会
+				// 400 "input[N].summary: expected an array"。清空正文也避免请求体翻倍。
 				if text := responsesReasoningSummaryText(item); text != "" {
 					item["content"] = []any{
 						map[string]any{"type": "reasoning_text", "text": text},
 					}
-					delete(item, "summary")
+					item["summary"] = []any{}
 				} else {
 					item["content"] = []any{
 						map[string]any{"type": "reasoning_text", "text": responsesReasoningPlaceholderText},
+					}
+					if _, ok := item["summary"].([]any); !ok {
+						item["summary"] = []any{}
 					}
 				}
 				changed = true

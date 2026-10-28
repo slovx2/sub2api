@@ -650,7 +650,20 @@ func TestEnsureDeepSeekResponsesReasoningPlaceholdersPromotesSummary(t *testing.
 	rewritten, changed := ensureDeepSeekResponsesReasoningPlaceholders(withSummary, true)
 	require.True(t, changed)
 	require.Equal(t, "真实推理", gjson.GetBytes(rewritten, "input.1.content.0.text").String())
-	require.False(t, gjson.GetBytes(rewritten, "input.1.summary").Exists(), "summary 对 DeepSeek 无意义，提升后应移除")
+	// OpenCode 等 DeepSeek 渠道要求 summary 必须是数组，提升后清空而不是删除。
+	summary := gjson.GetBytes(rewritten, "input.1.summary")
+	require.True(t, summary.IsArray(), "summary 必须保留为数组")
+	require.Empty(t, summary.Array(), "提升后 summary 应清空，避免请求体翻倍")
+
+	// 缺 summary 字段的 reasoning item 补成空数组。
+	missingSummary := []byte(`{"model":"deepseek-flash",` + deepSeekResponsesToolsFragment + `,"input":[` +
+		`{"type":"message","role":"user","content":"go"},` +
+		`{"type":"reasoning","id":"rs_m","encrypted_content":"opaque"},` +
+		`{"type":"function_call","call_id":"c1","name":"shell","arguments":"{}"},` +
+		`{"type":"function_call_output","call_id":"c1","output":"ok"}]}`)
+	filled, changed := ensureDeepSeekResponsesReasoningPlaceholders(missingSummary, true)
+	require.True(t, changed)
+	require.True(t, gjson.GetBytes(filled, "input.1.summary").IsArray())
 
 	// 没有 summary 时退回空格占位，仍然满足「每条 reasoning 都带非空明文」。
 	withoutSummary := []byte(`{"model":"deepseek-flash",` + deepSeekResponsesToolsFragment + `,"input":[` +
