@@ -31,7 +31,7 @@ import (
 
 // forwardAnthropicViaNativeAnthropicEndpoint 将 Anthropic Messages 请求零转换
 // 直通到国产供应商的原生 Anthropic 端点。仅做模型名映射与少量 body 清洗
-// （空文本块 / web-search 历史块），协议本身不转换。
+// （空文本块 / web-search 历史块 / DeepSeek 占位 thinking），协议本身不转换。
 func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 	ctx context.Context,
 	c *gin.Context,
@@ -75,6 +75,8 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 	// 无法接受的 web-search 历史块（GLM/Kimi/DeepSeek 对 server_tool_use 400）。
 	body = StripEmptyTextBlocks(body)
 	body = FilterWebSearchHistoryBlocks(body, upstreamModel)
+	// DeepSeek 思考模式拒收当前轮缺 thinking 的 tool_use assistant 消息，补占位块。
+	body = EnsureDeepSeekAnthropicThinkingPlaceholders(body, upstreamModel)
 
 	logger.LegacyPrintf("service.gateway", "[CN Anthropic 直通] account=%d(%s) platform=%s model=%s upstream=%s stream=%v",
 		account.ID, account.Name, account.Platform, originalModel, upstreamModel, clientStream)
