@@ -71,6 +71,38 @@ func TestForwardDeepSeekResponsesInjectsReasoningPlaceholders(t *testing.T) {
 	require.Equal(t, "rs_ph_msg_1", gjson.GetBytes(upstream.lastBody, "input.1.id").String())
 }
 
+func TestForwardResponsesBareToolRoundReasoningScope(t *testing.T) {
+	for _, platform := range []string{PlatformDeepseek, PlatformOpenAI} {
+		t.Run(platform, func(t *testing.T) {
+			body := []byte(`{"model":"deepseek-flash","stream":false,"tools":[{"type":"custom","name":"shell","format":{"type":"text"}}],"input":[` +
+				`{"role":"user","content":"Reply OK."},` +
+				`{"type":"reasoning","summary":[],"content":[{"type":"reasoning_text","text":"Check the tool."}]},` +
+				`{"type":"custom_tool_call","id":"fc_1","call_id":"c1","name":"shell","input":"ping"},` +
+				`{"type":"custom_tool_call_output","call_id":"c1","output":"ok"},` +
+				`{"type":"custom_tool_call","id":"fc_2","call_id":"c2","name":"shell","input":"ping"},` +
+				`{"type":"custom_tool_call_output","call_id":"c2","output":"ok"}]}`)
+			account := deepSeekResponsesTestAccount()
+			account.Platform = platform
+			upstream := deepSeekResponsesTestUpstream()
+			svc := &OpenAIGatewayService{httpUpstream: upstream}
+			_, err := svc.Forward(context.Background(), deepSeekResponsesTestContext(t, body), account, body)
+			require.NoError(t, err)
+			if platform == PlatformDeepseek {
+				require.Equal(t, "https://api.deepseek.com/responses", upstream.lastReq.URL.String())
+				require.Len(t, gjson.GetBytes(upstream.lastBody, "input").Array(), 7)
+				require.Equal(t, "rs_ph_fc_2", gjson.GetBytes(upstream.lastBody, "input.4.id").String())
+				require.Equal(t, " ", gjson.GetBytes(upstream.lastBody, "input.4.content.0.text").String())
+				// custom 调用适配为 function 后仍应补齐，并保持调用块连续。
+				require.Equal(t, "function_call", gjson.GetBytes(upstream.lastBody, "input.5.type").String())
+				assertToolBlocksContiguous(t, upstream.lastBody)
+			} else {
+				require.Len(t, gjson.GetBytes(upstream.lastBody, "input").Array(), 6)
+				require.False(t, strings.Contains(string(upstream.lastBody), responsesReasoningPlaceholderIDPrefix))
+			}
+		})
+	}
+}
+
 // TestForwardDeepSeekResponsesSkipsPlaceholderWithoutTools 确认补齐只发生在带 tools 的请求上：
 // 不带 tools 时 DeepSeek 会忽略 reasoning item，改写请求体反而会破坏上下文缓存前缀。
 func TestForwardDeepSeekResponsesSkipsPlaceholderWithoutTools(t *testing.T) {

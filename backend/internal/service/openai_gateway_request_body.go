@@ -215,11 +215,12 @@ func responsesReasoningTextFromJSON(item gjson.Result) string {
 }
 
 // responsesInputNeedsReasoningReplay 报告 input 是否需要 reasoning 明文补齐：存在
-// 「无明文的 reasoning item」，或存在「前面没有非空明文 reasoning 的 assistant 消息」。
+// 「无明文的 reasoning item」，或存在「没有前置 reasoning 的 assistant 消息/工具轮」。
 // 只用于决定是否需要整体解码改写；判定口径必须与 ensureDeepSeekResponsesReasoningPlaceholders
 // 的改写循环保持一致。
 func responsesInputNeedsReasoningReplay(input gjson.Result) bool {
 	guarded := false
+	toolGuarded := false
 	found := false
 	input.ForEach(func(_, item gjson.Result) bool {
 		switch responsesInputItemTypeFromJSON(item) {
@@ -240,9 +241,22 @@ func responsesInputNeedsReasoningReplay(input gjson.Result) bool {
 					return false
 				}
 				guarded = false
+				toolGuarded = true
 				return true
 			}
 			guarded = false
+			toolGuarded = false
+		default:
+			itemType := responsesInputItemTypeFromJSON(item)
+			if isOpenAIResponsesToolCallType(itemType) {
+				if !guarded && !toolGuarded {
+					found = true
+					return false
+				}
+				toolGuarded = true
+			} else if isOpenAIResponsesToolOutputType(itemType) {
+				guarded, toolGuarded = false, false
+			}
 		}
 		return true
 	})
@@ -275,7 +289,7 @@ func responsesInputItemType(item map[string]any) string {
 }
 
 // ensureDeepSeekResponsesReasoningPlaceholders 为历史里缺少 reasoning 明文的 assistant
-// 消息前置插入一条非空明文占位 reasoning item。
+// 消息或工具轮前置插入一条非空明文占位 reasoning item。
 //
 // DeepSeek 原生 Responses 端点在请求携带 tools 时要求每条 assistant 消息都回传 reasoning
 // 明文，否则整轮 400 "The `reasoning_text` in the thinking mode must be passed back to the
@@ -303,6 +317,7 @@ func ensureDeepSeekResponsesReasoningPlaceholders(body []byte, knownHasTools boo
 
 	rewritten := make([]any, 0, len(items)+1)
 	guarded := false
+	toolGuarded := false
 	changed := false
 	for index, rawItem := range items {
 		item, ok := rawItem.(map[string]any)
@@ -347,9 +362,25 @@ func ensureDeepSeekResponsesReasoningPlaceholders(body []byte, knownHasTools boo
 					rewritten = append(rewritten, responsesReasoningPlaceholderItem(item, index))
 					changed = true
 				}
+				// assistant 的真实推理或占位可继续保护紧随其后的工具调用块。
+				toolGuarded = true
 			} else {
 				// user / system / developer 开启新段：上一段的 reasoning 不再复用。
 				guarded = false
+				toolGuarded = false
+			}
+		default:
+			itemType := responsesInputItemType(item)
+			if isOpenAIResponsesToolCallType(itemType) {
+				if !guarded && !toolGuarded {
+					rewritten = append(rewritten, responsesReasoningPlaceholderItem(item, index))
+					changed = true
+				}
+				// 并行调用块共用一条 reasoning，不能在调用之间插入占位。
+				toolGuarded = true
+			} else if isOpenAIResponsesToolOutputType(itemType) {
+				// 工具输出结束本轮；后续裸调用不能复用上一轮的 reasoning。
+				guarded, toolGuarded = false, false
 			}
 		}
 		rewritten = append(rewritten, item)

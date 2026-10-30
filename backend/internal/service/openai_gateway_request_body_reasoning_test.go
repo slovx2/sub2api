@@ -600,6 +600,70 @@ func TestEnsureDeepSeekResponsesReasoningPlaceholders(t *testing.T) {
 	}
 }
 
+func TestEnsureDeepSeekResponsesReasoningPlaceholdersToolRounds(t *testing.T) {
+	user := `{"role":"user","content":"Tools have already run. Reply OK only."}`
+	reasoning := `{"type":"reasoning","summary":[],"content":[{"type":"reasoning_text","text":"Check the tool."}]}`
+	placeholder := `{"type":"reasoning","summary":[],"content":[{"type":"reasoning_text","text":" "}]}`
+	assistant := `{"role":"assistant","content":"Checking.","phase":"commentary"}`
+	for _, callType := range []string{"function_call", "custom_tool_call"} {
+		t.Run(callType, func(t *testing.T) {
+			call := func(id string) string {
+				return `{"type":"` + callType + `","id":"fc_` + id + `","call_id":"c` + id + `","name":"shell","arguments":"{}","input":"ping"}`
+			}
+			output := func(id string) string {
+				return `{"type":"` + callType + `_output","call_id":"c` + id + `","output":"ok"}`
+			}
+			first := []string{user, reasoning, call("1"), output("1")}
+			cases := []struct {
+				name        string
+				items       []string
+				wantChanged bool
+				wantIndex   int
+			}{
+				{name: "完整两轮", items: append(append([]string{}, first...), reasoning, call("2"), output("2"))},
+				{name: "第二轮裸调用", items: append(append([]string{}, first...), call("2"), output("2")), wantChanged: true, wantIndex: 4},
+				{name: "空格占位已修复", items: append(append([]string{}, first...), placeholder, call("2"), output("2"))},
+				{name: "裸调用后追加用户消息", items: append(append([]string{}, first...), call("2"), output("2"), user), wantChanged: true, wantIndex: 4},
+				{name: "首轮裸调用", items: []string{user, call("1"), output("1")}, wantChanged: true, wantIndex: 1},
+				{name: "并行裸调用只补一次", items: []string{user, call("1"), call("2"), output("1"), output("2")}, wantChanged: true, wantIndex: 1},
+				{name: "并行调用共享推理", items: []string{user, reasoning, call("1"), call("2"), output("1"), output("2")}},
+				{name: "说明与调用共享推理", items: []string{user, reasoning, assistant, call("1"), call("2"), output("1"), output("2")}},
+				{name: "说明与调用共享占位", items: []string{user, assistant, call("1"), call("2"), output("1"), output("2")}, wantChanged: true, wantIndex: 1},
+				{name: "用户消息隔断旧推理", items: []string{user, reasoning, user, call("1"), output("1")}, wantChanged: true, wantIndex: 3},
+			}
+			for _, tc := range cases {
+				t.Run(tc.name, func(t *testing.T) {
+					body := []byte(`{"model":"deepseek-flash",` + deepSeekResponsesToolsFragment + `,"input":[` + strings.Join(tc.items, ",") + `]}`)
+					require.Equal(t, tc.wantChanged, responsesInputNeedsReasoningReplay(gjson.GetBytes(body, "input")))
+					rewritten, changed := ensureDeepSeekResponsesReasoningPlaceholders(body, true)
+					require.Equal(t, tc.wantChanged, changed)
+					items := gjson.GetBytes(rewritten, "input").Array()
+					if tc.wantChanged {
+						require.Len(t, items, len(tc.items)+1)
+						inserted := items[tc.wantIndex]
+						require.Equal(t, "reasoning", inserted.Get("type").String())
+						require.Equal(t, " ", inserted.Get("content.0.text").String())
+						require.True(t, inserted.Get("summary").IsArray())
+						items = append(items[:tc.wantIndex], items[tc.wantIndex+1:]...)
+					} else {
+						require.Equal(t, body, rewritten)
+					}
+					// 除新增占位外，调用、输出、真实推理和用户消息均保留原值及顺序。
+					for i, item := range items {
+						require.JSONEq(t, tc.items[i], item.Raw)
+					}
+					again, changedAgain := ensureDeepSeekResponsesReasoningPlaceholders(rewritten, true)
+					require.False(t, changedAgain)
+					require.Equal(t, rewritten, again)
+					withoutTools, changedWithoutTools := ensureDeepSeekResponsesReasoningPlaceholders(body, false)
+					require.False(t, changedWithoutTools)
+					require.Equal(t, body, withoutTools)
+				})
+			}
+		})
+	}
+}
+
 func TestEnsureDeepSeekResponsesReasoningPlaceholdersIsIdempotent(t *testing.T) {
 	body := []byte(`{"model":"deepseek-flash",` + deepSeekResponsesToolsFragment + `,"input":[` +
 		`{"type":"message","role":"user","content":"go"},` +
