@@ -418,6 +418,8 @@ func (s *GatewayService) buildCountTokensRequestAnthropicAPIKeyPassthrough(
 		body = sanitized
 	}
 
+	body = rewriteAnthropicEntrypointBody(body, account)
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -451,8 +453,9 @@ func (s *GatewayService) buildCountTokensRequestAnthropicAPIKeyPassthrough(
 		req.Header.Set("anthropic-version", "2023-06-01")
 	}
 
-	// 账号级请求头覆写（最终生效，覆盖上面所有来源的同名头）
+	// 账号级请求头覆写；显式入口设置随后统一 UA 入口。
 	account.ApplyHeaderOverrides(req.Header)
+	applyAnthropicEntrypointHeader(req.Header, account)
 	filterSonnet55ToolsetBetaHeader(req.Header, body, gjson.GetBytes(body, "model").String())
 
 	return req, nil
@@ -543,6 +546,8 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 
 	body = sanitizeCountTokensRequestBody(body)
 
+	body = rewriteAnthropicEntrypointBody(body, account)
+
 	req, err := http.NewRequestWithContext(ctx, "POST", targetURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, nil, err
@@ -606,6 +611,7 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 
 	// 账号级请求头覆写（仅 anthropic/openai api_key 账号启用时生效；OAuth 路径 no-op）
 	account.ApplyHeaderOverrides(req.Header)
+	applyAnthropicEntrypointHeader(req.Header, account)
 	filterSonnet55ToolsetBetaHeader(req.Header, body, modelID)
 
 	if c != nil && tokenType == "oauth" {

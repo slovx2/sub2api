@@ -330,6 +330,32 @@ function mountModal(account = buildAccount(), renderGroupSelector = false) {
 }
 
 describe('EditAccountModal', () => {
+  it.each(['oauth', 'setup-token', 'apikey'])('保存 Anthropic %s 的入口标记并保留其他设置', async (type) => {
+    const account = { ...buildAccount(), platform: 'anthropic', type, extra: { keep_me: true } }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    await flushPromises()
+    const select = wrapper.get('#anthropic-client-entrypoint')
+    expect((select.element as HTMLSelectElement).value).toBe('passthrough')
+    await select.setValue('sdk-ts')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock).toHaveBeenLastCalledWith(account.id, expect.objectContaining({
+      extra: expect.objectContaining({ keep_me: true, anthropic_client_entrypoint: 'sdk-ts' })
+    }))
+    await wrapper.setProps({ account: { ...account, extra: { keep_me: true, anthropic_client_entrypoint: 'cli' } } })
+    await flushPromises()
+    expect((select.element as HTMLSelectElement).value).toBe('cli')
+    await select.setValue('passthrough')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock).toHaveBeenLastCalledWith(account.id, expect.objectContaining({
+      extra: expect.objectContaining({ keep_me: true, anthropic_client_entrypoint: 'passthrough' })
+    }))
+    wrapper.unmount()
+  })
+
   beforeEach(() => {
     authIsSimpleMode.value = true
   })

@@ -2157,6 +2157,22 @@
         </template>
       </section>
 
+      <!-- Anthropic 直连账号的客户端入口标记 -->
+      <div
+        v-if="account?.platform === 'anthropic' && ['oauth', 'setup-token', 'apikey'].includes(account.type)"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <label for="anthropic-client-entrypoint" class="input-label">{{ t('admin.accounts.anthropic.clientEntrypoint') }}</label>
+        <select id="anthropic-client-entrypoint" v-model="anthropicClientEntrypoint" class="input">
+          <option value="passthrough">{{ t('admin.accounts.anthropic.clientEntrypointPassthrough') }}</option>
+          <option value="cli">cli</option>
+          <option value="sdk-ts">sdk-ts</option>
+        </select>
+        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          {{ t('admin.accounts.anthropic.clientEntrypointHint') }}
+        </p>
+      </div>
+
       <!-- Anthropic API Key 自动透传开关 -->
       <div
         v-if="account?.platform === 'anthropic' && account?.type === 'apikey'"
@@ -3813,6 +3829,7 @@ const codexFingerprintMode = ref<CodexFingerprintMode>('off')
 type CodexImageToolMode = 'inherit' | 'enabled' | 'disabled' | 'block'
 const codexImageToolMode = ref<CodexImageToolMode>('inherit')
 type AnthropicAPIKeyAuthScheme = 'x_api_key' | 'authorization_bearer'
+const anthropicClientEntrypoint = ref<'passthrough' | 'cli' | 'sdk-ts'>('passthrough')
 const anthropicPassthroughEnabled = ref(false)
 const anthropicAPIKeyAuthScheme = ref<AnthropicAPIKeyAuthScheme>('x_api_key')
 const webSearchEmulationMode = ref('default')
@@ -4296,6 +4313,10 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   codexCLIOnlyAppServerEnabled.value = false
   codexFingerprintMode.value = 'off'
   codexImageToolMode.value = 'inherit'
+  anthropicClientEntrypoint.value = newAccount.platform === 'anthropic' &&
+    (extra?.anthropic_client_entrypoint === 'cli' || extra?.anthropic_client_entrypoint === 'sdk-ts')
+    ? extra.anthropic_client_entrypoint
+    : 'passthrough'
   anthropicPassthroughEnabled.value = false
   anthropicAPIKeyAuthScheme.value = 'x_api_key'
   webSearchEmulationMode.value = 'default'
@@ -5771,6 +5792,13 @@ const handleSubmit = async () => {
         delete newExtra.custom_base_url
       }
 
+      updatePayload.extra = newExtra
+    }
+
+    // 缺省使用透传，保留账号其他 extra 设置。
+    if (props.account.platform === 'anthropic' && ['oauth', 'setup-token', 'apikey'].includes(props.account.type)) {
+      const newExtra: Record<string, unknown> = { ...(updatePayload.extra || props.account.extra || {}) }
+      newExtra.anthropic_client_entrypoint = anthropicClientEntrypoint.value
       updatePayload.extra = newExtra
     }
 

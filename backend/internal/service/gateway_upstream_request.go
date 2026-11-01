@@ -128,6 +128,8 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	// 为 DeepSeek 系时压到 cap，详见 helper 注释。
 	body = clampOllamaCloudAnthropicMessagesMaxTokens(account, account.GetBaseURL(), body)
 
+	body = rewriteAnthropicEntrypointBody(body, account)
+
 	req, err := http.NewRequestWithContext(ctx, "POST", targetURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, nil, err
@@ -199,8 +201,9 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	}
 
 	// 账号级请求头覆写（仅 anthropic/openai api_key 账号启用时生效；OAuth 路径 no-op）。
-	// 放在所有 header 逻辑之后，确保配置值对同名头拥有最终决定权。
+	// 显式入口设置随后统一 UA 入口，其余请求头保留覆写结果。
 	account.ApplyHeaderOverrides(req.Header)
+	applyAnthropicEntrypointHeader(req.Header, account)
 	filterSonnet55ToolsetBetaHeader(req.Header, body, modelID)
 
 	// === DEBUG: 打印上游转发请求（headers + body 摘要），与 CLIENT_ORIGINAL 对比 ===

@@ -329,6 +329,8 @@ func (s *GatewayService) buildUpstreamRequestAnthropicAPIKeyPassthrough(
 	// base 取值同源（GetBaseURL），详见 helper 注释。
 	body = clampOllamaCloudAnthropicMessagesMaxTokens(account, account.GetBaseURL(), body)
 
+	body = rewriteAnthropicEntrypointBody(body, account)
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, nil, err
@@ -363,8 +365,9 @@ func (s *GatewayService) buildUpstreamRequestAnthropicAPIKeyPassthrough(
 		setHeaderRaw(req.Header, "anthropic-version", "2023-06-01")
 	}
 
-	// 账号级请求头覆写（最终生效，覆盖上面所有来源的同名头）
+	// 账号级请求头覆写；显式入口设置随后统一 UA 入口。
 	account.ApplyHeaderOverrides(req.Header)
+	applyAnthropicEntrypointHeader(req.Header, account)
 	filterSonnet55ToolsetBetaHeader(req.Header, body, gjson.GetBytes(body, "model").String())
 
 	return req, body, nil

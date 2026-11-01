@@ -924,6 +924,9 @@ export default {
         noResponseBody: '服务器未返回响应体'
       },
       anthropic: {
+        clientEntrypoint: '客户端入口标记',
+        clientEntrypointPassthrough: '透传（默认）',
+        clientEntrypointHint: '透传保持现有转发行为；选择 cli 或 sdk-ts 会统一出站计费文本和 User-Agent 中的入口标记。不额外创建计费块。',
         apiKeyPassthrough: '自动透传（仅替换认证）',
         apiKeyPassthroughDesc:
           '仅对 Anthropic API Key 生效。开启后，messages/count_tokens 请求将透传上游并仅替换认证，保留计费/并发/审计及必要安全过滤；关闭即可回滚到现有兼容链路。',
