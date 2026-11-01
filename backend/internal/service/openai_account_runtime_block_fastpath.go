@@ -223,7 +223,7 @@ func (s *OpenAIGatewayService) markOpenAIOAuth429RateLimited(ctx context.Context
 		return
 	}
 	s.recordOpenAIOAuth429()
-	disposition, resetAt := classifyOpenAIOAuth429(headers, responseBody)
+	disposition, resetAt := classifyOpenAICreditsAware429(account, headers, responseBody)
 	if disposition == openAIOAuth429Transient && s.openAIOAuth429RetryWindowActive(account) {
 		return
 	}
@@ -252,7 +252,7 @@ func (s *OpenAIGatewayService) shouldRetryOpenAIOAuth429OnSameAccountWithRespons
 	if shouldDisable || statusCode != http.StatusTooManyRequests || !isOpenAIOAuthAccount(account) || account.IsShadow() {
 		return false
 	}
-	disposition, _ := classifyOpenAIOAuth429(headers, responseBody)
+	disposition, _ := classifyOpenAICreditsAware429(account, headers, responseBody)
 	if disposition != openAIOAuth429Transient {
 		return false
 	}
@@ -270,7 +270,7 @@ func (s *OpenAIGatewayService) ShouldRetryOpenAIOAuth429(account *Account, heade
 	if s == nil || !isOpenAIOAuthAccount(account) || account.IsShadow() || s.isOpenAIAccountRuntimeBlocked(account) {
 		return false
 	}
-	disposition, _ := classifyOpenAIOAuth429(headers, responseBody)
+	disposition, _ := classifyOpenAICreditsAware429(account, headers, responseBody)
 	if disposition != openAIOAuth429Transient {
 		return false
 	}

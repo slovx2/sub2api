@@ -424,10 +424,14 @@ func TestBuildSchedulerMetadataAccount_KeepsQuotaAutoPauseFields(t *testing.T) {
 			"codex_5h_reset_after_seconds": 300,
 			"codex_7d_reset_after_seconds": 600,
 			"codex_usage_updated_at":       "2026-05-29T09:00:00Z",
-			"auto_pause_5h_threshold":      0.95,
-			"auto_pause_7d_threshold":      0.96,
-			"auto_pause_5h_disabled":       true,
-			"auto_pause_7d_disabled":       false,
+			"codex_credits_snapshot": map[string]any{
+				"fetched_at": int64(1793501074),
+				"credits":    map[string]any{"has_credits": true, "unlimited": false, "balance": "62500"},
+			},
+			"auto_pause_5h_threshold": 0.95,
+			"auto_pause_7d_threshold": 0.96,
+			"auto_pause_5h_disabled":  true,
+			"auto_pause_7d_disabled":  false,
 		},
 	}
 
@@ -444,6 +448,7 @@ func TestBuildSchedulerMetadataAccount_KeepsQuotaAutoPauseFields(t *testing.T) {
 	require.Equal(t, 0.96, got.Extra["auto_pause_7d_threshold"])
 	require.Equal(t, true, got.Extra["auto_pause_5h_disabled"])
 	require.Equal(t, false, got.Extra["auto_pause_7d_disabled"])
+	require.Equal(t, account.Extra["codex_credits_snapshot"], got.Extra["codex_credits_snapshot"])
 }
 
 // 候选过滤读的是 Redis 元数据投影；自动用卡的开关、阈值和卡状态缺失时，

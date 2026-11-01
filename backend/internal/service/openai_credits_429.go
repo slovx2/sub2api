@@ -13,6 +13,15 @@ import (
 // 过期后回退到原有行为（按窗口耗尽冻结），避免持续撞上游。
 const openAICodexCreditsSnapshotStaleAfter = 8 * time.Hour
 
+// 将 PR #7883 的积分判据接入当前网关的运行时熔断与同账号重试路径。
+// Spark 的模型级配额仍使用原来的分类，不在此扩大积分适用范围。
+func classifyOpenAICreditsAware429(account *Account, headers http.Header, body []byte) (openAIOAuth429Disposition, *time.Time) {
+	if account != nil && account.Platform == PlatformOpenAI && openAICodexCreditsAvailable(account, headers, time.Now()) {
+		return openAIOAuth429Transient, nil
+	}
+	return classifyOpenAIOAuth429(headers, body)
+}
+
 // openAICodexCreditsAvailable 报告 429 判定时账号是否仍有可消耗的积分额度
 // （Codex credits，与重置卡 reset credit 不同）。
 //

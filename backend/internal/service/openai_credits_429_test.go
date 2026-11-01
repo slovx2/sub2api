@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -176,4 +177,62 @@ func TestHandle429_OpenAIWithoutCreditsStillFreezesUntilWindowReset(t *testing.T
 	require.Equal(t, account.ID, repo.rateLimitedID)
 	require.Greater(t, time.Until(repo.rateLimitedUntil), 72*time.Hour,
 		"无积分时应保持原行为：冻结到周窗口重置")
+}
+
+// 当前网关在持久化限流之前还会更新内存熔断，两个路径必须使用同一积分判据。
+func TestOpenAICredits429GatewayRuntime(t *testing.T) {
+	for _, snapshotOnly := range []bool{false, true} {
+		for _, retryExpired := range []bool{false, true} {
+			t.Run(fmt.Sprintf("snapshot=%t/expired=%t", snapshotOnly, retryExpired), func(t *testing.T) {
+				repo := &oauth429RateLimitRepo{}
+				rateLimits := NewRateLimitService(repo, nil, nil, nil, nil)
+				gateway := &OpenAIGatewayService{rateLimitService: rateLimits}
+				rateLimits.SetAccountRuntimeBlocker(gateway)
+				account := &Account{ID: 129, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+				headers := realCodex429HeadersWithCredits()
+				if snapshotOnly {
+					headers = realCodex429Headers()
+					account.Extra = creditsSnapshotExtra(time.Now(), true, false, "2997.4")
+				}
+				if retryExpired {
+					gateway.openaiOAuth429RetryStartedAt.Store(account.ID, time.Now().Add(-openAIOAuth429RetryWindow-time.Second))
+				}
+				gateway.handleOpenAIAccountUpstreamError(context.Background(), account, http.StatusTooManyRequests, headers, nil)
+				if retryExpired {
+					require.Equal(t, 1, repo.setRateLimitedCalls)
+					require.Less(t, time.Until(repo.lastRateLimitedUntil), time.Minute)
+					until, ok := gateway.openaiAccountRuntimeBlockUntil.Load(account.ID)
+					require.True(t, ok)
+					require.Less(t, time.Until(until.(time.Time)), time.Minute)
+				} else {
+					require.False(t, gateway.isOpenAIAccountRuntimeBlocked(account))
+					require.Zero(t, repo.setRateLimitedCalls)
+					require.True(t, gateway.ShouldRetryOpenAIOAuth429(account, headers, nil))
+				}
+			})
+		}
+	}
+}
+
+func TestOpenAICredits429PreservesQuotaPauseAndManualThreshold(t *testing.T) {
+	now := time.Now()
+	account := &Account{
+		ID: 130, Platform: PlatformOpenAI, Type: AccountTypeOAuth,
+		Extra:       creditsSnapshotExtra(now, true, false, "62500"),
+		Credentials: map[string]any{"account_scheduling_threshold": 99},
+	}
+	account.Extra["codex_7d_used_percent"] = 100.0
+	account.Extra["codex_7d_reset_at"] = now.Add(24 * time.Hour).Format(time.RFC3339)
+	account.Extra["codex_usage_updated_at"] = now.Format(time.RFC3339)
+	ctx := withOpenAIQuotaAutoPauseSettings(context.Background(), OpsOpenAIAccountQuotaAutoPauseSettings{
+		DefaultThreshold5h: 1, DefaultThreshold7d: 1,
+	})
+	paused, _ := shouldAutoPauseOpenAIAccountByQuota(ctx, account)
+	require.True(t, paused, "默认设置在额度耗尽后暂停，即使账号有积分")
+	account.Extra["auto_pause_5h_disabled"] = true
+	account.Extra["auto_pause_7d_disabled"] = true
+	paused, _ = shouldAutoPauseOpenAIAccountByQuota(ctx, account)
+	require.False(t, paused, "显式关闭窗口暂停后才允许续跑")
+	decision := EvaluateAccountSchedulingThreshold(account, map[string]int{PlatformOpenAI: 100}, now)
+	require.True(t, decision.ShouldPause, "用户手动阈值仍然优先")
 }

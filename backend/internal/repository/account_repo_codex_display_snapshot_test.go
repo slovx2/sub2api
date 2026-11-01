@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestUpdateExtraCodexDisplaySnapshotsAvoidSchedulerOutbox(t *testing.T) {
+func TestUpdateExtraCodexSnapshotsSchedulerOutbox(t *testing.T) {
 	for _, key := range []string{"codex_credits_snapshot", "codex_referral_snapshot"} {
 		for _, tc := range []struct {
 			name             string
@@ -26,6 +26,8 @@ func TestUpdateExtraCodexDisplaySnapshotsAvoidSchedulerOutbox(t *testing.T) {
 			{"mixed scheduling update", nil, true},
 		} {
 			t.Run(key+"/"+tc.name, func(t *testing.T) {
+				// 积分快照已参与 429 判定，刷新和失效都必须同步到调度缓存。
+				schedulingChange := tc.schedulingChange || key == "codex_credits_snapshot"
 				db, mock, err := sqlmock.New()
 				require.NoError(t, err)
 				client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
@@ -34,19 +36,20 @@ func TestUpdateExtraCodexDisplaySnapshotsAvoidSchedulerOutbox(t *testing.T) {
 				updates := map[string]any{key: tc.value}
 				if tc.schedulingChange {
 					updates["openai_compact_enabled"] = true
+				}
+				if schedulingChange {
 					mock.ExpectBegin()
 				}
 				payload, err := json.Marshal(updates)
 				require.NoError(t, err)
 				mock.ExpectExec(regexp.QuoteMeta("UPDATE accounts SET extra = COALESCE(extra, '{}'::jsonb) || $1::jsonb, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL")).
 					WithArgs(string(payload), int64(27)).WillReturnResult(sqlmock.NewResult(0, 1))
-				if tc.schedulingChange {
+				if schedulingChange {
 					mock.ExpectExec(regexp.QuoteMeta("INSERT INTO scheduler_outbox")).
 						WithArgs(service.SchedulerOutboxEventAccountChanged, int64(27), nil, nil, sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(1, 1))
 					mock.ExpectCommit()
 				}
-				// Snapshot-only changes must perform just the UPDATE, without even a
-				// transaction or account_changed event that would rebuild scheduler buckets.
+				// 邀请展示快照仍不触发调度更新。
 				require.NoError(t, repo.UpdateExtra(context.Background(), 27, updates))
 				require.NoError(t, mock.ExpectationsWereMet())
 			})
