@@ -20,6 +20,7 @@ import (
 	"unsafe"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
@@ -1377,16 +1378,19 @@ func (s *GatewayService) DoGrokNativeResponsesJSON(ctx context.Context, account 
 	return respBytes, nil
 }
 
-// mixedListingAccountAllowed mirrors the mixed-scheduling rule in
-// GeminiMessagesCompatService.listSchedulableAccountsOnce: a gemini group may be
-// served by antigravity accounts, so model listing must consider them too.
+// mixedListingAccountAllowed 同时覆盖 Gemini 混合调度与 Claude 分组的 DeepSeek 分流。
 func mixedListingAccountAllowed(groupPlatform string, account *Account) bool {
+	if groupPlatform == PlatformAnthropic && account.Platform == PlatformDeepseek {
+		return true
+	}
 	return groupPlatform == PlatformGemini && account.IsMixedSchedulingEnabled()
 }
 
-// mixedListingModelAllowed limits what a mixed-scheduling account may advertise
-// on the group's platform: only gemini-* wire IDs are meaningful on a gemini group.
+// mixedListingModelAllowed 只展示当前分组入口能正确分流的跨平台模型。
 func mixedListingModelAllowed(groupPlatform, model string) bool {
+	if groupPlatform == PlatformAnthropic {
+		return strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "deepseek-")
+	}
 	return groupPlatform == PlatformGemini && isAntigravityGeminiModel(model)
 }
 
@@ -1431,6 +1435,7 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 	// Collect unique models from all accounts
 	modelSet := make(map[string]struct{})
 	hasAnyMapping := false
+	hasDeepseekInAnthropicGroup := false
 
 	for _, acc := range accounts {
 		// Passthrough routing accepts models independently of model_mapping, so a
@@ -1443,6 +1448,15 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 		}
 
 		mapping := acc.GetModelMapping()
+		if platform == PlatformAnthropic && acc.Platform == PlatformDeepseek {
+			hasDeepseekInAnthropicGroup = true
+			if len(mapping) == 0 {
+				for _, model := range deepseekServableModels {
+					modelSet[model] = struct{}{}
+				}
+				hasAnyMapping = true
+			}
+		}
 		for model := range mapping {
 			// Accounts pulled in through mixed scheduling only contribute the
 			// models that belong to the listing platform (e.g. an antigravity
@@ -1452,6 +1466,19 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 			}
 			modelSet[model] = struct{}{}
 			hasAnyMapping = true
+		}
+	}
+	// DeepSeek 模型使列表不再走 handler 的默认 Claude 列表兜底；补回没有
+	// 自定义映射的原生账号模型，避免混合分组只剩 DeepSeek 可选。
+	if hasDeepseekInAnthropicGroup {
+		for _, acc := range accounts {
+			if acc.Platform == PlatformAnthropic && len(acc.GetModelMapping()) == 0 {
+				for _, model := range claude.DefaultModels {
+					modelSet[model.ID] = struct{}{}
+				}
+				hasAnyMapping = true
+				break
+			}
 		}
 	}
 

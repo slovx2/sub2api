@@ -23,6 +23,27 @@ const mountSelector = (modelValue: number[] = []) => mount(GroupSelector, {
 describe('GroupSelector simple-mode binding policy', () => {
   beforeEach(() => { authState.isSimpleMode = false })
 
+  it('allows DeepSeek accounts to select Claude groups without allowing unrelated groups', async () => {
+    const wrapper = mount(GroupSelector, {
+      props: {
+        modelValue: [], platform: 'deepseek', searchable: false,
+        groups: [...groups,
+          { id: 3, name: 'DeepSeek', platform: 'deepseek', status: 'active' },
+          { id: 4, name: 'OpenAI', platform: 'openai', status: 'active' }
+        ]
+      },
+      global: { stubs: { GroupBadge: { props: ['name'], template: '<span>{{ name }}</span>' }, Icon: true } }
+    })
+    expect(wrapper.text()).toContain('Basic')
+    expect(wrapper.text()).toContain('DeepSeek')
+    expect(wrapper.text()).toContain('Composite')
+    expect(wrapper.text()).not.toContain('OpenAI')
+    await wrapper.find('input[type="checkbox"]').setValue(true)
+    expect(wrapper.emitted('update:modelValue')).toEqual([[[1]]])
+    await wrapper.setProps({ platform: 'openai' })
+    expect(wrapper.text()).not.toContain('Basic')
+  })
+
   it('hides composite groups in simple mode and preserves basic groups', () => {
     authState.isSimpleMode = true
     const wrapper = mountSelector()

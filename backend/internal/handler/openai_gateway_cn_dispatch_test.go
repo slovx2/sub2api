@@ -31,6 +31,20 @@ func TestAllowOpenAICompatibleMessagesDispatch_CNProvidersExempt(t *testing.T) {
 	require.True(t, allowOpenAICompatibleMessagesDispatch(nil, openaiOn))
 }
 
+func TestAllowOpenAICompatibleMessagesDispatch_AnthropicDeepseek(t *testing.T) {
+	key := &service.APIKey{Group: &service.Group{Platform: service.PlatformAnthropic}}
+	for _, platform := range []string{"", service.PlatformDeepseek, service.PlatformOpenAI, service.PlatformKimi} {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = httptest.NewRequest("POST", "/v1/messages", nil)
+		c.Request = c.Request.WithContext(service.WithResolvedTargetPlatform(c.Request.Context(), platform))
+		require.Equal(t, platform == service.PlatformDeepseek, allowOpenAICompatibleMessagesDispatch(c, key))
+		if platform == service.PlatformDeepseek {
+			require.Equal(t, service.PlatformDeepseek, openAICompatibleRequestPlatform(c.Request.Context(), key))
+			require.Empty(t, resolveOpenAIMessagesDispatchMappedModel(c, key, "deepseek-flash"))
+		}
+	}
+}
+
 func TestAllowOpenAICompatibleMessagesDispatch_CompositeResolvedTargets(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

@@ -100,6 +100,9 @@ const filteredGroups = computed(() => {
       result = result.filter(
         (g) => g.platform === 'antigravity' || g.platform === 'anthropic' || g.platform === 'gemini' || g.platform === 'composite'
       )
+    } else if (props.platform === 'deepseek') {
+      // DeepSeek 的 Messages 请求可在 Claude 分组内按模型分流。
+      result = result.filter((g) => g.platform === 'deepseek' || g.platform === 'anthropic' || g.platform === 'composite')
     } else {
       // 默认：只能选择同 platform 的分组；composite 分组可接收任意具体平台账号
       result = result.filter((g) => g.platform === props.platform || g.platform === 'composite')

@@ -306,6 +306,12 @@ func openAIResponsesRequiredCapabilityForRequest(imageIntent bool, needsResponse
 }
 
 func allowOpenAICompatibleMessagesDispatch(c *gin.Context, apiKey *service.APIKey) bool {
+	// Claude 分组的 DeepSeek 请求已由入口按模型分流，无需 OpenAI 调度开关。
+	if apiKey != nil && apiKey.Group != nil && apiKey.Group.Platform == service.PlatformAnthropic && c != nil && c.Request != nil {
+		if platform, ok := service.ResolvedTargetPlatformFromContext(c.Request.Context()); ok && platform == service.PlatformDeepseek {
+			return true
+		}
+	}
 	if apiKey == nil || apiKey.Group == nil {
 		return true
 	}

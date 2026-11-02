@@ -539,6 +539,11 @@ func getGroupPlatform(c *gin.Context) string {
 			return platform
 		}
 	}
+	if apiKey.Group.Platform == service.PlatformAnthropic {
+		if platform, ok := service.ResolvedTargetPlatformFromContext(c.Request.Context()); ok && platform == service.PlatformDeepseek {
+			return platform
+		}
+	}
 	return apiKey.Group.Platform
 }
 
@@ -548,11 +553,18 @@ func compositeTargetPlatformMiddleware(resolver *service.CompositeRouteResolver)
 	}
 	return func(c *gin.Context) {
 		apiKey, ok := middleware.GetAPIKeyFromContext(c)
-		if !ok || apiKey == nil || apiKey.Group == nil || apiKey.Group.Platform != service.PlatformComposite {
+		if !ok || apiKey == nil || apiKey.Group == nil {
 			c.Next()
 			return
 		}
 		if c.Request == nil || c.Request.Method == http.MethodGet {
+			c.Next()
+			return
+		}
+		endpoint := compositeRouteEndpointForPath(c.Request.URL.Path)
+		anthropicMessages := apiKey.Group.Platform == service.PlatformAnthropic &&
+			(endpoint == service.CompositeRouteEndpointMessages || endpoint == service.CompositeRouteEndpointCountTokens)
+		if apiKey.Group.Platform != service.PlatformComposite && !anthropicMessages {
 			c.Next()
 			return
 		}
@@ -575,6 +587,16 @@ func compositeTargetPlatformMiddleware(resolver *service.CompositeRouteResolver)
 		// 解析保持一致），避免顶层 model 别名与 session 模型不一致时改错对象。
 		routePath := c.FullPath()
 		model := requestmodel.FromBodyForRoute(routePath, c.GetHeader("Content-Type"), body)
+		// Claude 分组可绑定 DeepSeek 账号；保留原分组身份，由现有 DeepSeek
+		// 网关在该分组内选号、转发和计费，Claude 模型仍走原有网关。
+		if anthropicMessages {
+			if strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "deepseek-") {
+				c.Request = c.Request.WithContext(service.WithResolvedTargetPlatform(c.Request.Context(), service.PlatformDeepseek))
+			}
+			requestmodel.ResetRequestBody(c.Request, body)
+			c.Next()
+			return
+		}
 		if model != "" {
 			decision, err := resolver.Resolve(c.Request.Context(), apiKey.Group.ID, model, compositeRouteEndpointForPath(c.Request.URL.Path))
 			if err != nil {

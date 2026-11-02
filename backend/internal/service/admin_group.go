@@ -117,11 +117,21 @@ func (s *adminServiceImpl) GetGroupModelsListCandidates(ctx context.Context, id 
 			if !isConcreteRequestPlatform(acc.Platform) {
 				continue
 			}
-		} else if acc.Platform != platform {
+		} else if acc.Platform != platform && !(platform == PlatformAnthropic && acc.Platform == PlatformDeepseek) {
 			continue
 		}
-		for model := range acc.GetModelMapping() {
+		mapping := acc.GetModelMapping()
+		if platform == PlatformAnthropic && acc.Platform == PlatformDeepseek && len(mapping) == 0 {
+			mapping = make(map[string]string, len(deepseekServableModels))
+			for _, model := range deepseekServableModels {
+				mapping[model] = model
+			}
+		}
+		for model := range mapping {
 			model = strings.TrimSpace(model)
+			if platform != PlatformComposite && acc.Platform != platform && !mixedListingModelAllowed(platform, model) {
+				continue
+			}
 			if model == "" {
 				continue
 			}
