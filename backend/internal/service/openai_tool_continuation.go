@@ -16,12 +16,35 @@ type ToolContinuationSignals struct {
 	FunctionCallOutputCallIDs          []string
 }
 
-// FunctionCallOutputValidation 汇总 function_call_output 关联性校验结果。
+// FunctionCallOutputValidation 汇总需配对的工具输出；具名命名空间独立事件不参与关联校验。
 type FunctionCallOutputValidation struct {
 	HasFunctionCallOutput              bool
 	HasToolCallContext                 bool
 	HasFunctionCallOutputMissingCallID bool
 	HasItemReferenceForAllCallIDs      bool
+}
+
+// 独立事件由 Codex 的 turn/start.toolOutput 等入口注入，没有对应的工具调用。
+// 仅允许省略/null call_id 且 name、namespace 完整的形态；空字符串 ID 仍视为损坏输出。
+func isNamespacedStandaloneFunctionOutput(itemType string, hasCallID bool, name, namespace string) bool {
+	return itemType == "function_call_output" && !hasCallID &&
+		strings.TrimSpace(name) != "" && strings.TrimSpace(namespace) != ""
+}
+
+func isNamespacedStandaloneFunctionOutputBytes(item gjson.Result) bool {
+	if item.Get("type").String() != "function_call_output" {
+		return false
+	}
+	return isNamespacedStandaloneFunctionOutput("function_call_output",
+		item.Get("call_id").Type != gjson.Null,
+		gjsonNonEmptyString(item.Get("name")), gjsonNonEmptyString(item.Get("namespace")))
+}
+
+func isNamespacedStandaloneFunctionOutputMap(item map[string]any) bool {
+	itemType, _ := item["type"].(string)
+	name, _ := item["name"].(string)
+	namespace, _ := item["namespace"].(string)
+	return isNamespacedStandaloneFunctionOutput(itemType, item["call_id"] != nil, name, namespace)
 }
 
 func isCodexToolCallContextItemType(typ string) bool {
@@ -172,11 +195,14 @@ func ValidateFunctionCallOutputContextBytes(body []byte) FunctionCallOutputValid
 		if !item.IsObject() {
 			return true
 		}
+		if isNamespacedStandaloneFunctionOutputBytes(item) {
+			return true
+		}
 		itemType := item.Get("type").String()
 		switch {
 		case isCodexToolCallOutputItemType(itemType):
 			result.HasFunctionCallOutput = true
-			callID := strings.TrimSpace(item.Get("call_id").String())
+			callID := gjsonNonEmptyString(item.Get("call_id"))
 			if callID == "" {
 				result.HasFunctionCallOutputMissingCallID = true
 				return true
@@ -320,6 +346,9 @@ func ValidateFunctionCallOutputContext(reqBody map[string]any) FunctionCallOutpu
 		if !ok {
 			continue
 		}
+		if isNamespacedStandaloneFunctionOutputMap(itemMap) {
+			continue
+		}
 		itemType, _ := itemMap["type"].(string)
 		switch {
 		case isCodexToolCallOutputItemType(itemType):
@@ -344,6 +373,9 @@ func ValidateFunctionCallOutputContext(reqBody map[string]any) FunctionCallOutpu
 	for _, item := range input {
 		itemMap, ok := item.(map[string]any)
 		if !ok {
+			continue
+		}
+		if isNamespacedStandaloneFunctionOutputMap(itemMap) {
 			continue
 		}
 		itemType, _ := itemMap["type"].(string)

@@ -1701,7 +1701,8 @@ func filterCodexInputWithOptions(input []any, opts codexInputFilterOptions) []an
 			copied = true
 		}
 
-		if isCodexToolCallItemType(typ) {
+		// 独立事件的条目 id 不是工具调用 id；合成 call_id 会让后续孤立输出清理误删事件。
+		if isCodexToolCallItemType(typ) && !isNamespacedStandaloneFunctionOutputMap(m) {
 			callID, ok := m["call_id"].(string)
 			if !ok || strings.TrimSpace(callID) == "" {
 				if id, ok := m["id"].(string); ok && strings.TrimSpace(id) != "" {
