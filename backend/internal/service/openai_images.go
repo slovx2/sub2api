@@ -86,6 +86,7 @@ type OpenAIImagesRequest struct {
 	SizeTier           string
 	ResponseFormat     string
 	Quality            string
+	Complexity         string
 	Background         string
 	OutputFormat       string
 	Moderation         string
@@ -239,6 +240,9 @@ func (s *OpenAIGatewayService) ParseOpenAIImagesRequest(c *gin.Context, body []b
 	if err := validateCompatibleImagesModel(req.Model); err != nil {
 		return nil, err
 	}
+	if req.Complexity != "" && req.Complexity != "low" && req.Complexity != "medium" && req.Complexity != "high" {
+		return nil, fmt.Errorf("complexity must be low, medium, or high")
+	}
 	req.SizeTier = normalizeOpenAIImageSizeTier(req.Size)
 	req.RequiredCapability = classifyOpenAIImagesCapability(req)
 	return req, nil
@@ -274,6 +278,12 @@ func parseOpenAIImagesJSONRequest(body []byte, req *OpenAIImagesRequest) error {
 	}
 	req.ResponseFormat = strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, "response_format").String()))
 	req.Quality = strings.TrimSpace(gjson.GetBytes(body, "quality").String())
+	if complexity := gjson.GetBytes(body, "complexity"); complexity.Exists() {
+		if complexity.Type != gjson.String {
+			return fmt.Errorf("invalid complexity field type")
+		}
+		req.Complexity = strings.TrimSpace(complexity.String())
+	}
 	req.Background = strings.TrimSpace(gjson.GetBytes(body, "background").String())
 	req.OutputFormat = strings.TrimSpace(gjson.GetBytes(body, "output_format").String())
 	req.Moderation = strings.TrimSpace(gjson.GetBytes(body, "moderation").String())
@@ -414,6 +424,9 @@ func parseOpenAIImagesMultipartRequest(body []byte, contentType string, req *Ope
 			req.N = n
 		case "quality":
 			req.Quality = value
+			req.HasNativeOptions = true
+		case "complexity":
+			req.Complexity = value
 			req.HasNativeOptions = true
 		case "background":
 			req.Background = value
@@ -569,6 +582,7 @@ func hasOpenAINativeImageOptions(exists func(path string) bool) bool {
 	for _, path := range []string{
 		"background",
 		"quality",
+		"complexity",
 		"style",
 		"output_format",
 		"output_compression",
@@ -585,7 +599,7 @@ func hasOpenAINativeImageOptions(exists func(path string) bool) bool {
 
 func isOpenAINativeImageOption(name string) bool {
 	switch strings.TrimSpace(strings.ToLower(name)) {
-	case "background", "quality", "style", "output_format", "output_compression", "moderation", "input_fidelity", "partial_images":
+	case "background", "quality", "complexity", "style", "output_format", "output_compression", "moderation", "input_fidelity", "partial_images":
 		return true
 	default:
 		return false
