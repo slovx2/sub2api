@@ -69,6 +69,7 @@ const HEADER_OVERRIDE_BLOCKED_NAMES = new Set([
   'trailer',
   'upgrade',
   'authorization',
+  'x-openai-agent-assertion',
   'x-api-key',
   'x-goog-api-key',
   'cookie',

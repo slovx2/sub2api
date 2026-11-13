@@ -3,19 +3,25 @@ package service
 import (
 	"context"
 	"net/http"
+	"strings"
 )
 
 func setOpenAIChatGPTAccountHeaders(headers http.Header, account *Account) {
 	if headers == nil || account == nil || !account.IsOpenAIOAuthLike() {
 		return
 	}
+	// 账号选择头必须只来自当前凭据；换号或缺少账号 ID 时也要清除旧值。
+	// 同时清理非 canonical 大小写，避免复用的请求头携带两个不同身份。
+	for name := range headers {
+		if strings.EqualFold(name, "chatgpt-account-id") || strings.EqualFold(name, "x-openai-fedramp") {
+			delete(headers, name)
+		}
+	}
 	if chatgptAccountID := account.GetChatGPTAccountID(); chatgptAccountID != "" {
 		headers.Set("chatgpt-account-id", chatgptAccountID)
 	}
 	if account.IsChatGPTAccountFedRAMP() {
 		headers.Set("x-openai-fedramp", "true")
-	} else {
-		headers.Del("x-openai-fedramp")
 	}
 }
 

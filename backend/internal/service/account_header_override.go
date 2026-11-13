@@ -27,6 +27,7 @@ const (
 //   - host/content-length：由 Go 的 Request.Host / ContentLength 字段管理，header 覆写不生效或产生冲突；
 //   - content-type：承载报文框架信息（multipart boundary 为每请求随机值），静态覆写必然与 body 不匹配；
 //   - authorization/x-api-key/cookie 等：上游认证头由账号凭据统一注入，禁止通过覆写篡改或重新引入；
+//   - x-openai-agent-assertion：绑定已注册 runtime 的逐请求签名，不能与其他账号的 Bearer 凭据混用；
 //   - accept-encoding：强制压缩会破坏网关对上游流式响应（SSE/usage）的解析；
 //   - sec-websocket-*：WebSocket 握手头由拨号器管理（OpenAI WS 模式）；
 //   - session_id/x-claude-code-session-id/x-grok-conv-id 等：逐请求会话隔离头，
@@ -45,6 +46,7 @@ var headerOverrideBlockedNames = map[string]struct{}{
 	"trailer":                  {},
 	"upgrade":                  {},
 	"authorization":            {},
+	"x-openai-agent-assertion":  {},
 	"x-api-key":                {},
 	"x-goog-api-key":           {},
 	"cookie":                   {},

@@ -339,6 +339,7 @@ describe('validateHeaderOverrideRows', () => {
     expect(validateHeaderOverrideRows([{ name: 'Content-Type', value: '' }])).toBe('blockedName')
     expect(validateHeaderOverrideRows([{ name: 'Cookie', value: '' }])).toBe('blockedName')
     expect(validateHeaderOverrideRows([{ name: 'x-goog-api-key', value: '' }])).toBe('blockedName')
+    expect(validateHeaderOverrideRows([{ name: 'X-OpenAI-Agent-Assertion', value: '1.proof' }])).toBe('blockedName')
   })
 
   it('rejects duplicate names case-insensitively', () => {
