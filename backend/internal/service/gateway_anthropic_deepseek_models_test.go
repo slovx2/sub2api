@@ -41,7 +41,8 @@ func TestGetAvailableModels_AnthropicDeepseek(t *testing.T) {
 			for _, model := range claude.DefaultModels {
 				require.Contains(t, models, model.ID)
 			}
-			require.NotContains(t, models, "custom-alias")
+			// DeepSeek 账号显式声明的非 Claude 模型可被入口分流，应展示；
+			// Claude 名字的映射不分流，不展示；其他平台账号的映射不属于该分组入口。
 			require.NotContains(t, models, "claude-fake")
 			require.NotContains(t, models, "gpt-5.5")
 			admin := &adminServiceImpl{
@@ -51,11 +52,14 @@ func TestGetAvailableModels_AnthropicDeepseek(t *testing.T) {
 			candidates, err := admin.GetGroupModelsListCandidates(context.Background(), groupID, PlatformAnthropic)
 			require.NoError(t, err)
 			require.Contains(t, candidates, "deepseek-flash")
-			require.NotContains(t, candidates, "custom-alias")
 			require.NotContains(t, candidates, "claude-fake")
 			require.NotContains(t, candidates, "gpt-5.5")
 			if mapped {
+				require.Contains(t, models, "custom-alias")
+				require.Contains(t, candidates, "custom-alias")
 				require.NotContains(t, models, "deepseek-v4-pro")
+			} else {
+				require.NotContains(t, models, "custom-alias")
 			}
 		})
 	}
@@ -96,4 +100,41 @@ func TestAnthropicDeepseekSchedulingStaysInGroup(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestAnthropicGroupRoutesToDeepseek(t *testing.T) {
+	groupID := int64(71)
+	repo := &modelsListAccountRepoStub{byGroup: map[int64][]Account{groupID: {
+		{ID: 1, Platform: PlatformAnthropic, Type: AccountTypeAPIKey, Credentials: map[string]any{"model_mapping": map[string]any{
+			"shared-model": "shared-model",
+		}}},
+		{ID: 2, Platform: PlatformDeepseek, Type: AccountTypeAPIKey, Credentials: map[string]any{"model_mapping": map[string]any{
+			"glm-5.3":         "glm-5.3",
+			"shared-model":    "shared-model",
+			"claude-opus-5-5": "glm-5.3",
+		}}},
+		{ID: 3, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"model_mapping": map[string]any{
+			"gpt-5.5": "gpt-5.5",
+		}}},
+	}}}
+	svc := &GatewayService{accountRepo: repo}
+	resolver := NewCompositeRouteResolver(nil)
+	resolver.SetModelOwnershipResolver(svc.resolveCompositeModelOwnership)
+	for model, want := range map[string]bool{
+		"deepseek-flash":  true,  // 前缀规则不依赖映射
+		"glm-5.3":         true,  // 仅 DeepSeek 账号声明
+		"shared-model":    false, // anthropic 账号也声明，保持原路由
+		"claude-opus-5-5": false, // Claude 模型不分流
+		"gpt-5.5":         false, // 非 DeepSeek 账号声明
+		"unknown-model":   false,
+		"":                false,
+	} {
+		got, err := resolver.AnthropicGroupRoutesToDeepseek(context.Background(), groupID, model)
+		require.NoError(t, err)
+		require.Equal(t, want, got, model)
+	}
+	// 其他分组没有声明 glm-5.3 的 DeepSeek 账号。
+	got, err := resolver.AnthropicGroupRoutesToDeepseek(context.Background(), 43, "glm-5.3")
+	require.NoError(t, err)
+	require.False(t, got)
 }

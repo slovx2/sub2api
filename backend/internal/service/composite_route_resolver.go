@@ -68,6 +68,47 @@ func filterSystemOneRouteModels(routes []CompositeModelRoute, models []string, e
 	return filtered
 }
 
+// AnthropicGroupRoutesToDeepseek 判断 Claude 分组的 Messages 请求是否交给组内
+// DeepSeek 平台账号：deepseek-* 一律分流；其余非 Claude 模型（如 OpenCode Go
+// 的 glm-5.3）仅在组内 DeepSeek 账号的 model_mapping 显式声明时分流。
+// Claude 模型、以及组内 anthropic/antigravity 账号也声明的模型始终留在原网关，
+// 避免 DeepSeek 账号的映射抢走原有流量。
+func (r *CompositeRouteResolver) AnthropicGroupRoutesToDeepseek(ctx context.Context, groupID int64, model string) (bool, error) {
+	model = strings.TrimSpace(model)
+	if strings.HasPrefix(strings.ToLower(model), "deepseek-") {
+		return true, nil
+	}
+	if !AnthropicGroupDeepseekModelEligible(model) || r == nil || r.modelOwnershipResolver == nil || groupID <= 0 {
+		return false, nil
+	}
+	ownership, err := r.modelOwnershipResolver(ctx, groupID, model)
+	if err != nil {
+		return false, err
+	}
+	claimedByDeepseek := false
+	for _, platform := range ownership.Platforms {
+		switch platform {
+		case PlatformDeepseek:
+			claimedByDeepseek = true
+		case PlatformAnthropic, PlatformAntigravity:
+			// 原网关的账号也声明了该模型时保持原路由。
+			return false, nil
+		}
+	}
+	return claimedByDeepseek, nil
+}
+
+// AnthropicGroupDeepseekModelEligible 报告模型能否由 Claude 分组内的 DeepSeek
+// 账号承接：空模型和 Claude 系列模型不能。
+func AnthropicGroupDeepseekModelEligible(model string) bool {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return false
+	}
+	platform, ok := DetectModelPlatform(model)
+	return !ok || platform != PlatformAnthropic
+}
+
 func (r *CompositeRouteResolver) Resolve(ctx context.Context, groupID int64, model, endpoint string) (CompositeRouteDecision, error) {
 	model = strings.TrimSpace(model)
 	endpoint = normalizeCompositeRouteEndpoint(endpoint)

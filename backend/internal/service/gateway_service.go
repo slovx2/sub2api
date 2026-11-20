@@ -1389,7 +1389,8 @@ func mixedListingAccountAllowed(groupPlatform string, account *Account) bool {
 // mixedListingModelAllowed 只展示当前分组入口能正确分流的跨平台模型。
 func mixedListingModelAllowed(groupPlatform, model string) bool {
 	if groupPlatform == PlatformAnthropic {
-		return strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "deepseek-")
+		// 调用方只传入 DeepSeek 账号映射里显式声明的模型，与入口分流规则一致。
+		return AnthropicGroupDeepseekModelEligible(model)
 	}
 	return groupPlatform == PlatformGemini && isAntigravityGeminiModel(model)
 }

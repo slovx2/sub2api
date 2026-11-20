@@ -590,7 +590,13 @@ func compositeTargetPlatformMiddleware(resolver *service.CompositeRouteResolver)
 		// Claude 分组可绑定 DeepSeek 账号；保留原分组身份，由现有 DeepSeek
 		// 网关在该分组内选号、转发和计费，Claude 模型仍走原有网关。
 		if anthropicMessages {
-			if strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "deepseek-") {
+			routeToDeepseek, err := resolver.AnthropicGroupRoutesToDeepseek(c.Request.Context(), apiKey.Group.ID, model)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"type": "server_error", "message": "Failed to resolve model route"}})
+				c.Abort()
+				return
+			}
+			if routeToDeepseek {
 				c.Request = c.Request.WithContext(service.WithResolvedTargetPlatform(c.Request.Context(), service.PlatformDeepseek))
 			}
 			requestmodel.ResetRequestBody(c.Request, body)
