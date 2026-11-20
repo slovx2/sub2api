@@ -2142,6 +2142,10 @@ func (s *OpenAIGatewayService) SelectAccountWithSchedulerForImages(
 	excludedIDs map[int64]struct{},
 	requiredCapability OpenAIImagesCapability,
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
+	// 全局图片优先账号先于常规调度；都不可用时回退到分组内常规调度。
+	if selection, decision := s.selectOpenAIImagePriorityAccount(ctx, groupID, requestedModel, excludedIDs, requiredCapability); selection != nil {
+		return selection, decision, nil
+	}
 	selection, decision, err := s.selectAccountWithScheduler(ctx, groupID, "", sessionHash, requestedModel, excludedIDs, OpenAIUpstreamTransportHTTPSSE, "", requiredCapability, false, PlatformOpenAI, false, false)
 	if err == nil && selection != nil && selection.Account != nil {
 		return selection, decision, nil

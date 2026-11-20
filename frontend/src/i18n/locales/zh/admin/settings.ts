@@ -461,6 +461,21 @@ export default {
         accountSchedulingThresholdsDisabledHint: '100 表示禁用该平台自动停调；1–99 表示达到该利用率后暂停调度。',
         accountSchedulingThresholdsRangeHint: '整数 1–100（百分比）。仅 OpenAI / Anthropic / Grok。'
       },
+      openaiImagePriority: {
+        title: '图片优先 OpenAI 账号',
+        description: '/v1/images 生图请求优先使用这些账号：对所有分组生效，账号无需加入分组，关闭“调度”的账号也会承接生图。状态异常、限流、过载、临时不可调度或并发已满的账号会被跳过，全部不可用时回退到分组内的常规调度。',
+        hint: '多个账号之间按账号优先级（数值小优先）、当前负载依次选择。关闭调度即可让账号只接生图、不接文本请求。',
+        empty: '尚未设置图片优先账号',
+        searchPlaceholder: '按名称搜索 OpenAI 账号',
+        searchEmpty: '没有匹配的 OpenAI 账号',
+        deleted: '账号已删除（保存后移除）',
+        statusUnavailable: '状态：{status}',
+        schedulingOff: '调度已关闭',
+        remove: '移除',
+        saved: '图片优先账号已保存',
+        saveFailed: '保存图片优先账号失败',
+        loadFailed: '加载图片优先账号失败'
+      },
       upstreamBillingProbe: {
         title: '上游倍率自动探测',
         description: '定期获取 API Key 账号所连接上游 Sub2API 站点声明的计费倍率；只有另行开启“同步上游声明倍率”的账号才会更新账号倍率。',

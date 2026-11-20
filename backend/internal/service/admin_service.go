@@ -80,6 +80,9 @@ type AdminService interface {
 	ListOpenAISchedulableAccountsForSchedulerScore(ctx context.Context, groupID *int64) ([]Account, error)
 	GetAccount(ctx context.Context, id int64) (*Account, error)
 	GetAccountsByIDs(ctx context.Context, ids []int64) ([]*Account, error)
+	// GetOpenAIImagePriorityAccounts / UpdateOpenAIImagePriorityAccounts 管理全局图片优先 OpenAI 账号。
+	GetOpenAIImagePriorityAccounts(ctx context.Context) (*OpenAIImagePriorityAccounts, error)
+	UpdateOpenAIImagePriorityAccounts(ctx context.Context, ids []int64) (*OpenAIImagePriorityAccounts, error)
 	CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error)
 	ValidateAccountGroupBindings(ctx context.Context, groupIDs []int64) error
 	// DuplicateAccount creates an independent account from an existing account's configuration.

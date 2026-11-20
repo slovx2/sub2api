@@ -1055,6 +1055,34 @@ export async function probeUpstreamBillingBatch(accountIds: number[]): Promise<U
   return data.results
 }
 
+export interface OpenAIImagePriorityAccountItem {
+  id: number
+  name: string
+  type: string
+  status: string
+  schedulable: boolean
+  priority: number
+  concurrency: number
+}
+
+/** 全局图片优先 OpenAI 账号：account_ids 为配置原文（可能含已删除账号），accounts 为仍存在的账号 */
+export interface OpenAIImagePriorityAccounts {
+  account_ids: number[]
+  accounts: OpenAIImagePriorityAccountItem[]
+}
+
+export async function getOpenAIImagePriorityAccounts(): Promise<OpenAIImagePriorityAccounts> {
+  const { data } = await apiClient.get<OpenAIImagePriorityAccounts>('/admin/accounts/openai-image-priority')
+  return data
+}
+
+export async function updateOpenAIImagePriorityAccounts(accountIds: number[]): Promise<OpenAIImagePriorityAccounts> {
+  const { data } = await apiClient.put<OpenAIImagePriorityAccounts>('/admin/accounts/openai-image-priority', {
+    account_ids: accountIds
+  })
+  return data
+}
+
 export async function getOllamaCloudUsageSettings(): Promise<OllamaCloudUsageSettings> {
   const { data } = await apiClient.get<OllamaCloudUsageSettings>('/admin/accounts/ollama-cloud-usage/settings')
   return data
@@ -1184,6 +1212,8 @@ export const accountsAPI = {
   resetOpenAIQuota,
   createSparkShadow,
   getUpstreamBillingProbeSettings,
+  getOpenAIImagePriorityAccounts,
+  updateOpenAIImagePriorityAccounts,
   updateUpstreamBillingProbeSettings,
   setUpstreamBillingProbeEnabled,
   probeUpstreamBilling,

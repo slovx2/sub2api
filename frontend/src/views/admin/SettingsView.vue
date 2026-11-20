@@ -4740,6 +4740,9 @@
             </div>
           </div>
 
+          <!-- OpenAI Image Priority Accounts -->
+          <OpenAIImagePriorityAccountsCard />
+
           <!-- Upstream Billing Probe Settings -->
           <div class="card" data-testid="upstream-billing-probe-settings">
             <div
@@ -9080,6 +9083,7 @@ import ImageUpload from "@/components/common/ImageUpload.vue";
 import BackupSettings from "@/views/admin/BackupView.vue";
 import EmailTemplateEditor from "@/views/admin/settings/EmailTemplateEditor.vue";
 import RechargeBonusTierEditor from "@/components/admin/settings/RechargeBonusTierEditor.vue";
+import OpenAIImagePriorityAccountsCard from "@/components/admin/settings/OpenAIImagePriorityAccountsCard.vue";
 import {
   normalizeRechargeBonusMode,
   normalizeRechargeBonusTiers,

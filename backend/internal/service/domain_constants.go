@@ -584,6 +584,8 @@ const (
 	SettingKeyOpenAIImagesOAuthUnavailableCooldownSettings = "openai_images_oauth_unavailable_cooldown_settings"
 	// SettingKeyOpenAIAPIKeyHealthBreakerSettings stores the opt-in OpenAI pool API-key breaker config.
 	SettingKeyOpenAIAPIKeyHealthBreakerSettings = "openai_apikey_health_breaker_settings"
+	// SettingKeyOpenAIImagePriorityAccountIDs stores the JSON array of OpenAI account IDs preferred by /v1/images.
+	SettingKeyOpenAIImagePriorityAccountIDs = "openai_image_priority_account_ids"
 
 	// =========================
 	// Stream Timeout Handling

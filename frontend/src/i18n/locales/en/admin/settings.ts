@@ -468,6 +468,21 @@ export default {
         accountSchedulingThresholdsDisabledHint: '100 disables platform auto-pause. Values 1–99 pause scheduling once utilization reaches that percent.',
         accountSchedulingThresholdsRangeHint: 'Integer 1–100 (percent). OpenAI/Anthropic/Grok only.'
       },
+      openaiImagePriority: {
+        title: 'Image-Priority OpenAI Accounts',
+        description: '/v1/images requests use these accounts first. Applies to every group, the accounts need not join a group, and accounts with scheduling turned off still serve image requests. Accounts that are in an error state, rate limited, overloaded, temporarily unschedulable or at full concurrency are skipped; when none is available, requests fall back to normal scheduling within the group.',
+        hint: 'Among these accounts, lower account priority values win, then lower current load. Turn scheduling off to make an account serve images only.',
+        empty: 'No image-priority accounts configured',
+        searchPlaceholder: 'Search OpenAI accounts by name',
+        searchEmpty: 'No matching OpenAI accounts',
+        deleted: 'Account deleted (removed on save)',
+        statusUnavailable: 'Status: {status}',
+        schedulingOff: 'Scheduling off',
+        remove: 'Remove',
+        saved: 'Image-priority accounts saved',
+        saveFailed: 'Failed to save image-priority accounts',
+        loadFailed: 'Failed to load image-priority accounts'
+      },
       upstreamBillingProbe: {
         title: 'Upstream Rate Auto Detection',
         description: 'Periodically retrieve rates declared by upstream Sub2API sites. Account rates change only when the separate sync switch is enabled.',

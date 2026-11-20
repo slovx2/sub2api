@@ -153,6 +153,9 @@ type SettingService struct {
 	openAIQuotaAutoPauseSettingsCache atomic.Value // *cachedOpenAIQuotaAutoPauseSettings
 	openAIQuotaAutoPauseSettingsSF    singleflight.Group
 	openAIAPIKeyHealthBreakerCache    atomic.Value // *cachedOpenAIAPIKeyHealthBreakerSettings
+	// openAIImagePriorityAccountsCache 缓存图片优先 OpenAI 账号 ID 列表（*cachedOpenAIImagePriorityAccountIDs），
+	// 供 /v1/images 调度热路径读取。
+	openAIImagePriorityAccountsCache atomic.Value
 
 	channelMonitorRuntimeListenersMu sync.Mutex
 	channelMonitorRuntimeListeners   []func()

@@ -496,6 +496,15 @@ func (s *stubAdminService) GetAccount(ctx context.Context, id int64) (*service.A
 	return &account, nil
 }
 
+func (s *stubAdminService) GetOpenAIImagePriorityAccounts(ctx context.Context) (*service.OpenAIImagePriorityAccounts, error) {
+	return &service.OpenAIImagePriorityAccounts{AccountIDs: []int64{}, Accounts: []*service.Account{}}, nil
+}
+
+func (s *stubAdminService) UpdateOpenAIImagePriorityAccounts(ctx context.Context, ids []int64) (*service.OpenAIImagePriorityAccounts, error) {
+	accounts, _ := s.GetAccountsByIDs(ctx, ids)
+	return &service.OpenAIImagePriorityAccounts{AccountIDs: ids, Accounts: accounts}, nil
+}
+
 func (s *stubAdminService) GetAccountsByIDs(ctx context.Context, ids []int64) ([]*service.Account, error) {
 	out := make([]*service.Account, 0, len(ids))
 	for _, id := range ids {

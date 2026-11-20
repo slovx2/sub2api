@@ -180,7 +180,17 @@ func (a *Account) EffectiveLoadFactor() int {
 }
 
 func (a *Account) IsSchedulable() bool {
-	if !a.IsActive() || !a.Schedulable {
+	if !a.Schedulable {
+		return false
+	}
+	return a.IsSchedulableIgnoringManualSwitch()
+}
+
+// IsSchedulableIgnoringManualSwitch 与 IsSchedulable 相同，但不看管理员手动的 Schedulable 开关：
+// 账号仍须 active，且不处于过期、过载、限流、临时不可调度或额度耗尽状态。
+// 用于图片优先账号——关闭调度后不接常规流量，但仍可承接生图。
+func (a *Account) IsSchedulableIgnoringManualSwitch() bool {
+	if !a.IsActive() {
 		return false
 	}
 	now := time.Now()
