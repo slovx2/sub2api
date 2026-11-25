@@ -75,9 +75,9 @@ func TestGeminiForwardNative_TransientTransportErrorFailsOverWithoutRetry(t *tes
 	require.Zero(t, events[0].UpstreamStatusCode)
 }
 
-func TestGeminiForwardNative_PersistentTransportErrorEvictsAccount(t *testing.T) {
+func TestGeminiForwardNative_ProxyAuthEvictsAccount(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	svc, httpStub, repo := newGeminiTransportErrorService(errors.New(`dial tcp 1.2.3.4:443: connect: connection refused`))
+	svc, httpStub, repo := newGeminiTransportErrorService(errors.New(`socks connect tcp: username/password authentication failed`))
 	c, _ := newGeminiNativeTestContext(t)
 	account := geminiPoolModeAPIKeyAccount()
 
@@ -89,7 +89,7 @@ func TestGeminiForwardNative_PersistentTransportErrorEvictsAccount(t *testing.T)
 	require.Equal(t, 1, httpStub.calls)
 	require.Equal(t, 1, repo.calls, "持久性故障应临时摘号")
 	require.Equal(t, account.ID, repo.lastID)
-	require.WithinDuration(t, before.Add(gatewayTransportErrorTempUnschedDuration), repo.lastUntil, 5*time.Second)
+	require.WithinDuration(t, before.Add(proxyAuthTransportCooldown), repo.lastUntil, 5*time.Second)
 	require.False(t, c.Writer.Written())
 }
 

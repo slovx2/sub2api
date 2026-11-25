@@ -1854,6 +1854,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		if result == nil {
 			return errors.New("websocket turn result is nil")
 		}
+		s.rateLimitService.resetUpstreamTransportFailures(account.ID)
 		responseID := strings.TrimSpace(result.RequestID)
 		lastTurnResponseID = responseID
 		if contextWindowBoundary.WindowID != "" {

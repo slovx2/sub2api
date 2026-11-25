@@ -744,6 +744,25 @@ func TestLoadSchedulingConfigFromEnv(t *testing.T) {
 	}
 }
 
+func TestLoadTransportNetworkFailureProtection(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.Equal(t, 3, cfg.Gateway.Scheduling.TransportNetworkFailureThreshold)
+	require.Equal(t, time.Minute, cfg.Gateway.Scheduling.TransportNetworkFailureCooldown)
+
+	t.Setenv("GATEWAY_SCHEDULING_TRANSPORT_NETWORK_FAILURE_THRESHOLD", "4")
+	t.Setenv("GATEWAY_SCHEDULING_TRANSPORT_NETWORK_FAILURE_COOLDOWN", "45s")
+	cfg, err = Load()
+	require.NoError(t, err)
+	require.Equal(t, 4, cfg.Gateway.Scheduling.TransportNetworkFailureThreshold)
+	require.Equal(t, 45*time.Second, cfg.Gateway.Scheduling.TransportNetworkFailureCooldown)
+
+	t.Setenv("GATEWAY_SCHEDULING_TRANSPORT_NETWORK_FAILURE_THRESHOLD", "1")
+	_, err = Load()
+	require.ErrorContains(t, err, "transport_network_failure_threshold")
+}
+
 func TestLoadWeChatConnectConfigFromLegacyEnv(t *testing.T) {
 	resetViperWithJWTSecret(t)
 	t.Setenv("WECHAT_OAUTH_OPEN_APP_ID", "wx-open-app")

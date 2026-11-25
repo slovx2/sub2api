@@ -90,8 +90,8 @@ func TestHandleOpenAIUpstreamTransportError_PersistentEvictsAndFailsOver(t *test
 	require.Len(t, repo.tempUnschedCalls, 1)
 	require.Equal(t, int64(4627), repo.tempUnschedCalls[0].accountID)
 	require.Contains(t, repo.tempUnschedCalls[0].reason, "authentication failed")
-	require.True(t, repo.tempUnschedCalls[0].until.After(before.Add(openAITransportErrorTempUnschedDuration-time.Second)))
-	require.True(t, repo.tempUnschedCalls[0].until.Before(after.Add(openAITransportErrorTempUnschedDuration+time.Second)))
+	require.True(t, repo.tempUnschedCalls[0].until.After(before.Add(proxyAuthTransportCooldown-time.Second)))
+	require.True(t, repo.tempUnschedCalls[0].until.Before(after.Add(proxyAuthTransportCooldown+time.Second)))
 
 	// Immediate in-memory effect so subsequent requests skip it before DB/cache catches up.
 	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
@@ -178,7 +178,7 @@ func TestTempUnscheduleOpenAITransportError_NilAccountRepo_InMemoryBlockOnly(t *
 	svc := &OpenAIGatewayService{accountRepo: nil}
 	account := &Account{ID: 55, Name: "no-db", Platform: PlatformOpenAI}
 
-	svc.tempUnscheduleOpenAITransportError(context.Background(), account, "proxy refused")
+	svc.tempUnscheduleOpenAITransportError(context.Background(), account, "proxy refused", proxyAuthTransportCooldown)
 
 	// In-memory block must still happen.
 	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account),

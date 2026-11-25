@@ -536,6 +536,11 @@ gateway:
   # Scheduling configuration
   # 调度配置
   scheduling:
+    # 单次 DNS/TCP 路由失败只换号；同一账号连续失败达到阈值后短暂冷却。
+    # 默认 3 次用于容忍偶发抖动（阈值至少为 2）；60 秒后可以再次尝试。
+    # 收到上游 HTTP 响应（代理 407 除外）会清零；明确的代理认证失败仍停调 10 分钟。
+    transport_network_failure_threshold: 3
+    transport_network_failure_cooldown: 60s
     # Sticky session max waiting queue size
     # 粘性会话最大排队长度
     sticky_session_max_waiting: 3

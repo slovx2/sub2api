@@ -770,6 +770,7 @@ readLoop:
 		}
 
 		if isTerminalEvent {
+			s.rateLimitService.resetUpstreamTransportFailures(account.ID)
 			if !clientDisconnected {
 				markOpenAIWSClientVisibleFailure(c, eventType, message)
 			}

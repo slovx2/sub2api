@@ -127,10 +127,8 @@ func TestHandleUpstreamTransportError_AttributesEventTimeProxy(t *testing.T) {
 	}
 }
 
-// TestHandleUpstreamTransportError_PersistentEvictsAccount pins the contract
-// for durable faults (dead endpoint / DNS / proxy credentials): fail over AND
-// temporarily unschedule the account for the transport cooldown.
-func TestHandleUpstreamTransportError_PersistentEvictsAccount(t *testing.T) {
+// 明确的 HTTP 代理认证拒绝应换号并按原规则停调。
+func TestHandleUpstreamTransportError_ProxyAuthEvictsAccount(t *testing.T) {
 	repo := &transportTempUnschedRepoStub{}
 	s := &GatewayService{accountRepo: repo}
 	c := newTransportErrorTestGin(t)
@@ -138,7 +136,7 @@ func TestHandleUpstreamTransportError_PersistentEvictsAccount(t *testing.T) {
 
 	before := time.Now()
 	err := s.handleUpstreamTransportError(context.Background(), c, account,
-		errors.New(`dial tcp 1.2.3.4:443: connect: connection refused`), OpsUpstreamErrorEvent{})
+		errors.New(`Proxy Authentication Required`), OpsUpstreamErrorEvent{})
 
 	var failoverErr *UpstreamFailoverError
 	if !errors.As(err, &failoverErr) {
@@ -150,7 +148,7 @@ func TestHandleUpstreamTransportError_PersistentEvictsAccount(t *testing.T) {
 	if repo.lastID != account.ID {
 		t.Fatalf("unscheduled account = %d, want %d", repo.lastID, account.ID)
 	}
-	wantUntil := before.Add(gatewayTransportErrorTempUnschedDuration)
+	wantUntil := before.Add(proxyAuthTransportCooldown)
 	if repo.lastUntil.Before(wantUntil.Add(-time.Minute)) || repo.lastUntil.After(wantUntil.Add(time.Minute)) {
 		t.Fatalf("until = %v, want ~%v", repo.lastUntil, wantUntil)
 	}

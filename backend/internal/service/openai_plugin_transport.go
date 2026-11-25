@@ -12,6 +12,7 @@ func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL 
 	if s.pluginManager != nil {
 		response, handled, err := s.pluginManager.RoundTripOpenAIOAuth(request.Context(), request, proxyURL, account)
 		if handled {
+			s.rateLimitService.observeUpstreamTransportResponse(account.ID, response, err)
 			return response, err
 		}
 	}
