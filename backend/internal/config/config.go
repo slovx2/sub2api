@@ -1483,8 +1483,16 @@ type TLSProfileConfig struct {
 	Extensions []uint16 `mapstructure:"extensions"`
 }
 
+const (
+	DefaultTransportNetworkFailureThreshold = 3
+	DefaultTransportNetworkFailureCooldown  = time.Minute
+)
+
 // GatewaySchedulingConfig accounts scheduling configuration.
 type GatewaySchedulingConfig struct {
+	TransportNetworkFailureThreshold int           `mapstructure:"transport_network_failure_threshold"`
+	TransportNetworkFailureCooldown  time.Duration `mapstructure:"transport_network_failure_cooldown"`
+
 	// 粘性会话排队配置
 	StickySessionMaxWaiting  int           `mapstructure:"sticky_session_max_waiting"`
 	StickySessionWaitTimeout time.Duration `mapstructure:"sticky_session_wait_timeout"`
@@ -2542,6 +2550,8 @@ func setDefaults() {
 	viper.SetDefault("gateway.image_stream_keepalive_interval", 10)
 	viper.SetDefault("gateway.image_nonstream_keepalive_interval", 0)
 	viper.SetDefault("gateway.max_line_size", 500*1024*1024)
+	viper.SetDefault("gateway.scheduling.transport_network_failure_threshold", DefaultTransportNetworkFailureThreshold)
+	viper.SetDefault("gateway.scheduling.transport_network_failure_cooldown", DefaultTransportNetworkFailureCooldown)
 	viper.SetDefault("gateway.scheduling.sticky_session_max_waiting", 3)
 	viper.SetDefault("gateway.scheduling.sticky_session_wait_timeout", 120*time.Second)
 	viper.SetDefault("gateway.scheduling.fallback_wait_timeout", 30*time.Second)
@@ -3683,6 +3693,12 @@ func (c *Config) Validate() error {
 	}
 	if c.Gateway.ModelsListCacheTTLSeconds < 10 || c.Gateway.ModelsListCacheTTLSeconds > 30 {
 		return fmt.Errorf("gateway.models_list_cache_ttl_seconds must be between 10-30")
+	}
+	if c.Gateway.Scheduling.TransportNetworkFailureThreshold < 2 {
+		return fmt.Errorf("gateway.scheduling.transport_network_failure_threshold must be at least 2")
+	}
+	if c.Gateway.Scheduling.TransportNetworkFailureCooldown <= 0 {
+		return fmt.Errorf("gateway.scheduling.transport_network_failure_cooldown must be positive")
 	}
 	if c.Gateway.Scheduling.StickySessionMaxWaiting <= 0 {
 		return fmt.Errorf("gateway.scheduling.sticky_session_max_waiting must be positive")

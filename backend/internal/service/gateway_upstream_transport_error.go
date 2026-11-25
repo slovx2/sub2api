@@ -11,11 +11,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// gatewayTransportErrorTempUnschedDuration is how long an account is temporarily
-// unscheduled after a durable transport failure (matches the OpenAI-side
-// openAITransportErrorTempUnschedDuration).
-const gatewayTransportErrorTempUnschedDuration = 10 * time.Minute
-
 // gatewayTransportFailoverBody is the Anthropic-format error body attached to
 // the failover error for a transport-level failure. Kept identical to the
 // legacy inline 502 body so the client-visible payload is unchanged if
@@ -30,9 +25,7 @@ var gatewayTransportFailoverBody = []byte(`{"type":"error","error":{"type":"upst
 //     event; identity, proxy attribution and classification fields are
 //     filled here from the same account snapshot that built the transport.
 //     A client disconnect is not recorded (see isClientCanceledTransportError);
-//  2. for durable faults (expired/rejected proxy creds, dead proxy,
-//     DNS/routing) temporarily unschedules the account and logs a stable warn
-//     event that alert rules can key on;
+//  2. 代理认证拒绝沿用停调，DNS/TCP 路由失败达到连续阈值才短暂冷却；
 //  3. returns an error that is *UpstreamFailoverError (so the handler fails
 //     over to a healthy account) for all non-canceled errors, or the original
 //     error for context.Canceled (client gone — no failover, no eviction).
@@ -63,8 +56,8 @@ func (s *GatewayService) handleUpstreamTransportError(ctx context.Context, c *gi
 	// Transport attempt left local validation; count Ollama Cloud activity.
 	scheduleOllamaCloudUsageActivity(s.deferredService, account)
 
-	if classifyUpstreamTransportError(err).Persistent {
-		s.tempUnscheduleTransportError(ctx, account, safeErr)
+	if cooldown := s.rateLimitService.upstreamTransportCooldown(account.ID, err); cooldown > 0 {
+		tempUnscheduleAccountForTransportError(ctx, s.accountRepo, account, safeErr, cooldown)
 	}
 
 	return &UpstreamFailoverError{
@@ -73,7 +66,7 @@ func (s *GatewayService) handleUpstreamTransportError(ctx context.Context, c *gi
 	}
 }
 
-// tempUnscheduleTransportError marks an account temporarily unschedulable
+// tempUnscheduleAccountForTransportError marks an account temporarily unschedulable
 // after a durable transport failure. Unlike the OpenAI side there is no
 // in-memory scheduler block on this path: the Anthropic/Bedrock scheduler
 // reads the persisted temp-unschedulable state, so the DB write is the single
@@ -84,21 +77,11 @@ func (s *GatewayService) handleUpstreamTransportError(ctx context.Context, c *gi
 //   - "gateway.account_temp_unscheduled_transport" — DB write succeeded.
 //   - "gateway.account_temp_unschedule_transport_failed" — DB write attempted
 //     but returned an error (the account remains schedulable).
-func (s *GatewayService) tempUnscheduleTransportError(ctx context.Context, account *Account, safeErr string) {
-	if s == nil {
-		return
-	}
-	tempUnscheduleAccountForTransportError(ctx, s.accountRepo, account, safeErr)
-}
-
-// tempUnscheduleAccountForTransportError is the repo-level implementation
-// shared by every forward path whose scheduler reads the persisted
-// temp-unschedulable state (Anthropic/Bedrock and Gemini).
-func tempUnscheduleAccountForTransportError(ctx context.Context, repo AccountRepository, account *Account, safeErr string) {
+func tempUnscheduleAccountForTransportError(ctx context.Context, repo AccountRepository, account *Account, safeErr string, cooldown time.Duration) {
 	if account == nil || repo == nil {
 		return
 	}
-	until := time.Now().Add(gatewayTransportErrorTempUnschedDuration)
+	until := time.Now().Add(cooldown)
 	reason := "upstream transport error (proxy/network): " + safeErr
 
 	bgCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), openAIAccountStateUpdateTimeout)
